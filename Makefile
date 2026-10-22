@@ -6,9 +6,10 @@ NPM ?= npm
 help: ## Show the available targets
 	@grep -hE '^[a-zA-Z0-9_-]+:.*?## ' $(MAKEFILE_LIST) | sort | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-18s\033[0m %s\n", $$1, $$2}'
 
-install: ## Install every dependency (login page, backend, purchase app)
+install: ## Install every dependency (login page, backend, purchase app, linters)
 	$(NPM) install
 	$(MAKE) -C backend deps
+	$(MAKE) -C backend tools
 	cd frontend && $(NPM) ci
 
 # The whole suite: the Login Page regression tests, the backend integration

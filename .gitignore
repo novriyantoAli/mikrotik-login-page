@@ -29,5 +29,6 @@ frontend/.env.local
 # Build output
 backend/bin/
 backend/docs/
+docs/api/
 frontend/build/
 frontend/.svelte-kit/

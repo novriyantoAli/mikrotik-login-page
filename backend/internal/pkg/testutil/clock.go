@@ -1,6 +1,6 @@
 // Package testutil is the integration-test harness: real Postgres with a fresh
 // schema per test, a real Redis, and fakes for every vendor boundary. Tests
-// assert behaviour through the HTTP contract, never through internal calls.
+// assert behavior through the HTTP contract, never through internal calls.
 package testutil
 
 import (

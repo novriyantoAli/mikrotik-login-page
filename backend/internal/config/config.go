@@ -23,7 +23,7 @@ const (
 	EnvironmentProduction  = "production"
 )
 
-// MaxShutdownTimeout is the largest graceful shutdown the process can honour.
+// MaxShutdownTimeout is the largest graceful shutdown the process can honor.
 // It must stay below the Fx stop budget in internal/app so a configured timeout
 // can never turn a clean SIGTERM into a non-zero exit.
 const MaxShutdownTimeout = 25 * time.Second
@@ -290,6 +290,23 @@ func unmarshal(v *viper.Viper) (*Config, error) {
 // values: a missing required key is an error, not a silent default.
 func (c *Config) Validate() error {
 	var problems []string
+	problems = append(problems, c.validateApp()...)
+	problems = append(problems, c.validateServer()...)
+	problems = append(problems, c.validateLogger()...)
+	problems = append(problems, c.validatePostgres()...)
+	problems = append(problems, c.validateFreeRADIUS()...)
+	problems = append(problems, c.validateRedis()...)
+	problems = append(problems, c.validateWorker()...)
+	problems = append(problems, c.validateHealth()...)
+
+	if len(problems) > 0 {
+		return fmt.Errorf("invalid configuration:\n  - %s", strings.Join(problems, "\n  - "))
+	}
+	return nil
+}
+
+func (c *Config) validateApp() []string {
+	var problems []string
 
 	if c.App.Name == "" {
 		problems = append(problems, "app.name must be set")
@@ -300,6 +317,11 @@ func (c *Config) Validate() error {
 		problems = append(problems, fmt.Sprintf("app.environment must be %q or %q, got %q",
 			EnvironmentDevelopment, EnvironmentProduction, c.App.Environment))
 	}
+	return problems
+}
+
+func (c *Config) validateServer() []string {
+	var problems []string
 
 	if c.Server.Port <= 0 || c.Server.Port > 65535 {
 		problems = append(problems, fmt.Sprintf("server.port must be between 1 and 65535, got %d", c.Server.Port))
@@ -318,13 +340,21 @@ func (c *Config) Validate() error {
 			problems = append(problems, fmt.Sprintf("server.trusted_proxies entry %q is not a CIDR", cidr))
 		}
 	}
+	return problems
+}
 
+func (c *Config) validateLogger() []string {
 	switch c.Logger.Format {
 	case LogFormatJSON, LogFormatConsole:
+		return nil
 	default:
-		problems = append(problems, fmt.Sprintf("logger.format must be %q or %q, got %q",
-			LogFormatJSON, LogFormatConsole, c.Logger.Format))
+		return []string{fmt.Sprintf("logger.format must be %q or %q, got %q",
+			LogFormatJSON, LogFormatConsole, c.Logger.Format)}
 	}
+}
+
+func (c *Config) validatePostgres() []string {
+	var problems []string
 
 	if c.Postgres.Host == "" || c.Postgres.Database == "" || c.Postgres.User == "" {
 		problems = append(problems, "postgres.host, postgres.user and postgres.database must be set")
@@ -332,13 +362,24 @@ func (c *Config) Validate() error {
 	if c.Postgres.Port <= 0 {
 		problems = append(problems, "postgres.port must be positive")
 	}
+	return problems
+}
+
+func (c *Config) validateFreeRADIUS() []string {
+	var problems []string
 
 	if c.FreeRADIUSMySQL.Host == "" || c.FreeRADIUSMySQL.Database == "" || c.FreeRADIUSMySQL.User == "" {
-		problems = append(problems, "freeradius_mysql.host, freeradius_mysql.user and freeradius_mysql.database must be set")
+		problems = append(problems,
+			"freeradius_mysql.host, freeradius_mysql.user and freeradius_mysql.database must be set")
 	}
 	if c.FreeRADIUSMySQL.Port <= 0 {
 		problems = append(problems, "freeradius_mysql.port must be positive")
 	}
+	return problems
+}
+
+func (c *Config) validateRedis() []string {
+	var problems []string
 
 	if c.Redis.Addr == "" {
 		problems = append(problems, "redis.addr must be set")
@@ -346,6 +387,11 @@ func (c *Config) Validate() error {
 	if c.Redis.DialTimeout <= 0 {
 		problems = append(problems, "redis.dial_timeout must be a positive duration")
 	}
+	return problems
+}
+
+func (c *Config) validateWorker() []string {
+	var problems []string
 
 	if c.Worker.Concurrency <= 0 {
 		problems = append(problems, "worker.concurrency must be positive")
@@ -353,13 +399,12 @@ func (c *Config) Validate() error {
 	if len(c.Worker.Queues) == 0 {
 		problems = append(problems, "worker.queues must list at least one queue")
 	}
+	return problems
+}
 
+func (c *Config) validateHealth() []string {
 	if c.Health.Timeout <= 0 {
-		problems = append(problems, "health.timeout must be a positive duration")
-	}
-
-	if len(problems) > 0 {
-		return fmt.Errorf("invalid configuration:\n  - %s", strings.Join(problems, "\n  - "))
+		return []string{"health.timeout must be a positive duration"}
 	}
 	return nil
 }

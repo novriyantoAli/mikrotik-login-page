@@ -55,6 +55,10 @@ the CIDRs the backend believes, and is empty (trust nobody) unless configured.
 
 ## Development and tests
 
+Linters: `make lint` needs golangci-lint v2 and the frontend needs the ESLint
+dev dependencies; `make -C backend tools` installs goimports, gofumpt,
+golangci-lint and swag in one go.
+
 Prerequisites: Go 1.26+, Node 22+, and `redis-server` in `PATH` (or a
 `TEST_REDIS_ADDR` pointing at a running instance). The first backend test run
 downloads a Postgres distribution for the embedded test server and caches it;
@@ -67,8 +71,7 @@ make test-login           # Vitest + jsdom for the Login Page seam
 make test-backend         # backend unit + integration (real Postgres, real Redis)
 make test-frontend        # purchase app unit/component/contract tests
 make typecheck            # tsc (login page), go build/vet, svelte-check
-make lint                 # gofmt + go vet, Prettier
-make -C backend lint-golangci  # optional: needs a golangci-lint built for Go 1.26
+make lint                 # golangci-lint v2 + go vet, ESLint + Prettier
 npm run test:smoke        # Playwright browser tests for the Login Page
 ```
 

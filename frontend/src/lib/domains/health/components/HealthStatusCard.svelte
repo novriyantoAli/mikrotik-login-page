@@ -11,19 +11,19 @@
   } from '$lib/components/ui/card';
 
   import { createHealthQuery } from '../queries/health.queries';
+  import DependencyRow from './DependencyRow.svelte';
   import {
     dependencyLabels,
     failureLabels,
     type DependencyName,
     type HealthCheck,
   } from '../schemas/health.schema';
-  import DependencyRow from './DependencyRow.svelte';
 
   const dependencyOrder: DependencyName[] = ['postgres', 'freeradius_mysql', 'redis'];
 
+  // Query results are plain reactive objects: read query.data/query.isPending
+  // directly, without wrapping them in $derived (frontend skill §6.3).
   const query = createHealthQuery();
-  const health = $derived(query.data);
-  const degraded = $derived(health?.status === 'degraded');
 
   function checkDetail(check: HealthCheck): string {
     return check.status === 'up'
@@ -47,9 +47,9 @@
         <CardTitle>Status Sistem</CardTitle>
         <CardDescription>Backend dan layanan yang dipakainya.</CardDescription>
       </div>
-      {#if health}
-        <Badge variant={degraded ? 'destructive' : 'success'}>
-          {degraded ? 'Terganggu' : 'Normal'}
+      {#if query.data}
+        <Badge variant={query.data.status === 'degraded' ? 'destructive' : 'success'}>
+          {query.data.status === 'degraded' ? 'Terganggu' : 'Normal'}
         </Badge>
       {/if}
     </div>
@@ -70,7 +70,8 @@
         </p>
         <Button variant="outline" onclick={() => query.refetch()}>Coba lagi</Button>
       </div>
-    {:else if health}
+    {:else if query.data}
+      {@const health = query.data}
       <ul class="divide-y">
         <DependencyRow
           label="Backend"
@@ -88,10 +89,10 @@
     {/if}
   </CardContent>
 
-  {#if health}
+  {#if query.data}
     <CardFooter class="justify-between gap-4">
       <p class="text-muted-foreground text-xs">
-        Terakhir diperiksa {formatCheckedAt(health.checked_at)}
+        Terakhir diperiksa {formatCheckedAt(query.data.checked_at)}
       </p>
       <Button variant="outline" onclick={() => query.refetch()}>Periksa lagi</Button>
     </CardFooter>

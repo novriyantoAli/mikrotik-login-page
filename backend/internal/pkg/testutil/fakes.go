@@ -79,7 +79,10 @@ func (g *FakeGateway) LastCreateRequest() (payment.CreateTransactionRequest, boo
 }
 
 // CreateTransaction implements payment.Gateway.
-func (g *FakeGateway) CreateTransaction(_ context.Context, req payment.CreateTransactionRequest) (*payment.CreateTransactionResponse, error) {
+func (g *FakeGateway) CreateTransaction(
+	_ context.Context,
+	req payment.CreateTransactionRequest,
+) (*payment.CreateTransactionResponse, error) {
 	g.mu.Lock()
 	defer g.mu.Unlock()
 
