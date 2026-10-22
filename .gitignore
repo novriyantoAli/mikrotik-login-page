@@ -5,6 +5,11 @@ Thumbs.db
 # Node
 node_modules/
 
+# Test artifacts
+.vitest/
+test-results/
+playwright-report/
+
 # Editor
 .idea/
 .vscode/
