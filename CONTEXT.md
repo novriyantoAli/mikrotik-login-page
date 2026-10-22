@@ -13,8 +13,8 @@ The internet access duration purchased by the user, computed from the expiration
 _Avoid_: Time quota, validity, masa aktif
 
 **Phone Number**:
-The user's phone number; used as the account identity in the app and as the FreeRADIUS username.
-_Avoid_: Username, MSISDN
+The user's phone number; used as the account identity in the app and as the FreeRADIUS username. It is the only customer identity the backend stores — there is no separate customer or account record, so Transactions, Magic Links, and the RADIUS account are all keyed by it.
+_Avoid_: Username, MSISDN, customer, member
 
 **PIN**:
 A 6-digit code auto-generated on every successful purchase, used as the FreeRADIUS password for hotspot login.
@@ -45,7 +45,7 @@ The MikroTik hotspot captive portal (KOPINETGO-2024) where the user logs in with
 _Avoid_: Landing page, portal
 
 **Account Status**:
-The page in the Svelte app showing the active package, remaining active period, and the user's transaction history.
+The page in the Svelte app showing the active package, remaining active period, the current PIN, and the user's transaction history. The Magic Link is what authorises seeing the PIN, so a lost SMS never strands a buyer.
 _Avoid_: Dashboard
 
 **Admin Panel**:
