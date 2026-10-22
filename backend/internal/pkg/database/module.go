@@ -2,8 +2,10 @@ package database
 
 import (
 	"go.uber.org/fx"
+	"gorm.io/gorm"
 
 	"github.com/novriyantoAli/mikrotik-login-page/backend/internal/application/health/service"
+	"github.com/novriyantoAli/mikrotik-login-page/backend/internal/application/provisioning"
 )
 
 // RedisModule provides only the Redis client, for processes (the worker) that
@@ -12,16 +14,35 @@ func RedisModule() fx.Option {
 	return fx.Options(fx.Provide(NewRedis))
 }
 
-// Module connects to every server this system depends on and contributes one
-// health checker per connection.
+// PostgresModule provides the Postgres connection and the GORM handle
+// repositories depend on, for processes (the migration command) that touch no
+// other server.
+func PostgresModule() fx.Option {
+	return fx.Options(
+		fx.Provide(
+			NewPostgres,
+			// Repositories take *gorm.DB (and only that), so the Fx graph must
+			// offer it as its own type instead of the Postgres wrapper.
+			func(postgres *Postgres) *gorm.DB { return postgres.Gorm },
+		),
+	)
+}
+
+// Module connects to every server this system depends on, contributes one
+// health checker per connection, and provides the vendor adapters that live
+// beside those connections.
 func Module() fx.Option {
 	group := `group:"` + service.CheckersGroup + `"`
 
 	return fx.Options(
+		PostgresModule(),
 		fx.Provide(
-			NewPostgres,
 			NewFreeRADIUS,
 			NewRedis,
+			fx.Annotate(
+				NewRadiusExpirationReader,
+				fx.As(new(provisioning.ExpirationReader)),
+			),
 		),
 		fx.Provide(
 			fx.Annotate(NewPostgresChecker, fx.ResultTags(group)),

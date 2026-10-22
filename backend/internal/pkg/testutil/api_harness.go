@@ -16,10 +16,12 @@ import (
 
 	appfx "github.com/novriyantoAli/mikrotik-login-page/backend/internal/app"
 	"github.com/novriyantoAli/mikrotik-login-page/backend/internal/application/notification"
+	"github.com/novriyantoAli/mikrotik-login-page/backend/internal/application/packages/service"
 	"github.com/novriyantoAli/mikrotik-login-page/backend/internal/application/payment"
 	"github.com/novriyantoAli/mikrotik-login-page/backend/internal/application/provisioning"
 	"github.com/novriyantoAli/mikrotik-login-page/backend/internal/config"
 	serverapi "github.com/novriyantoAli/mikrotik-login-page/backend/internal/server/api"
+	servermigration "github.com/novriyantoAli/mikrotik-login-page/backend/internal/server/migration"
 )
 
 // APIHarness runs the production HTTP graph against real Postgres and Redis,
@@ -41,6 +43,11 @@ type APIHarness struct {
 	Gateway      payment.Gateway
 	SMSSender    notification.Sender
 	RadiusWriter provisioning.Writer
+
+	// Catalog is the Package catalog service, and Migrator the deployment
+	// migration step, so a test can re-run the seed against its own schema.
+	Catalog  service.Service
+	Migrator *servermigration.Migrator
 }
 
 // HarnessOption adjusts one harness before it starts.
@@ -49,6 +56,7 @@ type HarnessOption func(*harnessSettings)
 type harnessSettings struct {
 	redisAddr          *string
 	freeRADIUSMySQLDSN *string
+	doubles            []DoublesOption
 }
 
 // WithRedisAddr overrides the Redis instance used by the harness.
@@ -60,6 +68,12 @@ func WithRedisAddr(addr string) HarnessOption {
 // string points the app at a closed port so the dependency reports "down".
 func WithFreeRADIUSMySQLDSN(dsn string) HarnessOption {
 	return func(s *harnessSettings) { s.freeRADIUSMySQLDSN = &dsn }
+}
+
+// WithRealRadiusReader keeps the production FreeRADIUS MySQL adapter instead of
+// the in-memory fake, for tests of the degraded database path.
+func WithRealRadiusReader() HarnessOption {
+	return func(s *harnessSettings) { s.doubles = append(s.doubles, WithoutRadiusReaderFake()) }
 }
 
 // NewAPIHarness starts the API graph for one test and stops it afterwards.
@@ -94,19 +108,26 @@ func NewAPIHarness(t *testing.T, options ...HarnessOption) *APIHarness {
 
 	application := fx.New(
 		fx.NopLogger,
-		appfx.RouterWithBase(appfx.Core(), harness.Doubles.FxOption()),
+		appfx.RouterWithBase(appfx.Core(), harness.Doubles.FxOption(settings.doubles...)),
+		// The harness owns a throwaway schema, so it applies the same schema
+		// and seed step deployment runs before the API (ADR 0012).
+		servermigration.Module(),
 		fx.Invoke(func(
 			cfg *config.Config,
 			router *serverapi.Router,
 			gateway payment.Gateway,
 			sender notification.Sender,
 			writer provisioning.Writer,
+			catalog service.Service,
+			migrator *servermigration.Migrator,
 		) {
 			harness.Config = cfg
 			harness.Engine = router.Engine
 			harness.Gateway = gateway
 			harness.SMSSender = sender
 			harness.RadiusWriter = writer
+			harness.Catalog = catalog
+			harness.Migrator = migrator
 		}),
 	)
 
@@ -133,6 +154,18 @@ func NewAPIHarness(t *testing.T, options ...HarnessOption) *APIHarness {
 	})
 
 	return harness
+}
+
+// Migrate re-runs the deployment migration (schema plus Package seed) against
+// this test's schema, so a test can prove it is idempotent.
+func (h *APIHarness) Migrate(t *testing.T) {
+	t.Helper()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+	if err := h.Migrator.Up(ctx); err != nil {
+		t.Fatalf("re-run migration: %v", err)
+	}
 }
 
 // Do sends one request through the production router.

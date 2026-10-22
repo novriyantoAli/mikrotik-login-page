@@ -12,12 +12,15 @@ import (
 	"go.uber.org/fx/fxevent"
 	"go.uber.org/zap"
 
+	"github.com/novriyantoAli/mikrotik-login-page/backend/internal/application/activeperiod"
 	"github.com/novriyantoAli/mikrotik-login-page/backend/internal/application/health"
+	"github.com/novriyantoAli/mikrotik-login-page/backend/internal/application/packages"
 	"github.com/novriyantoAli/mikrotik-login-page/backend/internal/config"
 	"github.com/novriyantoAli/mikrotik-login-page/backend/internal/pkg/clock"
 	"github.com/novriyantoAli/mikrotik-login-page/backend/internal/pkg/database"
 	"github.com/novriyantoAli/mikrotik-login-page/backend/internal/pkg/logger"
 	serverapi "github.com/novriyantoAli/mikrotik-login-page/backend/internal/server/api"
+	servermigration "github.com/novriyantoAli/mikrotik-login-page/backend/internal/server/migration"
 	serverworker "github.com/novriyantoAli/mikrotik-login-page/backend/internal/server/worker"
 )
 
@@ -48,8 +51,8 @@ func Base() fx.Option {
 	)
 }
 
-// API is the HTTP process: Postgres, MySQL, Redis, the health domain and the
-// router.
+// API is the HTTP process: Postgres, MySQL, Redis, the catalog and Active
+// Period reads, the health domain and the router.
 func API(extra ...fx.Option) fx.Option {
 	return APIWithBase(Base(), extra...)
 }
@@ -74,7 +77,22 @@ func routerWithBase(base fx.Option, extra ...fx.Option) fx.Option {
 		base,
 		database.Module(),
 		health.Module(),
+		packages.Module(),
+		activeperiod.Module(),
 		serverapi.RouterModule(),
+		fx.Options(extra...),
+	)
+}
+
+// Migrate is the deployment migration process: Postgres, the Package catalog
+// domain and the migration runner. It applies the schema and the seed, then
+// exits; the API and worker never migrate themselves (ADR 0012).
+func Migrate(extra ...fx.Option) fx.Option {
+	return fx.Options(
+		Core(),
+		database.PostgresModule(),
+		packages.Module(),
+		servermigration.Module(),
 		fx.Options(extra...),
 	)
 }
@@ -99,16 +117,7 @@ func WorkerWithBase(base fx.Option, extra ...fx.Option) fx.Option {
 // Run starts the graph, blocks until a signal arrives and then stops it
 // gracefully. A clean SIGTERM/SIGINT returns nil so the process exits 0.
 func Run(options fx.Option) error {
-	application := fx.New(
-		options,
-		fx.StartTimeout(startTimeout),
-		fx.StopTimeout(stopTimeout),
-		// Fx's own event stream is diagnostic noise in normal operation; keep
-		// it out of the structured logs unless something goes wrong.
-		fx.WithLogger(func(log *zap.Logger) fxevent.Logger {
-			return &fxevent.ZapLogger{Logger: log.WithOptions(zap.IncreaseLevel(zap.WarnLevel))}
-		}),
-	)
+	application := newApp(options)
 
 	startCtx, cancelStart := context.WithTimeout(context.Background(), startTimeout)
 	defer cancelStart()
@@ -124,4 +133,37 @@ func Run(options fx.Option) error {
 		return fmt.Errorf("stop: %w", err)
 	}
 	return nil
+}
+
+// RunOnce starts the graph so its invokes run and then stops it. Commands that
+// do one job and exit (migration) use it instead of Run, which waits for a
+// signal that would never come.
+func RunOnce(options fx.Option) error {
+	application := newApp(options)
+
+	startCtx, cancelStart := context.WithTimeout(context.Background(), startTimeout)
+	defer cancelStart()
+	if err := application.Start(startCtx); err != nil {
+		return fmt.Errorf("start: %w", err)
+	}
+
+	stopCtx, cancelStop := context.WithTimeout(context.Background(), stopTimeout)
+	defer cancelStop()
+	if err := application.Stop(stopCtx); err != nil {
+		return fmt.Errorf("stop: %w", err)
+	}
+	return nil
+}
+
+func newApp(options fx.Option) *fx.App {
+	return fx.New(
+		options,
+		fx.StartTimeout(startTimeout),
+		fx.StopTimeout(stopTimeout),
+		// Fx's own event stream is diagnostic noise in normal operation; keep
+		// it out of the structured logs unless something goes wrong.
+		fx.WithLogger(func(log *zap.Logger) fxevent.Logger {
+			return &fxevent.ZapLogger{Logger: log.WithOptions(zap.IncreaseLevel(zap.WarnLevel))}
+		}),
+	)
 }

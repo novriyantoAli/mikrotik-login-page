@@ -22,3 +22,20 @@ type Account struct {
 type Writer interface {
 	Apply(ctx context.Context, account Account) error
 }
+
+// Expiration is the Active Period end FreeRADIUS holds for one Phone Number.
+// Found is false when the account has no expiration at all, which the public
+// Active Period read reports as an empty state instead of an error (ADR 0014).
+type Expiration struct {
+	ExpiresAt time.Time
+	Found     bool
+}
+
+// ExpirationReader reads the Active Period end for a Phone Number.
+//
+// It is a port on purpose: only the MySQL adapter knows which FreeRADIUS table
+// and attribute hold it, so the Login Page contract can be tested without a
+// MySQL server (ADR 0014). phoneNumber is always canonical ("628…").
+type ExpirationReader interface {
+	Expiration(ctx context.Context, phoneNumber string) (Expiration, error)
+}

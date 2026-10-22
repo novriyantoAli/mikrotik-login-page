@@ -5,7 +5,7 @@
 set -eu
 
 case "${1:-}" in
-api | worker)
+api | worker | migrate)
 	exec "/app/$1"
 	;;
 *)
