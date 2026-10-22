@@ -20,6 +20,14 @@ _Avoid_: Username, MSISDN
 A 6-digit code auto-generated on every successful purchase, used as the FreeRADIUS password for hotspot login.
 _Avoid_: Password, secret
 
+**Access Code**:
+A prepaid code sold or printed, used as both the FreeRADIUS username and password when logging in to the hotspot.
+_Avoid_: Voucher, Voucher Code, kode voucher
+
+**User**:
+A hotspot account identified by a username and password that are neither a Phone Number/PIN nor an Access Code.
+_Avoid_: account, member
+
 **Magic Link**:
 A clickable URL sent via SMS to the phone number for passwordless app login.
 _Avoid_: OTP, token
