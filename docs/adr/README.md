@@ -15,10 +15,13 @@ sequence.
 | [0007](0007-monorepo-new-build.md) | New monorepo for backend and purchase app |
 | [0008](0008-tripay-payment-gateway.md) | Tripay behind a PaymentGateway port |
 | [0009](0009-single-origin-opaque-session.md) | Single origin with an opaque session cookie |
+| [0010](0010-sms-outbox-modem-serialisation.md) | SMS leaves through a Postgres outbox drained by the single modem-owning worker |
+| [0011](0011-magic-link-session-lifetime.md) | Magic Link is a hashed single-use token; the session is a hashed opaque cookie |
 | [0012](0012-seed-package-catalog.md) | Seed the Package catalog until the Admin Panel exists |
 | [0013](0013-purchase-app-spa-single-origin.md) | Purchase app is a SPA; no SSR holds the session |
 | [0014](0014-active-period-read-port.md) | Read the Active Period through the provisioning port; unknown means empty |
 
-**Reserved:** 0010 and 0011 are the two remaining PRD decisions not yet written
-— SMS outbox and modem serialisation, and Magic Link/session lifetime details.
-They are numbered ahead of time so parallel slices do not reuse a number.
+0010 and 0011 were **reserved** (not written) while 0012–0014 were already in
+place, so the numbers record the order the PRD decisions were taken, not the
+order the files were created. No numbers are free: the next decision continues
+at 0015.
