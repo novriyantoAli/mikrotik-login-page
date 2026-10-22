@@ -14,28 +14,52 @@ import (
 )
 
 // TestDoubles bundles the fakes injected in place of the real vendor edges: the
-// payment gateway, the SMS modem and the FreeRADIUS writer, plus a frozen clock.
+// payment gateway, the SMS modem, the FreeRADIUS writer and reader, plus a
+// frozen clock.
 type TestDoubles struct {
-	Clock   *FakeClock
-	Gateway *FakeGateway
-	SMS     *FakeSMSSender
-	Radius  *FakeRadiusWriter
+	Clock        *FakeClock
+	Gateway      *FakeGateway
+	SMS          *FakeSMSSender
+	Radius       *FakeRadiusWriter
+	RadiusReader *FakeRadiusReader
 }
 
 // NewTestDoubles builds a fresh set of fakes for one test.
 func NewTestDoubles() *TestDoubles {
 	return &TestDoubles{
-		Clock:   NewFakeClock(),
-		Gateway: NewFakeGateway(),
-		SMS:     NewFakeSMSSender(),
-		Radius:  NewFakeRadiusWriter(),
+		Clock:        NewFakeClock(),
+		Gateway:      NewFakeGateway(),
+		SMS:          NewFakeSMSSender(),
+		Radius:       NewFakeRadiusWriter(),
+		RadiusReader: NewFakeRadiusReader(),
 	}
 }
 
+// DoublesOption adjusts which fakes a harness injects.
+type DoublesOption func(*doublesSettings)
+
+type doublesSettings struct {
+	realRadiusReader bool
+}
+
+// WithoutRadiusReaderFake keeps the production FreeRADIUS MySQL adapter instead
+// of the in-memory fake, so a test can assert the degraded database path end to
+// end.
+func WithoutRadiusReaderFake() DoublesOption {
+	return func(settings *doublesSettings) { settings.realRadiusReader = true }
+}
+
 // FxOption provides the fakes both as concrete types (so tests can inspect what
-// was recorded) and as the ports the domains depend on.
-func (d *TestDoubles) FxOption() fx.Option {
-	return fx.Options(
+// was recorded) and as the ports the domains depend on. The FreeRADIUS read
+// port is decorated rather than provided because the production graph already
+// offers the real MySQL adapter.
+func (d *TestDoubles) FxOption(options ...DoublesOption) fx.Option {
+	var settings doublesSettings
+	for _, option := range options {
+		option(&settings)
+	}
+
+	provided := []fx.Option{
 		fx.Provide(
 			func() clock.Clock { return d.Clock },
 			func() *FakeClock { return d.Clock },
@@ -45,8 +69,19 @@ func (d *TestDoubles) FxOption() fx.Option {
 			func(f *FakeSMSSender) notification.Sender { return f },
 			func() *FakeRadiusWriter { return d.Radius },
 			func(f *FakeRadiusWriter) provisioning.Writer { return f },
+			func() *FakeRadiusReader { return d.RadiusReader },
 		),
-	)
+	}
+	if !settings.realRadiusReader {
+		// Decorate rather than Provide: the production graph already offers the
+		// MySQL adapter, and the fake has to take its place, not compete with it.
+		provided = append(provided, fx.Decorate(
+			func(_ provisioning.ExpirationReader, fake *FakeRadiusReader) provisioning.ExpirationReader {
+				return fake
+			},
+		))
+	}
+	return fx.Options(provided...)
 }
 
 // FakeGateway is a payment.Gateway that records calls and returns canned data.
@@ -198,3 +233,42 @@ func (w *FakeRadiusWriter) Accounts() []provisioning.Account {
 
 // Now returns the frozen clock time (convenience for assertions).
 func (d *TestDoubles) Now() time.Time { return d.Clock.Now() }
+
+// FakeRadiusReader answers Active Period reads from an in-memory map instead of
+// FreeRADIUS MySQL. Keys are canonical Phone Numbers ("628…").
+type FakeRadiusReader struct {
+	mu sync.Mutex
+
+	Expirations map[string]time.Time
+	Err         error
+}
+
+// NewFakeRadiusReader builds an empty fake reader.
+func NewFakeRadiusReader() *FakeRadiusReader {
+	return &FakeRadiusReader{Expirations: make(map[string]time.Time)}
+}
+
+// SetExpiration records an Active Period end for one canonical Phone Number.
+func (r *FakeRadiusReader) SetExpiration(phoneNumber string, expiresAt time.Time) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.Expirations[phoneNumber] = expiresAt
+}
+
+// Expiration implements provisioning.ExpirationReader.
+func (r *FakeRadiusReader) Expiration(
+	_ context.Context,
+	phoneNumber string,
+) (provisioning.Expiration, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	if r.Err != nil {
+		return provisioning.Expiration{}, r.Err
+	}
+	expiresAt, ok := r.Expirations[phoneNumber]
+	if !ok {
+		return provisioning.Expiration{}, nil
+	}
+	return provisioning.Expiration{ExpiresAt: expiresAt, Found: true}, nil
+}

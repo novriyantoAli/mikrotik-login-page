@@ -15,9 +15,10 @@ sequence.
 | [0007](0007-monorepo-new-build.md) | New monorepo for backend and purchase app |
 | [0008](0008-tripay-payment-gateway.md) | Tripay behind a PaymentGateway port |
 | [0009](0009-single-origin-opaque-session.md) | Single origin with an opaque session cookie |
+| [0012](0012-seed-package-catalog.md) | Seed the Package catalog until the Admin Panel exists |
 | [0013](0013-purchase-app-spa-single-origin.md) | Purchase app is a SPA; no SSR holds the session |
+| [0014](0014-active-period-read-port.md) | Read the Active Period through the provisioning port; unknown means empty |
 
-**Reserved:** 0010-0012 are the three remaining PRD decisions not yet written —
-SMS outbox and modem serialisation, Magic Link/session lifetime details, and
-seeding the Package catalog until the Admin Panel exists. They are numbered
-ahead of time so parallel slices do not reuse a number.
+**Reserved:** 0010 and 0011 are the two remaining PRD decisions not yet written
+— SMS outbox and modem serialisation, and Magic Link/session lifetime details.
+They are numbered ahead of time so parallel slices do not reuse a number.

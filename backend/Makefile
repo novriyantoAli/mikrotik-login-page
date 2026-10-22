@@ -6,7 +6,7 @@ GOFUMPT ?= gofumpt
 GOLANGCI ?= golangci-lint
 SWAG ?= swag
 
-.PHONY: deps tools build build-api build-worker run-api run-worker test test-unit test-integration test-coverage lint format format-strict swagger-gen typecheck fmt tidy clean
+.PHONY: deps tools build build-api build-worker build-migrate run-api run-worker run-migrate migrate test test-unit test-integration test-coverage lint format format-strict swagger-gen typecheck fmt tidy clean
 
 deps:
 	$(GOCMD) mod download
@@ -20,7 +20,7 @@ tools:
 	$(GOCMD) install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@latest
 	$(GOCMD) install github.com/swaggo/swag/cmd/swag@latest
 
-build: build-api build-worker
+build: build-api build-worker build-migrate
 
 build-api:
 	@mkdir -p $(BIN_DIR)
@@ -30,11 +30,23 @@ build-worker:
 	@mkdir -p $(BIN_DIR)
 	$(GOCMD) build -trimpath -o $(BIN_DIR)/worker ./cmd/worker
 
+build-migrate:
+	@mkdir -p $(BIN_DIR)
+	$(GOCMD) build -trimpath -o $(BIN_DIR)/migrate ./cmd/migrate
+
 run-api: ## CONFIG_FILE=config.yaml by default; env overrides still apply
 	$(GOCMD) run ./cmd/api
 
 run-worker:
 	$(GOCMD) run ./cmd/worker
+
+# Applies the schema and the idempotent Package seed, then exits (ADR 0012).
+# Deployment runs the same command as a one-shot container before the API.
+run-migrate:
+	$(GOCMD) run ./cmd/migrate
+
+# Kept for muscle memory: `migrate` is the old name of `run-migrate`.
+migrate: run-migrate
 
 # Unit tests never need a database.
 test-unit:

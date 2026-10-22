@@ -1,6 +1,7 @@
 package integration
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -16,10 +17,44 @@ type composeFile struct {
 }
 
 type composeService struct {
-	Image       string            `yaml:"image"`
-	Command     []string          `yaml:"command"`
-	Environment map[string]string `yaml:"environment"`
-	Ports       []string          `yaml:"ports"`
+	Image       string              `yaml:"image"`
+	Command     []string            `yaml:"command"`
+	Environment map[string]string   `yaml:"environment"`
+	Ports       []string            `yaml:"ports"`
+	DependsOn   composeDependencies `yaml:"depends_on"`
+}
+
+type composeDependency struct {
+	Condition string `yaml:"condition"`
+}
+
+// composeDependencies accepts both compose spellings: the short list form and
+// the long map form with a condition.
+type composeDependencies map[string]composeDependency
+
+// UnmarshalYAML implements yaml.Unmarshaler for both depends_on shapes.
+func (d *composeDependencies) UnmarshalYAML(value *yaml.Node) error {
+	parsed := make(map[string]composeDependency)
+
+	switch value.Kind {
+	case yaml.SequenceNode:
+		var names []string
+		if err := value.Decode(&names); err != nil {
+			return err
+		}
+		for _, name := range names {
+			parsed[name] = composeDependency{}
+		}
+	case yaml.MappingNode:
+		if err := value.Decode(&parsed); err != nil {
+			return err
+		}
+	default:
+		return fmt.Errorf("depends_on must be a list or a map")
+	}
+
+	*d = parsed
+	return nil
 }
 
 func loadCompose(t *testing.T) composeFile {
@@ -59,6 +94,7 @@ func TestComposeServesOneOriginWithEveryService(t *testing.T) {
 		"postgres",
 		"freeradius-mysql",
 		"redis",
+		"migrate",
 		"api",
 		"worker",
 		"app",
@@ -113,6 +149,42 @@ func TestAPIAndWorkerUseOneImageWithDifferentCommands(t *testing.T) {
 	}
 }
 
+// TestMigrateRunsBeforeTheAPI pins ADR 0012's deployment shape: the schema and
+// the Package seed are applied by a one-shot command that the API waits for,
+// instead of every API boot migrating the database.
+func TestMigrateRunsBeforeTheAPI(t *testing.T) {
+	compose := loadCompose(t)
+
+	migrate, ok := compose.Services["migrate"]
+	if !ok {
+		t.Fatal("docker-compose.yml has no migrate service")
+	}
+	if strings.Join(migrate.Command, " ") != "migrate" {
+		t.Fatalf("migrate command = %v", migrate.Command)
+	}
+	if migrate.Image != compose.Services["api"].Image {
+		t.Fatal("migrate must run from the same image as the API")
+	}
+
+	for _, serviceName := range []string{"api", "worker"} {
+		dependency, ok := compose.Services[serviceName].DependsOn["migrate"]
+		if !ok {
+			t.Fatalf("%s does not depend on migrate", serviceName)
+		}
+		if dependency.Condition != "service_completed_successfully" {
+			t.Fatalf("%s waits for migrate with condition %q, want service_completed_successfully",
+				serviceName, dependency.Condition)
+		}
+	}
+
+	if !strings.Contains(readRepoFile(t, "backend/Dockerfile"), "./cmd/migrate") {
+		t.Fatal("backend/Dockerfile does not build ./cmd/migrate")
+	}
+	if !strings.Contains(readRepoFile(t, "backend/docker/entrypoint.sh"), "migrate") {
+		t.Fatal("backend/docker/entrypoint.sh does not dispatch the migrate command")
+	}
+}
+
 // TestEnvExampleDocumentsEveryConfigurationKey keeps .env.example honest: a new
 // configuration key without documentation fails the build.
 func TestEnvExampleDocumentsEveryConfigurationKey(t *testing.T) {
@@ -141,7 +213,7 @@ func TestEnvExampleDocumentsEveryConfigurationKey(t *testing.T) {
 func TestComposePassesEveryBackendKeyToBothProcesses(t *testing.T) {
 	compose := loadCompose(t)
 
-	for _, serviceName := range []string{"api", "worker"} {
+	for _, serviceName := range []string{"migrate", "api", "worker"} {
 		service := compose.Services[serviceName]
 		for _, key := range config.Keys() {
 			envName := config.EnvName(key)

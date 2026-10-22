@@ -31,11 +31,15 @@ sibling `~/Projects/mikrotik-login` monorepo is prior art only.
 
 ```bash
 cp .env.example .env      # fill in the secrets
-make up                   # docker compose up -d --build
+make up                   # docker compose up -d --build (runs the migrate step first)
 open http://localhost:8080/            # purchase app (status screen)
 curl http://localhost:8080/api/health   # backend + Postgres + MySQL + Redis
 make down
 ```
+
+The one-shot `migrate` service applies the Postgres schema and the Package
+catalog seed before the API starts (ADR 0012); `make -C backend run-migrate`
+does the same against a local database.
 
 The proxy serves the app at `/` and the API at `/api` on one origin (ADR 0009,
 ADR 0013). `GET /api/health` answers 200 when every dependency is reachable and
@@ -94,6 +98,17 @@ user to the purchase web app, and logs them in with **Phone Number** + **PIN** b
 default (other credential modes per [ADR 0006](docs/adr/0006-three-hotspot-login-modes.md)).
 The status page shows the remaining **Active Period** and guides **Extend** /
 buy-again.
+
+The backend answers the two public reads the page needs, with shapes frozen by
+the page and pinned by `contracts/`:
+
+| Endpoint | Body |
+| --- | --- |
+| `GET /api/packages` | `{"data":[{"id","nama","harga","durasiActivePeriod","batasKecepatan"}]}` |
+| `GET /api/active-period?phone=…` | `{"data":{"expiry":"<ISO-8601>"}}`, `null` when the number has no Active Period |
+
+An unreachable FreeRADIUS MySQL answers `503` for the Active Period read, which
+the status page shows as "tidak dapat dimuat" instead of a wrong expiry.
 
 | Path | Role |
 | --- | --- |

@@ -1,0 +1,18 @@
+{
+  "data": [
+    {
+      "id": 1,
+      "nama": "Paket Harian",
+      "harga": "Rp 5.000",
+      "durasiActivePeriod": "1 Hari",
+      "batasKecepatan": "5M"
+    },
+    {
+      "id": 2,
+      "nama": "Paket Mingguan",
+      "harga": "Rp 25.000",
+      "durasiActivePeriod": "7 Hari",
+      "batasKecepatan": "10M"
+    }
+  ]
+}

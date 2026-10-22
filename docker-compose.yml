@@ -107,7 +107,22 @@ services:
     security_opt:
       - no-new-privileges:true
 
-  # API and worker run from one image with different commands.
+  # API and worker run from one image with different commands. The one-shot
+  # migrate command runs first so the API never serves an empty catalog (ADR 0012).
+  migrate:
+    image: *backend-image
+    build:
+      context: ./backend
+      target: runner
+    command: ["migrate"]
+    environment: *backend-env
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: "no"
+    security_opt:
+      - no-new-privileges:true
+
   api:
     image: *backend-image
     build:
@@ -116,6 +131,8 @@ services:
     command: ["api"]
     environment: *backend-env
     depends_on:
+      migrate:
+        condition: service_completed_successfully
       postgres:
         condition: service_healthy
       freeradius-mysql:
@@ -136,6 +153,8 @@ services:
     command: ["worker"]
     environment: *backend-env
     depends_on:
+      migrate:
+        condition: service_completed_successfully
       redis:
         condition: service_healthy
     restart: unless-stopped

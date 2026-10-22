@@ -1,7 +1,8 @@
 # syntax=docker/dockerfile:1
 
-# One image, two commands: `api` serves HTTP, `worker` runs background jobs.
-# Both commands share the same binary set and configuration.
+# One image, three commands: `api` serves HTTP, `worker` runs background jobs,
+# `migrate` applies the schema and the Package seed before the API starts.
+# All three commands share the same binary set and configuration.
 FROM golang:1.26-alpine AS builder
 
 WORKDIR /src
@@ -23,7 +24,8 @@ RUN CGO_ENABLED=0 go build -trimpath \
         -ldflags "-s -w \
           -X github.com/novriyantoAli/mikrotik-login-page/backend/internal/pkg/buildinfo.Version=${VERSION} \
           -X github.com/novriyantoAli/mikrotik-login-page/backend/internal/pkg/buildinfo.Commit=${COMMIT}" \
-        -o /out/worker ./cmd/worker
+        -o /out/worker ./cmd/worker \
+    && CGO_ENABLED=0 go build -trimpath -o /out/migrate ./cmd/migrate
 
 FROM alpine:3.21 AS runner
 
@@ -32,7 +34,7 @@ RUN adduser -D -H -u 10001 app \
 
 WORKDIR /app
 
-COPY --from=builder /out/api /out/worker /app/
+COPY --from=builder /out/api /out/worker /out/migrate /app/
 COPY docker/entrypoint.sh /app/entrypoint.sh
 
 RUN chmod +x /app/entrypoint.sh && chown -R app:app /app
