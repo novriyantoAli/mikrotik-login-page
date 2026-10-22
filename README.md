@@ -1,0 +1,72 @@
+# MikroTik Login Page — Voucher Purchase
+
+The MikroTik hotspot captive portal (KOPINETGO-2024) for the voucher purchase
+flow. The Login Page shows the **Package** list from the backend, sends the user
+to the purchase web app, and logs them in with **Phone Number** + **PIN**. The
+status page shows the remaining **Active Period** and guides **Extend** /
+buy-again.
+
+Domain vocabulary is binding — see [`CONTEXT.md`](CONTEXT.md). Architecture
+decisions live in [`docs/adr/`](docs/adr/), the full requirements in
+[`docs/prd/login-page-voucher-purchase.md`](docs/prd/login-page-voucher-purchase.md).
+
+## Layout
+
+| Path | Role |
+| --- | --- |
+| `KOPINETGO-2024/login.html` | Login Page: login form + Package list |
+| `KOPINETGO-2024/status.html` | Status page: remaining Active Period + guidance |
+| `KOPINETGO-2024/assets/voucher-client.js` | The single client seam (Package list, purchase URL, login, Active Period) |
+| `KOPINETGO-2024/config/data/voucher.js` | Deployment configuration (`cfgVoucher`) |
+| `tests/unit/` | Vitest + jsdom tests of the seam |
+| `tests/smoke/` | Playwright browser tests of the pages |
+
+The pages are served by RouterOS, so `$(...)` template variables
+(`$(username)`, `$(chap-id)`, `$(error)`, …) remain in the HTML.
+
+## Deployment configuration
+
+All deployment values live in `KOPINETGO-2024/config/data/voucher.js`. Nothing
+is hardcoded elsewhere.
+
+| Key | Default | Required | Meaning |
+| --- | --- | --- | --- |
+| `backendBaseUrl` | `""` | **yes** | Backend base URL (no trailing slash). When empty, the Package list shows "not configured" and the Active Period cannot load. |
+| `packagesPath` | `/packages` | no | Public Package list endpoint. |
+| `activePeriodPath` | `/active-period` | no | Public Active Period endpoint (ADR 0005). |
+| `expiryWarningHours` | `24` | no | Hours left before the Active Period counts as "almost over". |
+| `appBaseUrl` | `""` | **yes** | Purchase web app base URL. When empty, the "Beli" button is disabled. |
+| `packagesFromBackend` | `1` | no | `1` = read Packages from the backend, `0` = use `fallbackPackages`. |
+| `fallbackPackages` | `[]` | no | Static list used only when the toggle is `0`. |
+
+### Backend contracts (read-only, implemented outside this repo)
+
+- `GET <backendBaseUrl><packagesPath>` → `{ data: [{ id, nama, harga, durasiActivePeriod, batasKecepatan }] }`
+- `GET <backendBaseUrl><activePeriodPath>?phone=<Phone Number>` → `{ data: { expiry } }` (`expiry`: ISO-8601 or epoch seconds) — see [ADR 0005](docs/adr/0005-active-period-endpoint.md).
+
+### Purchase app contract
+
+The "Beli" button links to
+`<appBaseUrl>?package=<Package id>&return=<Login Page URL>`.
+
+### Legacy Mikhmon expiry (optional)
+
+`KOPINETGO-2024/config/data/expiredMikhmon.js` (`cfgEM`) keeps the older
+Mikhmon expiry iframe on the status page. It is independent of the Active
+Period endpoint. Once the backend endpoint is live, set `cfgEM.status` to `0`
+to retire it and leave the seam-rendered Active Period panel as the only
+expiry display.
+
+## Development
+
+```bash
+npm install
+npm run typecheck     # tsc --noEmit (jsconfig checkJs on the seam + config)
+npm test              # Vitest unit tests
+npm run test:smoke    # Playwright browser smoke tests
+npm run test:all      # unit + smoke
+npm run test:watch    # Vitest in watch mode
+```
+
+The smoke tests serve `KOPINETGO-2024/` from a small static server and stub the
+backend at the network boundary; no backend is required.
