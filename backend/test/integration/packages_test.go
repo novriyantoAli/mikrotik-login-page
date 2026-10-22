@@ -31,25 +31,37 @@ func TestPackagesServesTheSeededCatalog(t *testing.T) {
 		t.Fatalf("status = %d, body = %v", status, body)
 	}
 
-	entries := body["data"].([]any)
-	want := service.StarterCatalog()
+	// Literal expectations on purpose: computing them with the formatters would
+	// make a formatting regression invisible to this acceptance test.
+	want := []struct{ name, price, activePeriod, speedLimit string }{
+		{"Paket Harian", "Rp 5.000", "1 Hari", "5M"},
+		{"Paket 3 Hari", "Rp 12.000", "3 Hari", "5M"},
+		{"Paket Mingguan", "Rp 25.000", "7 Hari", "10M"},
+		{"Paket Bulanan", "Rp 90.000", "30 Hari", "10M"},
+	}
+
+	entries, ok := body["data"].([]any)
+	if !ok {
+		t.Fatalf("data is not an array: %T", body["data"])
+	}
 	if len(entries) != len(want) {
 		t.Fatalf("catalog has %d entries, want %d", len(entries), len(want))
 	}
 
 	for index, entry := range entries {
 		fields := entry.(map[string]any)
-		if fields["nama"] != want[index].Name {
-			t.Fatalf("entry %d nama = %v, want %q", index, fields["nama"], want[index].Name)
+		expected := want[index]
+		if fields["nama"] != expected.name {
+			t.Fatalf("entry %d nama = %v, want %q", index, fields["nama"], expected.name)
 		}
-		if fields["harga"] != service.FormatRupiah(want[index].PriceIDR) {
-			t.Fatalf("entry %d harga = %v", index, fields["harga"])
+		if fields["harga"] != expected.price {
+			t.Fatalf("entry %d harga = %v, want %q", index, fields["harga"], expected.price)
 		}
-		if fields["durasiActivePeriod"] != service.FormatActivePeriod(want[index].DurationMinutes) {
-			t.Fatalf("entry %d durasiActivePeriod = %v", index, fields["durasiActivePeriod"])
+		if fields["durasiActivePeriod"] != expected.activePeriod {
+			t.Fatalf("entry %d durasiActivePeriod = %v, want %q", index, fields["durasiActivePeriod"], expected.activePeriod)
 		}
-		if fields["batasKecepatan"] != service.FormatSpeedLimit(want[index].RateLimit) {
-			t.Fatalf("entry %d batasKecepatan = %v", index, fields["batasKecepatan"])
+		if fields["batasKecepatan"] != expected.speedLimit {
+			t.Fatalf("entry %d batasKecepatan = %v, want %q", index, fields["batasKecepatan"], expected.speedLimit)
 		}
 		if id, ok := fields["id"].(float64); !ok || id <= 0 {
 			t.Fatalf("entry %d id = %v, want a positive package identity", index, fields["id"])

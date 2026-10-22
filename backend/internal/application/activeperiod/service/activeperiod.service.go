@@ -5,20 +5,13 @@ package service
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"time"
-
-	"go.uber.org/zap"
 
 	"github.com/novriyantoAli/mikrotik-login-page/backend/internal/application/activeperiod/dto"
 	"github.com/novriyantoAli/mikrotik-login-page/backend/internal/application/provisioning"
 	"github.com/novriyantoAli/mikrotik-login-page/backend/internal/pkg/phone"
 )
-
-// ErrInvalidPhoneNumber is returned when the query value cannot be a Phone
-// Number. It is a client error, not a missing account.
-var ErrInvalidPhoneNumber = errors.New("invalid phone number")
 
 // Service answers the public Active Period read.
 type Service interface {
@@ -30,18 +23,19 @@ type Service interface {
 
 type service struct {
 	reader provisioning.ExpirationReader
-	logger *zap.Logger
 }
 
 // NewService builds the service; Fx injects the FreeRADIUS read port.
-func NewService(reader provisioning.ExpirationReader, logger *zap.Logger) Service {
-	return &service{reader: reader, logger: logger}
+func NewService(reader provisioning.ExpirationReader) Service {
+	return &service{reader: reader}
 }
 
 func (s *service) GetActivePeriod(ctx context.Context, phoneNumber string) (*dto.ActivePeriodResponse, error) {
 	normalized, err := phone.Normalize(phoneNumber)
 	if err != nil {
-		return nil, fmt.Errorf("%w: %s", ErrInvalidPhoneNumber, err)
+		// The handler maps phone.ErrInvalid to a 400; it is a client error, not
+		// a missing account.
+		return nil, fmt.Errorf("normalize Phone Number: %w", err)
 	}
 
 	expiration, err := s.reader.Expiration(ctx, normalized)

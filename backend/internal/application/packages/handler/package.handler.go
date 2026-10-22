@@ -9,6 +9,7 @@ import (
 
 	"github.com/novriyantoAli/mikrotik-login-page/backend/internal/application/packages/dto"
 	"github.com/novriyantoAli/mikrotik-login-page/backend/internal/application/packages/service"
+	"github.com/novriyantoAli/mikrotik-login-page/backend/internal/middleware"
 	"github.com/novriyantoAli/mikrotik-login-page/backend/internal/pkg/httpx"
 )
 
@@ -24,9 +25,11 @@ func NewHandler(catalog service.Service) *Handler {
 	return &Handler{service: catalog}
 }
 
-// RegisterRoutes mounts the catalog endpoint on the API group.
+// RegisterRoutes mounts the catalog endpoint on the API group. It is one of the
+// two public reads the Login Page calls cross-origin, so only this route carries
+// the CORS header (ADR 0014); no other route opts in.
 func (h *Handler) RegisterRoutes(api *gin.RouterGroup) {
-	api.GET("/packages", h.GetPackages)
+	api.GET("/packages", middleware.CORS(), h.GetPackages)
 }
 
 // GetPackages lists every Package the hotspot sells. The response shape is

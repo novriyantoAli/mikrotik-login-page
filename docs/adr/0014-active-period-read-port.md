@@ -31,7 +31,8 @@ issue's acceptance criterion; any other input is a `400` with
 `invalid_phone_number`, so a typo never looks like "no Active Period".
 
 Both reads also answer `Access-Control-Allow-Origin: *` for safe methods, with
-credentials disallowed. RouterOS serves the Login Page from each hotspot's own
+credentials disallowed. The header is attached to those two routes only, never
+to the engine: a later session-bearing `GET` must not inherit it. RouterOS serves the Login Page from each hotspot's own
 address, so an origin allowlist cannot be written in advance; the payloads are
 public and session-free, which makes the wildcard equivalent to what `curl`
 already does. This does not weaken ADR 0009: the purchase app is same-origin,
