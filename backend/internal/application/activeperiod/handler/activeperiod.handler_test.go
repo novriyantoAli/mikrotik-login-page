@@ -14,6 +14,7 @@ import (
 	"github.com/novriyantoAli/mikrotik-login-page/backend/internal/application/activeperiod/dto"
 	"github.com/novriyantoAli/mikrotik-login-page/backend/internal/application/activeperiod/handler"
 	"github.com/novriyantoAli/mikrotik-login-page/backend/internal/application/activeperiod/service"
+	"github.com/novriyantoAli/mikrotik-login-page/backend/internal/pkg/phone"
 )
 
 type stubActivePeriod struct {
@@ -72,7 +73,7 @@ func TestGetActivePeriod_MalformedNumberIsAClientError(t *testing.T) {
 	t.Parallel()
 
 	recorder := getActivePeriod(t,
-		stubActivePeriod{err: service.ErrInvalidPhoneNumber},
+		stubActivePeriod{err: phone.ErrInvalid},
 		"/api/active-period?phone=nope",
 	)
 

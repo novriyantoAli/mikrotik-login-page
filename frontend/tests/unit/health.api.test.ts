@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from 'vitest';
 
-import { healthApi } from '$lib/domains/health';
+import { healthApi } from '$lib/domains/health/api/health.api';
 import { restoreApi, stubApi, stubNetworkFailure } from '../support/api';
 import { loadContract } from '../support/contracts';
 

@@ -44,7 +44,7 @@ func NewEngine(cfg *config.Config, logger *zap.Logger) (*gin.Engine, error) {
 		return nil, fmt.Errorf("set server.trusted_proxies: %w", err)
 	}
 
-	engine.Use(middleware.Recovery(logger), middleware.RequestLogger(logger), middleware.CORS())
+	engine.Use(middleware.Recovery(logger), middleware.RequestLogger(logger))
 	return engine, nil
 }
 

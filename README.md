@@ -129,7 +129,7 @@ is hardcoded elsewhere.
 
 | Key | Default | Required | Meaning |
 | --- | --- | --- | --- |
-| `backendBaseUrl` | `""` | **yes** | Backend base URL (no trailing slash). When empty, the Package list shows "not configured" and the Active Period cannot load. |
+| `backendBaseUrl` | `""` | **yes** | Backend base URL **including the API prefix**, e.g. `https://hotspot.example/api` (no trailing slash). The backend mounts every endpoint under `/api`. When empty, the Package list shows "not configured" and the Active Period cannot load. |
 | `packagesPath` | `/packages` | no | Public Package list endpoint. |
 | `activePeriodPath` | `/active-period` | no | Public Active Period endpoint (ADR 0005). |
 | `expiryWarningHours` | `24` | no | Hours left before the Active Period counts as "almost over". |
@@ -168,7 +168,11 @@ A wrong-credential message follows the active mode (for **Access Code** it reads
 "Kode Akses salah.", for **User** "Username atau password salah."); the
 expired-account message is shared by every mode.
 
-### Backend contracts (read-only, next slice — PRD build order step 2)
+### Backend contracts (read-only, public)
+
+Both endpoints are public and read-only; the backend answers them with
+`Access-Control-Allow-Origin: *` so the page may call it from the router's own
+origin (ADR 0014).
 
 - `GET <backendBaseUrl><packagesPath>` → `{ data: [{ id, nama, harga, durasiActivePeriod, batasKecepatan }] }`
 - `GET <backendBaseUrl><activePeriodPath>?phone=<Phone Number>` → `{ data: { expiry } }` (`expiry`: ISO-8601 or epoch seconds) — see [ADR 0005](docs/adr/0005-active-period-endpoint.md).

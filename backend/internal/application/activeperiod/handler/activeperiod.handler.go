@@ -10,7 +10,9 @@ import (
 
 	"github.com/novriyantoAli/mikrotik-login-page/backend/internal/application/activeperiod/dto"
 	"github.com/novriyantoAli/mikrotik-login-page/backend/internal/application/activeperiod/service"
+	"github.com/novriyantoAli/mikrotik-login-page/backend/internal/middleware"
 	"github.com/novriyantoAli/mikrotik-login-page/backend/internal/pkg/httpx"
+	"github.com/novriyantoAli/mikrotik-login-page/backend/internal/pkg/phone"
 )
 
 // Handler serves the public Active Period endpoint. It holds no logger: the
@@ -24,9 +26,11 @@ func NewHandler(activePeriod service.Service) *Handler {
 	return &Handler{service: activePeriod}
 }
 
-// RegisterRoutes mounts the Active Period endpoint on the API group.
+// RegisterRoutes mounts the Active Period endpoint on the API group. It is one
+// of the two public reads the Login Page calls cross-origin, so only this route
+// carries the CORS header (ADR 0014); no other route opts in.
 func (h *Handler) RegisterRoutes(api *gin.RouterGroup) {
-	api.GET("/active-period", h.GetActivePeriod)
+	api.GET("/active-period", middleware.CORS(), h.GetActivePeriod)
 }
 
 // GetActivePeriod answers the status page's Active Period read (ADR 0005).
@@ -46,7 +50,7 @@ func (h *Handler) RegisterRoutes(api *gin.RouterGroup) {
 func (h *Handler) GetActivePeriod(c *gin.Context) {
 	activePeriod, err := h.service.GetActivePeriod(c.Request.Context(), c.Query("phone"))
 	switch {
-	case errors.Is(err, service.ErrInvalidPhoneNumber):
+	case errors.Is(err, phone.ErrInvalid):
 		httpx.Error(c, http.StatusBadRequest, httpx.CodeInvalidRequest, "Phone Number tidak valid.")
 		return
 	case err != nil:
