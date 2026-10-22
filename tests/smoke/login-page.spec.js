@@ -1,4 +1,5 @@
 import { test, expect } from "@playwright/test";
+import { createHash } from "node:crypto";
 
 const PACKAGE_FIXTURE = {
   id: 1,
@@ -30,6 +31,18 @@ async function stubPackageBackend(page, packages) {
       contentType: "application/json",
       body: JSON.stringify({ data: packages }),
     });
+  });
+}
+
+/** Serve a variant of the Login Page with RouterOS template values substituted. */
+async function serveLoginPage(page, substitutions) {
+  await page.route("**/login.html*", async (route) => {
+    const response = await route.fetch();
+    let body = await response.text();
+    for (const [from, to] of Object.entries(substitutions)) {
+      body = body.split(from).join(to);
+    }
+    await route.fulfill({ response, body });
   });
 }
 
@@ -114,5 +127,74 @@ test.describe("Login Page smoke", () => {
     expect(purchaseUrl.searchParams.get("package")).toBe("1");
     expect(purchaseUrl.searchParams.get("return")).toBe(loginUrl);
     expect(purchaseUrl.searchParams.get("return")).toContain("dst=");
+  });
+
+  test("asks for Phone Number + masked PIN and has no voucher/member switch", async ({ page }) => {
+    await page.goto("/login.html");
+
+    await expect(page.locator("#username")).toBeVisible();
+    await expect(page.locator("#username")).toHaveAttribute("placeholder", /phone number/i);
+    await expect(page.locator("#password")).toBeVisible();
+    await expect(page.locator("#password")).toHaveAttribute("placeholder", /pin/i);
+    await expect(page.locator("#password")).toHaveAttribute("type", "password");
+    await expect(page.locator("#labelForm")).toContainText(/login/i);
+    await expect(page.locator("#loginOpt")).toBeHidden();
+
+    // The PIN can be revealed and re-hidden with its toggle.
+    await page.locator("#iconTypePassword").click();
+    await expect(page.locator("#password")).toHaveAttribute("type", "text");
+    await page.locator("#iconTypePassword").click();
+    await expect(page.locator("#password")).toHaveAttribute("type", "password");
+  });
+
+  test("hashes the PIN with CHAP and never sends the Phone Number as the password", async ({ page }) => {
+    await page.goto("/login.html");
+
+    const submitted = await page.evaluate(() => {
+      document.getElementById("username").value = "08123456789";
+      document.getElementById("password").value = "123456";
+      document.sendin.submit = function () {};
+      window.doLogin();
+      return {
+        username: document.sendin.username.value,
+        password: document.sendin.password.value,
+      };
+    });
+
+    const expected = createHash("md5").update("$(chap-id)" + "123456" + "$(chap-challenge)").digest("hex");
+    expect(submitted.username).toBe("08123456789");
+    expect(submitted.password).toBe(expected);
+    expect(submitted.password).not.toBe("08123456789");
+    expect(submitted.password).not.toBe("123456");
+  });
+
+  test("maps a wrong PIN and an expired account to different messages", async ({ page }) => {
+    await serveLoginPage(page, { "$(error)": "invalid password" });
+    await page.goto("/login.html");
+    await expect(page.locator("#serverError")).toContainText(/PIN salah/i);
+
+    await serveLoginPage(page, { "$(error)": "uptime limit reached" });
+    await page.goto("/login.html");
+    await expect(page.locator("#serverError")).toContainText(/masa aktif/i);
+  });
+
+  test("shows a clear message when the PIN is not 6 digits", async ({ page }) => {
+    await page.goto("/login.html");
+
+    await page.fill("#username", "08123456789");
+    await page.fill("#password", "12345");
+    await page.locator("#btnLogin").click();
+
+    await expect(page.locator("#loginError")).toBeVisible();
+    await expect(page.locator("#loginError")).toContainText(/6 digit/i);
+  });
+
+  test("keeps the trial flow available", async ({ page }) => {
+    await serveLoginPage(page, { "$(trial)": "yes" });
+    await page.goto("/login.html");
+
+    await expect(page.locator("#btnTrial")).toBeVisible();
+    await expect(page.locator("#linkTrial")).toHaveAttribute("href", /username=T-/);
+    await expect(page.locator("#password")).toHaveAttribute("type", "password");
   });
 });

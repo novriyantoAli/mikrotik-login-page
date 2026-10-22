@@ -122,10 +122,11 @@
 
 								<div class="w-full">
 									$(if error)
-									<div class="alert w-full flex">
+									<div id="serverError" class="alert w-full flex">
 										$(error)
 									</div>
 									$(endif)
+									<div id="loginError" class="alert w-full hidden"></div>
 								</div>
 
 								<div class="w-full">
@@ -191,25 +192,55 @@
 	<script src="./config/data/style.js?v=21.1"></script>
 
 	<script>
-		function doLogin() {
-			document.sendin.username.value = document.login.username.value;
+		function showLoginError(message) {
+			var box = document.getElementById("loginError");
+			if (!box) {
+				return;
+			}
+			box.textContent = message;
+			box.classList.remove("hidden");
+			box.classList.add("flex");
+		}
 
-			if (voucherActive.value == 0) {
-				var user = document.sendin.username.value
-				username.value = user;
-				password.value = user;
-				document.sendin.password.value = hexMD5('$(chap-id)' + user + '$(chap-challenge)');
-			} else {
-				document.sendin.password.value = hexMD5('$(chap-id)' + document.login.password.value + '$(chap-challenge)');
+		function doLogin() {
+			var phoneInput = document.getElementById("username");
+			var pinInput = document.getElementById("password");
+			var phoneNumber = phoneInput ? phoneInput.value : "";
+			var pin = pinInput ? pinInput.value : "";
+			var client = window.VoucherClient && window.VoucherClient.client;
+
+			function submitPayload(payload) {
+				document.sendin.username.value = payload.username;
+				document.sendin.password.value = payload.password;
+				document.sendin.submit();
 			}
 
-			document.sendin.submit();
+			// Phone Number is the username, PIN is the CHAP password (ADR 0004).
+			if (client && typeof client.login === "function") {
+				try {
+					client.login({
+						phoneNumber: phoneNumber,
+						pin: pin,
+						chapId: "$(chap-id)",
+						chapChallenge: "$(chap-challenge)",
+						submit: submitPayload,
+					});
+				} catch (error) {
+					showLoginError(client.describeLoginError(error));
+				}
+				return false;
+			}
+
+			// Fallback when the voucher client is unavailable: still hash only the PIN.
+			submitPayload({
+				username: phoneNumber,
+				password: hexMD5("$(chap-id)" + pin + "$(chap-challenge)"),
+			});
 			return false;
 		}
 
 		var username = document.getElementById("username");
 		var password = document.getElementById("password");
-		var voucherActive = document.getElementById("voucherActive");
 
 		var changeTypePass = function (el) {
 			const pass = document.getElementById("password");
@@ -238,37 +269,21 @@
 		};
 
 		window.loginTypo = function (data, dataLoginOpt) {
-			if (username && password) {
-				username.onkeyup = setCase;
-				password.onkeyup = setCase;
-				if (dataLoginOpt == 0 && username.value) {
-					password.value = username.value;
-				} else {
-					password.value = "";
-				}
+			if (!username || !password) {
+				return;
 			}
 
+			username.onkeyup = setCase;
+
+			// Phone Number and PIN are independent credentials: never mirror one
+			// into the other (ADR 0004).
 			function setCase() {
-				var usernameValue = username.value;
-				var passwordValue = password.value;
 				var caseType = dataLoginOpt == 0 ? data.voucher.value : data.member.value;
-
 				if (caseType == "upper") {
-					usernameValue = usernameValue.toUpperCase();
-					passwordValue = dataLoginOpt == 0 ? usernameValue : passwordValue.toUpperCase();
+					username.value = username.value.toUpperCase();
 				} else if (caseType == "lower") {
-					usernameValue = usernameValue.toLowerCase();
-					passwordValue = dataLoginOpt == 0 ? usernameValue : passwordValue.toLowerCase();
+					username.value = username.value.toLowerCase();
 				}
-
-				username.value = usernameValue;
-
-				if (dataLoginOpt == 0) {
-					password.value = usernameValue;
-				} else {
-					password.value = passwordValue;
-				}
-
 			}
 		};
 
@@ -301,6 +316,45 @@
 	<script src="./assets/md5.js?v=21.1"></script>
 
 	<script src="./assets/voucher-client.js?v=21.2"></script>
+
+	<script>
+		// Phone Number + PIN login (ADR 0004): reveal the PIN field, keep it
+		// masked by default, hide the Phone Number eye toggle, and translate a
+		// server-side hotspot error into a message the user understands.
+		(function () {
+			var api = window.VoucherClient;
+			var client = api && api.client;
+
+			var pinField = document.getElementById("domPassword");
+			if (pinField) {
+				pinField.classList.remove("hidden");
+			}
+
+			var phoneInput = document.getElementById("username");
+			if (phoneInput) {
+				phoneInput.setAttribute("placeholder", "Phone Number");
+			}
+
+			var pinInput = document.getElementById("password");
+			if (pinInput) {
+				pinInput.setAttribute("type", "password");
+				pinInput.setAttribute("placeholder", "PIN");
+			}
+
+			var phoneEye = document.getElementById("iconTypePasswordUser");
+			if (phoneEye) {
+				phoneEye.style.display = "none";
+			}
+
+			var serverError = document.getElementById("serverError");
+			if (client && typeof client.describeError === "function" && serverError) {
+				var raw = (serverError.textContent || "").trim();
+				if (raw && raw.indexOf("$(") === -1) {
+					serverError.textContent = client.describeError(raw);
+				}
+			}
+		})();
+	</script>
 
 	<script>
 		// Render the Package list from the backend. The client shows loading,

@@ -84,6 +84,9 @@
     expired: "Masa aktif Anda telah berakhir. Silakan beli paket baru.",
     wrongPin: "PIN salah. Periksa kembali PIN Anda.",
     generic: "Login gagal. Periksa Phone Number dan PIN Anda.",
+    phoneRequired: "Phone Number wajib diisi.",
+    pinRequired: "PIN wajib diisi.",
+    invalidPin: "PIN harus 6 digit angka.",
   };
 
   /**
@@ -544,6 +547,26 @@
     }
 
     /**
+     * Translate a client-side login validation failure (from `login`) into a
+     * message the Login Page can show the user.
+     * @param {unknown} error
+     * @returns {string}
+     */
+    function describeLoginError(error) {
+      var code = error && typeof error === "object" ? /** @type {any} */ (error).code : undefined;
+      if (code === "missing_phone_number") {
+        return MESSAGES.phoneRequired;
+      }
+      if (code === "missing_pin") {
+        return MESSAGES.pinRequired;
+      }
+      if (code === "invalid_pin") {
+        return MESSAGES.invalidPin;
+      }
+      return MESSAGES.generic;
+    }
+
+    /**
      * Translate a raw hotspot error / RouterOS expiry value into a human message,
      * distinguishing an expired account from a wrong PIN.
      * @param {string} [error]
@@ -579,6 +602,7 @@
       hashPin: hashPin,
       login: login,
       describeError: describeError,
+      describeLoginError: describeLoginError,
     };
   }
 

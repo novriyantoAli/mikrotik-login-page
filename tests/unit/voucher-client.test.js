@@ -43,6 +43,7 @@ describe("voucher client seam", () => {
     expect(typeof VoucherClient.client.hashPin).toBe("function");
     expect(typeof VoucherClient.client.login).toBe("function");
     expect(typeof VoucherClient.client.describeError).toBe("function");
+    expect(typeof VoucherClient.client.describeLoginError).toBe("function");
   });
 
   it("reads centralized config (backend URL, app URL, toggle) from the global cfgVoucher", () => {
@@ -388,6 +389,24 @@ describe("voucher client seam", () => {
 
       expect(() => client.login({ phoneNumber: "0812", pin: "12345" })).toThrow(/6 digits/i);
       expect(() => client.login({ phoneNumber: "0812", pin: "abcdef" })).toThrow(/6 digits/i);
+    });
+  });
+
+  describe("describeLoginError", () => {
+    it("explains a missing Phone Number, a missing PIN, and a malformed PIN", () => {
+      const { createVoucherClient, VoucherError } = loadModule();
+      const client = createVoucherClient();
+
+      expect(client.describeLoginError(new VoucherError("missing_phone_number", "x"))).toMatch(/phone number/i);
+      expect(client.describeLoginError(new VoucherError("missing_pin", "x"))).toMatch(/pin wajib/i);
+      expect(client.describeLoginError(new VoucherError("invalid_pin", "x"))).toMatch(/6 digit/i);
+    });
+
+    it("falls back to the generic credential message for an unknown failure", () => {
+      const { createVoucherClient } = loadModule();
+      const client = createVoucherClient();
+
+      expect(client.describeLoginError(new Error("boom"))).toMatch(/periksa phone number dan pin/i);
     });
   });
 

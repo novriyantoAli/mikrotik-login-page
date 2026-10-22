@@ -1,6 +1,8 @@
 var cfgLogin = {
   default: 0,
-  option: 1,
+  // No voucher/member mode switch: the Login Page uses one credential pair,
+  // Phone Number + PIN (ADR 0004).
+  option: 0,
   menu: {
     voucher: {
       status: 1,
@@ -35,8 +37,8 @@ var cfgLogin = {
       scan: "SCAN",
     },
     title: {
-      voucher: "Login Voucher",
-      member: "Login Member",
+      voucher: "Login",
+      member: "Login",
     },
     button: {
       login: "Login",
@@ -44,9 +46,9 @@ var cfgLogin = {
     },
 
     form: {
-      voucher_placeholder: "Voucher",
-      member_placeholder: "Username",
-      password_placeholder: "Password",
+      voucher_placeholder: "Phone Number",
+      member_placeholder: "Phone Number",
+      password_placeholder: "PIN",
     },
 
     status: {
