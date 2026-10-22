@@ -17,6 +17,9 @@ var cfgVoucher = {
   packagesPath: "/packages",
 
   // Base URL of the purchase web app (Svelte). The "Beli" button links here.
+  // Required for the Beli button; when empty, the button is rendered disabled
+  // and the Package list still loads. Contract with the app: the client appends
+  // `?package=<Package id>&return=<Login Page URL>`.
   appBaseUrl: "",
 
   // Feature toggle: 1 = read the Package list from the backend,

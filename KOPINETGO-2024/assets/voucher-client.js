@@ -79,6 +79,8 @@
     empty: "Belum ada paket tersedia.",
     error: "Gagal memuat paket. Silakan coba lagi.",
     notConfigured: "Daftar paket belum dikonfigurasi. Hubungi admin.",
+    purchaseAppUnavailable: "Pembelian belum dikonfigurasi. Hubungi admin.",
+    packageUnavailable: "Paket ini belum dapat dibeli. Hubungi admin.",
     expired: "Masa aktif Anda telah berakhir. Silakan beli paket baru.",
     wrongPin: "PIN salah. Periksa kembali PIN Anda.",
     generic: "Login gagal. Periksa Phone Number dan PIN Anda.",
@@ -271,8 +273,15 @@
     }
 
     var base = String(config.appBaseUrl);
+    // Keep any fragment (e.g. an SPA hash route) after the query parameters.
+    var fragment = "";
+    var hashIndex = base.indexOf("#");
+    if (hashIndex !== -1) {
+      fragment = base.slice(hashIndex);
+      base = base.slice(0, hashIndex);
+    }
     var separator = base.indexOf("?") === -1 ? "?" : "&";
-    return base + separator + params.join("&");
+    return base + separator + params.join("&") + fragment;
   }
 
   /**
@@ -381,8 +390,37 @@
 
       var button = createTextElement("button", "package-card__buy", "Beli");
       button.setAttribute("type", "button");
+
+      // Resolve the destination up front so a missing purchase app (or Package
+      // identity) degrades to a disabled button instead of throwing from a
+      // click handler on the Login Page. The URL is rebuilt on click so the
+      // return target reflects the Login Page at that moment.
+      var destination = null;
+      var unavailableMessage = MESSAGES.purchaseAppUnavailable;
+      try {
+        destination = buildPurchaseUrl(config, pkg);
+      } catch (error) {
+        destination = null;
+        if (error && error.code === "missing_package_id") {
+          unavailableMessage = MESSAGES.packageUnavailable;
+        }
+      }
+      if (!destination) {
+        button.setAttribute("disabled", "");
+        button.setAttribute("aria-disabled", "true");
+        button.setAttribute("title", unavailableMessage);
+      }
+
       button.addEventListener("click", function () {
-        navigate(buildPurchaseUrl(config, pkg));
+        var target = null;
+        try {
+          target = buildPurchaseUrl(config, pkg);
+        } catch (error) {
+          target = null;
+        }
+        if (target) {
+          navigate(target);
+        }
       });
       card.appendChild(button);
       return card;

@@ -164,6 +164,15 @@ describe("voucher client seam", () => {
       expect(url).toBe("https://app.example/beli?src=hotspot&package=abc&return=" + encodeURIComponent("http://hotspot.local/login"));
     });
 
+    it("keeps query parameters before a fragment in the app URL", () => {
+      const { createVoucherClient } = loadModule();
+      const client = createVoucherClient({ config: { appBaseUrl: "https://app.example/#/beli" } });
+
+      const url = client.buildPurchaseUrl({ id: 9 }, { returnUrl: "http://hotspot.local/login" });
+
+      expect(url).toBe("https://app.example/?package=9&return=" + encodeURIComponent("http://hotspot.local/login") + "#/beli");
+    });
+
     it("rejects a Package without an identity", () => {
       const { createVoucherClient } = loadModule();
       const client = createVoucherClient({ config: { appBaseUrl: "https://app.example/beli" } });
@@ -231,8 +240,34 @@ describe("voucher client seam", () => {
       container.querySelector("button").click();
 
       expect(navigate).toHaveBeenCalledTimes(1);
-      expect(navigate.mock.calls[0][0]).toContain("package=1");
-      expect(navigate.mock.calls[0][0]).toContain("return=");
+      const url = new URL(navigate.mock.calls[0][0]);
+      expect(url.searchParams.get("package")).toBe("1");
+      expect(url.searchParams.get("return")).toBe(window.location.href);
+    });
+
+    it("disables Beli without navigating or throwing when the purchase app is not configured", () => {
+      const { createVoucherClient } = loadModule();
+      const navigate = vi.fn();
+      const client = createVoucherClient({ config: { appBaseUrl: "" }, document, navigate });
+      const container = document.createElement("div");
+      client.renderPackages(container, [packages[0]]);
+
+      const button = container.querySelector("button");
+      expect(button.disabled).toBe(true);
+
+      expect(() => button.click()).not.toThrow();
+      expect(navigate).not.toHaveBeenCalled();
+    });
+
+    it("explains a Package without an identity instead of blaming the configuration", () => {
+      const { createVoucherClient } = loadModule();
+      const client = createVoucherClient({ config: { appBaseUrl: "https://app.example/beli" }, document });
+      const container = document.createElement("div");
+      client.renderPackages(container, [{ name: "no id", price: "Rp 0", activePeriod: "1 Hari", speedLimit: "1M" }]);
+
+      const button = container.querySelector("button");
+      expect(button.disabled).toBe(true);
+      expect(button.getAttribute("title")).toMatch(/paket ini belum dapat dibeli/i);
     });
   });
 

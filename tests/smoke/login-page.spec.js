@@ -1,5 +1,38 @@
 import { test, expect } from "@playwright/test";
 
+const PACKAGE_FIXTURE = {
+  id: 1,
+  nama: "Paket Harian",
+  harga: "Rp 5.000",
+  durasiActivePeriod: "1 Hari",
+  batasKecepatan: "10M",
+};
+
+/** Point the deployment config at stubbed backend/purchase URLs for this page load. */
+async function configureDeployment(page, overrides) {
+  await page.route("**/config/data/voucher.js*", async (route) => {
+    const response = await route.fetch();
+    let body = await response.text();
+    if (overrides.backendBaseUrl !== undefined) {
+      body = body.replace('backendBaseUrl: ""', `backendBaseUrl: "${overrides.backendBaseUrl}"`);
+    }
+    if (overrides.appBaseUrl !== undefined) {
+      body = body.replace('appBaseUrl: ""', `appBaseUrl: "${overrides.appBaseUrl}"`);
+    }
+    await route.fulfill({ response, body });
+  });
+}
+
+async function stubPackageBackend(page, packages) {
+  await page.route("https://api.test/packages", async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({ data: packages }),
+    });
+  });
+}
+
 test.describe("Login Page smoke", () => {
   test("shows a clear Package error and keeps hotspot login usable when no backend is configured", async ({ page }) => {
     const voucherProblems = [];
@@ -49,21 +82,8 @@ test.describe("Login Page smoke", () => {
   });
 
   test("renders the Package list from the backend response", async ({ page }) => {
-    // Point the deployment config at a stubbed backend for this page load.
-    await page.route("**/config/data/voucher.js*", async (route) => {
-      const response = await route.fetch();
-      const body = (await response.text()).replace('backendBaseUrl: ""', 'backendBaseUrl: "https://api.test"');
-      await route.fulfill({ response, body });
-    });
-    await page.route("https://api.test/packages", async (route) => {
-      await route.fulfill({
-        status: 200,
-        contentType: "application/json",
-        body: JSON.stringify({
-          data: [{ id: 1, nama: "Paket Harian", harga: "Rp 5.000", durasiActivePeriod: "1 Hari", batasKecepatan: "10M" }],
-        }),
-      });
-    });
+    await configureDeployment(page, { backendBaseUrl: "https://api.test" });
+    await stubPackageBackend(page, [PACKAGE_FIXTURE]);
 
     await page.goto("/login.html");
 
@@ -74,5 +94,25 @@ test.describe("Login Page smoke", () => {
     await expect(packages).toContainText("10M");
 
     await expect(page.locator("#btnLogin")).toBeEnabled();
+  });
+
+  test("sends the chosen Package and the Login Page return target to the purchase app on Beli", async ({ page }) => {
+    await configureDeployment(page, { backendBaseUrl: "https://api.test", appBaseUrl: "https://app.test/beli" });
+    await stubPackageBackend(page, [PACKAGE_FIXTURE]);
+    await page.route("https://app.test/**", async (route) => {
+      await route.fulfill({ status: 200, contentType: "text/html", body: "<html><body>purchase app</body></html>" });
+    });
+
+    // The Login Page keeps its hotspot context in the query string.
+    await page.goto("/login.html?dst=http%3A%2F%2Fexample.com");
+    const loginUrl = page.url();
+
+    await page.locator("#paketInternet").getByRole("button", { name: "Beli", exact: true }).click();
+
+    await page.waitForURL(/app\.test\/beli/);
+    const purchaseUrl = new URL(page.url());
+    expect(purchaseUrl.searchParams.get("package")).toBe("1");
+    expect(purchaseUrl.searchParams.get("return")).toBe(loginUrl);
+    expect(purchaseUrl.searchParams.get("return")).toContain("dst=");
   });
 });
