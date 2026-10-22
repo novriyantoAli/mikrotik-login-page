@@ -128,7 +128,7 @@ func TestEveryKeyHasAnEnvironmentName(t *testing.T) {
 	}
 }
 
-// loadableEnv neutralises anything the developer's shell may export, so the
+// loadableEnv neutralizes anything the developer's shell may export, so the
 // test suite is not affected by an ambient deployment environment.
 func loadableEnv(t *testing.T) {
 	t.Helper()

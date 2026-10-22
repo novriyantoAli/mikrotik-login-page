@@ -59,7 +59,8 @@ func openSink(path string) (zapcore.WriteSyncer, closer, error) {
 	case "stderr":
 		return zapcore.AddSync(os.Stderr), nopCloser{}, nil
 	default:
-		file, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o640)
+		//nolint:gosec // the path is operator configuration, never user input.
+		file, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
 		if err != nil {
 			return nil, nil, fmt.Errorf("open logger.output_path %q: %w", path, err)
 		}

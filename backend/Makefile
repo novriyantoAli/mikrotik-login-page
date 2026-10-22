@@ -1,12 +1,24 @@
 GOCMD ?= go
 BIN_DIR ?= bin
 MODULE := github.com/novriyantoAli/mikrotik-login-page/backend
+GOIMPORTS ?= goimports
+GOFUMPT ?= gofumpt
+GOLANGCI ?= golangci-lint
+SWAG ?= swag
 
-.PHONY: deps build build-api build-worker run-api run-worker test test-unit test-integration test-coverage lint lint-golangci swagger-gen typecheck fmt tidy clean
+.PHONY: deps tools build build-api build-worker run-api run-worker test test-unit test-integration test-coverage lint format format-strict swagger-gen typecheck fmt tidy clean
 
 deps:
 	$(GOCMD) mod download
 	$(GOCMD) mod tidy
+
+# Install the tools the Definition of Done needs: formatting, linting and
+# Swagger generation. golangci-lint v2.15+ can read this module's go directive.
+tools:
+	$(GOCMD) install golang.org/x/tools/cmd/goimports@latest
+	$(GOCMD) install mvdan.cc/gofumpt@latest
+	$(GOCMD) install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@latest
+	$(GOCMD) install github.com/swaggo/swag/cmd/swag@latest
 
 build: build-api build-worker
 
@@ -39,27 +51,42 @@ test-coverage:
 	$(GOCMD) test -race -covermode=atomic -coverprofile=coverage.out ./...
 	$(GOCMD) tool cover -func=coverage.out
 
+# The Definition of Done target: gofmt check, vet, and every linter the backend
+# standard requires (.golangci.yml, which also runs gofmt/goimports as
+# formatters). Run `make tools` once to install golangci-lint.
 lint:
 	@unformatted="$$(gofmt -l . | grep -v '^$(BIN_DIR)/' || true)"; \
 	if [ -n "$$unformatted" ]; then echo "gofmt required for:"; echo "$$unformatted"; exit 1; fi
 	$(GOCMD) vet ./...
+	@command -v $(GOLANGCI) >/dev/null 2>&1 || { \
+		echo "$(GOLANGCI) not found: run 'make tools' (needs golangci-lint v2.15+ for Go 1.26)"; \
+		exit 1; \
+	}
+	$(GOLANGCI) run
 
-# golangci-lint is optional tooling and must be built with a Go version that can
-# read this module's go directive. Run it explicitly when you have one.
-swagger-gen:
-	@command -v swag >/dev/null 2>&1 || { echo "install swag: go install github.com/swaggo/swag/cmd/swag@latest"; exit 1; }
-	swag init -g cmd/api/main.go -o docs --parseDependency --parseInternal
+# gofmt + goimports with the module's local import prefix.
+format:
+	$(GOCMD) fmt ./...
+	@command -v $(GOIMPORTS) >/dev/null 2>&1 || { echo "$(GOIMPORTS) not found: run 'make tools'"; exit 1; }
+	$(GOIMPORTS) -local $(MODULE) -w .
 
-lint-golangci:
-	@if command -v golangci-lint >/dev/null 2>&1; then golangci-lint run; else echo "golangci-lint not installed"; exit 1; fi
+# format plus gofumpt, for the strictest pass.
+format-strict: format
+	@command -v $(GOFUMPT) >/dev/null 2>&1 || { echo "$(GOFUMPT) not found: run 'make tools'"; exit 1; }
+	$(GOFUMPT) -w .
+
+# Kept for muscle memory: `fmt` is the old name of `format`.
+fmt: format
 
 typecheck:
 	$(GOCMD) build ./...
 	$(GOCMD) vet ./...
 
-fmt:
-	$(GOCMD) fmt ./...
-	@if command -v gofumpt >/dev/null 2>&1; then gofumpt -w .; fi
+swagger-gen:
+	@command -v $(SWAG) >/dev/null 2>&1 || { echo "$(SWAG) not found: run 'make tools'"; exit 1; }
+	# Output lives outside the Go module so the generated package never breaks
+	# `go vet`/lint; it is deployment documentation, not code.
+	$(SWAG) init -g cmd/api/main.go -o ../docs/api --parseDependency --parseInternal
 
 tidy:
 	$(GOCMD) mod tidy

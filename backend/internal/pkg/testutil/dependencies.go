@@ -130,7 +130,7 @@ func startEmbeddedPostgres() (string, func() error, error) {
 	pg := embeddedpostgres.NewDatabase(
 		embeddedpostgres.DefaultConfig().
 			Version(embeddedpostgres.V16).
-			Port(uint32(port)).
+			Port(uint32(port)). //nolint:gosec // freePort returns a valid 1-65535 port
 			Username("hotspot").
 			Password("hotspot").
 			Database("hotspot").
@@ -174,7 +174,8 @@ func startRedis() (string, func() error, error) {
 	}
 
 	var output bytes.Buffer
-	cmd := exec.Command(binary,
+	// binary comes from exec.LookPath("redis-server"), not from user input.
+	cmd := exec.Command(binary, //nolint:gosec // binary is resolved via exec.LookPath
 		"--port", strconv.Itoa(port),
 		"--bind", "127.0.0.1",
 		"--save", "",
@@ -202,8 +203,8 @@ func startRedis() (string, func() error, error) {
 		go func() { done <- cmd.Wait() }()
 
 		select {
-		case <-done:
-			return nil
+		case err := <-done:
+			return err
 		case <-time.After(10 * time.Second):
 			return cmd.Process.Kill()
 		}
@@ -228,7 +229,7 @@ func freePort() (int, error) {
 	if err != nil {
 		return 0, fmt.Errorf("reserve port: %w", err)
 	}
-	defer listener.Close()
+	defer func() { _ = listener.Close() }()
 
 	return listener.Addr().(*net.TCPAddr).Port, nil
 }

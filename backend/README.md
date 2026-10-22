@@ -66,8 +66,10 @@ make run-worker      # Asynq worker
 make test            # unit + integration (real Postgres, real Redis)
 make test-unit       # internal/... only
 make test-integration# test/integration only
-make lint            # gofmt check + go vet
-make lint-golangci   # golangci-lint (optional; needs a compatible build)
+make lint            # gofmt + go vet + golangci-lint (.golangci.yml)
+make format          # gofmt + goimports (-local module path)
+make format-strict   # format + gofumpt
+make swagger-gen     # swaggo annotations -> ../docs/api
+make tools           # install goimports, gofumpt, golangci-lint v2, swag
 make typecheck       # go build + go vet
-make fmt             # go fmt
 ```

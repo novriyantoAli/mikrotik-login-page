@@ -1,10 +1,13 @@
-# Linters required by the backend standard. Run with `make lint-golangci`
-# (needs a golangci-lint built with a Go version that can read backend/go.mod).
+# Linters required by the backend standard (skill §11).
+# Run with `make lint`. Requires golangci-lint v2 built with a Go version that
+# can read backend/go.mod (v2.15+ for Go 1.26); CI installs the same major.
+version: "2"
+
 run:
   timeout: 5m
-  tests: true
 
 linters:
+  default: none
   enable:
     - errcheck
     - funlen
@@ -16,23 +19,32 @@ linters:
     - misspell
     - staticcheck
     - unused
+  settings:
+    funlen:
+      lines: 80
+      statements: 50
+    gocyclo:
+      min-complexity: 15
+    lll:
+      line-length: 120
+    misspell:
+      locale: US
+  exclusions:
+    rules:
+      # Tests are exempt from the size/style limits that would only make them
+      # harder to read; they are still checked for real defects.
+      - path: _test\.go
+        linters:
+          - funlen
+          - gocyclo
+          - gosec
+          - lll
 
-linters-settings:
-  funlen:
-    lines: 80
-    statements: 50
-  gocyclo:
-    min-complexity: 15
-  lll:
-    line-length: 120
-  misspell:
-    locale: US
-
-issues:
-  exclude-rules:
-    - path: _test\.go
-      linters:
-        - funlen
-        - gocyclo
-        - gosec
-        - lll
+formatters:
+  enable:
+    - gofmt
+    - goimports
+  settings:
+    goimports:
+      local-prefixes:
+        - github.com/novriyantoAli/mikrotik-login-page/backend

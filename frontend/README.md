@@ -39,17 +39,29 @@ npm run dev         # Vite dev server; /api is proxied to BACKEND_ORIGIN
 npm run build       # static build in build/
 npm run typecheck   # svelte-check (strict)
 npm test            # Vitest
-npm run lint        # Prettier check
+npm run lint        # ESLint (layering rules) + Prettier check
+npm run format      # Prettier write
 ```
+
+`eslint.config.js` enforces the architecture rules that types cannot: components
+may not import `axios` (only the shared client may), and another domain is only
+reachable through its `index.ts` barrel.
 
 `BACKEND_ORIGIN` (default `http://127.0.0.1:8080`) only affects the dev server
 proxy; the deployed origin is the reverse proxy. It is documented in
 `.env.example`.
 
-`npm run lint` currently runs Prettier only; ESLint (with the layering rules the
-architecture expects) is not wired yet, so typechecking and the strict layering
-review carry that job. This is the one frontend standard not machine-enforced in
-the prefactor.
+## Deliberate deviations from the frontend architecture standard
+
+- **npm instead of pnpm.** Repo-wide convention: the root tooling and the Login
+  Page use npm, and one package manager keeps `make install` predictable.
+- **`lib/config/env.ts` reads Vite's `import.meta.env`** instead of SvelteKit's
+  `$env/*`. The app is a static SPA served by nginx (ADR 0013), so there is no
+  server environment at runtime, and `$env/static/public` would fail the build
+  unless every `PUBLIC_*` value is provisioned at build time. `env.ts` is the
+  only file allowed to read `import.meta.env`; domain code imports `env`.
+- **Playwright e2e for this app** arrives with issue #17 (hardening & end-to-end
+  smoke); the prefactor covers Vitest, component and shared-contract tests.
 
 ## Shared contract fixtures
 

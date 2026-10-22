@@ -5,7 +5,7 @@ package notification
 
 import "context"
 
-// Sender delivers one SMS. Implementations must be safe for serialised use: only
+// Sender delivers one SMS. Implementations must be safe for serialized use: only
 // the worker process holds the modem.
 type Sender interface {
 	Send(ctx context.Context, phoneNumber, message string) error
