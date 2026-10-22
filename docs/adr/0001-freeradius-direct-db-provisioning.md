@@ -1,0 +1,3 @@
+# Backend writes directly to the FreeRADIUS database
+
+The backend creates/updates hotspot accounts by writing directly to the `radcheck`/`radreply` tables in the MySQL database that FreeRADIUS reads (via the `sql` module), instead of FreeRADIUS calling the backend through the `rest` module. Chosen because it is simpler, works offline without a per-login HTTP call, and is the most common voucher-provisioning pattern; the consequence is that the backend must understand the FreeRADIUS schema and is responsible for data consistency (username = phone number, password = PIN, `Expiration` and `Mikrotik-Rate-Limit` attributes).
