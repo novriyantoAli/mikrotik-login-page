@@ -146,6 +146,8 @@
                 </table>
                 <p id="user" class="hidden">$(username)</p>
 
+                <div id="activePeriod" class="w-full hidden"></div>
+
                 <div class="flex flex-col pt-3">
                   <form action="$(link-logout)" name="logout" onSubmit="return openLogout()">
                     <div class="flex flex-col justify-center items-center">
@@ -206,6 +208,7 @@
   <script src="./config/data/faq.js?v=21.1"></script>
   <script src="./config/data/header.js?v=21.1"></script>
   <script src="./config/data/internetPackage.js?v=21.1"></script>
+  <script src="./config/data/voucher.js?v=21.1"></script>
   <script src="./config/data/licence.js?v=21.1"></script>
   <script src="./config/data/login.js?v=21.1"></script>
   <script src="./config/data/popup.js?v=21.1"></script>
@@ -220,6 +223,56 @@
   <script id="praytimes" src="./assets/praytimes.js"></script>
   <script id="dayjs" src="./assets/dayjs.min.js"></script>
   <script id="mainscript" src="./assets/app.min.js?v="></script>
+
+  <script src="./assets/voucher-client.js?v=21.2"></script>
+
+  <script>
+    // Active Period: show the remaining time and guide the user to Extend
+    // (still active) or buy a new Package (expired). A backend failure only
+    // affects this section; logout keeps working.
+    (function () {
+      var api = window.VoucherClient;
+      var client = api && api.client;
+      if (!client) {
+        return;
+      }
+
+      // The Package list is the target for both Extend and buy-again.
+      var packages = document.getElementById("paketInternet");
+      if (packages && typeof client.loadPackages === "function") {
+        packages.classList.remove("hidden");
+        client.loadPackages(packages);
+      }
+
+      var container = document.getElementById("activePeriod");
+      if (!container) {
+        return;
+      }
+      container.classList.remove("hidden");
+
+      var user = document.getElementById("user");
+      var phoneNumber = user ? (user.textContent || "").trim() : "";
+      if (!phoneNumber || phoneNumber.indexOf("$(") !== -1) {
+        client.renderActivePeriod(container, null);
+        return;
+      }
+
+      if (typeof client.renderStatus === "function") {
+        client.renderStatus(container, "loading", "Memuat Active Period...");
+      }
+
+      client
+        .fetchActivePeriod(phoneNumber)
+        .then(function (activePeriod) {
+          client.renderActivePeriod(container, client.activePeriodStatus(activePeriod.expiry));
+        })
+        .catch(function () {
+          if (typeof client.renderStatus === "function") {
+            client.renderStatus(container, "error", "Active Period tidak dapat dimuat.");
+          }
+        });
+    })();
+  </script>
 
 </body>
 

@@ -26,6 +26,8 @@
    * @typedef {Object} VoucherConfig
    * @property {string} backendBaseUrl Base URL of the backend serving the Package list.
    * @property {string} packagesPath Path of the public Package list endpoint.
+   * @property {string} activePeriodPath Path of the public Active Period endpoint.
+   * @property {number} expiryWarningHours Hours before the Active Period ends that count as "almost over".
    * @property {string} appBaseUrl Base URL of the purchase web app (Svelte).
    * @property {number} packagesFromBackend 1 to read from the backend, 0 for the static list.
    * @property {Array<Record<string, unknown>>} fallbackPackages Static list used when the toggle is off.
@@ -44,6 +46,8 @@
   var DEFAULT_CONFIG = {
     backendBaseUrl: "",
     packagesPath: "/packages",
+    activePeriodPath: "/active-period",
+    expiryWarningHours: 24,
     appBaseUrl: "",
     packagesFromBackend: 0,
     fallbackPackages: [],
@@ -79,9 +83,11 @@
     empty: "Belum ada paket tersedia.",
     error: "Gagal memuat paket. Silakan coba lagi.",
     notConfigured: "Daftar paket belum dikonfigurasi. Hubungi admin.",
+    statusUnavailable: "Active Period tidak tersedia.",
+    statusLoading: "Memuat Active Period...",
     purchaseAppUnavailable: "Pembelian belum dikonfigurasi. Hubungi admin.",
     packageUnavailable: "Paket ini belum dapat dibeli. Hubungi admin.",
-    expired: "Masa aktif Anda telah berakhir. Silakan beli paket baru.",
+    expired: "Active Period Anda telah berakhir. Silakan beli paket baru.",
     wrongPin: "PIN salah. Periksa kembali PIN Anda.",
     generic: "Login gagal. Periksa Phone Number dan PIN Anda.",
     phoneRequired: "Phone Number wajib diisi.",
@@ -141,19 +147,21 @@
     }
 
     merged.packagesFromBackend = merged.packagesFromBackend ? 1 : 0;
-    merged.packagesPath = normalizePath(merged.packagesPath);
+    merged.packagesPath = normalizePath(merged.packagesPath, DEFAULT_CONFIG.packagesPath);
+    merged.activePeriodPath = normalizePath(merged.activePeriodPath, DEFAULT_CONFIG.activePeriodPath);
+    merged.expiryWarningHours = Number(merged.expiryWarningHours) > 0 ? Number(merged.expiryWarningHours) : DEFAULT_CONFIG.expiryWarningHours;
     merged.fallbackPackages = Array.isArray(merged.fallbackPackages) ? merged.fallbackPackages : [];
 
     return Object.freeze(/** @type {VoucherConfig} */ (merged));
   }
 
-  /** @param {unknown} path */
-  function normalizePath(path) {
-    var value = path == null ? DEFAULT_CONFIG.packagesPath : String(path);
+  /** @param {unknown} path @param {string} fallback */
+  function normalizePath(path, fallback) {
+    var value = path == null ? fallback : String(path);
     if (value && value.charAt(0) !== "/") {
       value = "/" + value;
     }
-    return value || DEFAULT_CONFIG.packagesPath;
+    return value || fallback;
   }
 
   /**
@@ -221,6 +229,60 @@
       list = [];
     }
     return list.map(normalizePackage);
+  }
+
+  /** @param {unknown} value @returns {number|null} */
+  function toMillis(value) {
+    if (value === undefined || value === null || value === "") {
+      return null;
+    }
+    if (value instanceof Date) {
+      return isNaN(value.getTime()) ? null : value.getTime();
+    }
+    if (typeof value === "number") {
+      if (!isFinite(value)) {
+        return null;
+      }
+      // FreeRADIUS Expiration is conventionally epoch seconds; accept ms too.
+      return value < 1e12 ? value * 1000 : value;
+    }
+    var parsed = Date.parse(String(value));
+    return isNaN(parsed) ? null : parsed;
+  }
+
+  /** @param {number} remainingMs @returns {string} */
+  function formatActivePeriod(remainingMs) {
+    var ms = Number(remainingMs);
+    if (!isFinite(ms) || ms <= 0) {
+      return "";
+    }
+    var totalMinutes = Math.floor(ms / 60000);
+    var days = Math.floor(totalMinutes / 1440);
+    var hours = Math.floor((totalMinutes % 1440) / 60);
+    var minutes = totalMinutes % 60;
+    var parts = [];
+    if (days) {
+      parts.push(days + " hari");
+    }
+    if (hours) {
+      parts.push(hours + " jam");
+    }
+    if (minutes && (days === 0 || hours === 0)) {
+      parts.push(minutes + " menit");
+    }
+    if (parts.length === 0) {
+      parts.push("kurang dari 1 menit");
+    }
+    return parts.join(" ");
+  }
+
+  /** @param {any} payload @returns {{expiry: unknown}} */
+  function normalizeActivePeriod(payload) {
+    var value = payload && !Array.isArray(payload) && payload.data ? payload.data : payload;
+    if (!value || typeof value !== "object") {
+      value = {};
+    }
+    return { expiry: firstDefined(value.expiry, value.expiredAt, null) };
   }
 
   /** @returns {typeof fetch | null} */
@@ -341,6 +403,111 @@
           }
           throw new VoucherError("network_error", "Package list request failed", error);
         });
+    }
+
+    /**
+     * Fetch the end of the Active Period from the public backend endpoint for a
+     * given Phone Number (see ADR 0005).
+     * @param {string} phoneNumber
+     * @returns {Promise<{expiry: unknown}>}
+     */
+    function fetchActivePeriod(phoneNumber) {
+      if (!config.backendBaseUrl) {
+        return Promise.reject(new VoucherError("config_missing", "Backend base URL is not configured"));
+      }
+
+      var doFetch = fetchImpl || globalFetch();
+      if (typeof doFetch !== "function") {
+        return Promise.reject(new VoucherError("fetch_unavailable", "No fetch implementation is available"));
+      }
+
+      var url = joinUrl(config.backendBaseUrl, config.activePeriodPath) + "?phone=" + encodeURIComponent(String(phoneNumber == null ? "" : phoneNumber));
+
+      return Promise.resolve()
+        .then(function () {
+          return doFetch(url, { method: "GET", headers: { Accept: "application/json" } });
+        })
+        .then(function (response) {
+          if (response && response.ok === false) {
+            throw new VoucherError("http_error", "Active Period request failed with status " + response.status, response);
+          }
+          return response.json();
+        })
+        .then(normalizeActivePeriod)
+        .catch(function (error) {
+          if (error instanceof VoucherError) {
+            throw error;
+          }
+          throw new VoucherError("network_error", "Active Period request failed", error);
+        });
+    }
+
+    /**
+     * Summarize the Active Period from an expiry value: how much is left, how
+     * urgent it is, and what the user should do next.
+     * @param {unknown} expiry
+     * @param {{ now?: unknown, warningMs?: number }} [options]
+     * @returns {{state: "active"|"expiring"|"expired", remainingMs: number, remainingText: string, message: string, actionLabel: string}|null}
+     */
+    function activePeriodStatus(expiry, options) {
+      var opts = options || {};
+      var nowMs = opts.now != null ? toMillis(opts.now) : Date.now();
+      var expiryMs = toMillis(expiry);
+      if (nowMs === null || expiryMs === null) {
+        return null;
+      }
+
+      var warningMs = opts.warningMs != null ? Number(opts.warningMs) : config.expiryWarningHours * 3600000;
+      var remainingMs = expiryMs - nowMs;
+      var state = remainingMs <= 0 ? "expired" : remainingMs <= warningMs ? "expiring" : "active";
+
+      var messages = {
+        active: "Active Period masih berjalan.",
+        expiring: "Active Period hampir habis. Segera Extend.",
+        expired: "Active Period telah berakhir. Beli paket baru untuk kembali online.",
+      };
+      var actionLabels = { active: "Extend", expiring: "Extend", expired: "Beli Paket" };
+
+      return {
+        state: /** @type {"active"|"expiring"|"expired"} */ (state),
+        remainingMs: remainingMs,
+        remainingText: remainingMs > 0 ? formatActivePeriod(remainingMs) : "",
+        message: messages[state],
+        actionLabel: actionLabels[state],
+      };
+    }
+
+    /**
+     * Render the Active Period summary and its Extend / buy-again guidance. The
+     * action points at the Package list so the user can pick a Package.
+     * @param {Element|string} container
+     * @param {ReturnType<typeof activePeriodStatus>} status
+     * @param {{ packagesTarget?: string }} [options]
+     * @returns {Element}
+     */
+    function renderActivePeriod(container, status, options) {
+      var target = resolveContainer(container);
+      var opts = options || {};
+      target.innerHTML = "";
+
+      if (!status) {
+        target.appendChild(createTextElement("p", "active-period__unknown", MESSAGES.statusUnavailable));
+        return target;
+      }
+
+      var wrap = createElement("div", "active-period active-period--" + status.state);
+      if (status.remainingMs > 0) {
+        wrap.appendChild(createTextElement("p", "active-period__remaining", "Sisa Active Period: " + status.remainingText));
+      }
+      wrap.appendChild(createTextElement("p", "active-period__message", status.message));
+
+      var action = createElement("a", "active-period__action");
+      action.setAttribute("href", "#" + (opts.packagesTarget || "paketInternet"));
+      action.textContent = status.actionLabel;
+      wrap.appendChild(action);
+
+      target.appendChild(wrap);
+      return target;
     }
 
     /**
@@ -595,7 +762,11 @@
     return {
       config: config,
       fetchPackages: fetchPackages,
+      fetchActivePeriod: fetchActivePeriod,
       loadPackages: loadPackages,
+      activePeriodStatus: activePeriodStatus,
+      formatActivePeriod: formatActivePeriod,
+      renderActivePeriod: renderActivePeriod,
       renderPackages: renderPackages,
       renderStatus: renderStatus,
       buildPurchaseUrl: purchaseUrlFor,

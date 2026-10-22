@@ -1,50 +1,8 @@
 import { test, expect } from "@playwright/test";
 import { createHash } from "node:crypto";
+import { PACKAGE_FIXTURE, configureDeployment, stubPackageBackend, servePage } from "./helpers.mjs";
 
-const PACKAGE_FIXTURE = {
-  id: 1,
-  nama: "Paket Harian",
-  harga: "Rp 5.000",
-  durasiActivePeriod: "1 Hari",
-  batasKecepatan: "10M",
-};
-
-/** Point the deployment config at stubbed backend/purchase URLs for this page load. */
-async function configureDeployment(page, overrides) {
-  await page.route("**/config/data/voucher.js*", async (route) => {
-    const response = await route.fetch();
-    let body = await response.text();
-    if (overrides.backendBaseUrl !== undefined) {
-      body = body.replace('backendBaseUrl: ""', `backendBaseUrl: "${overrides.backendBaseUrl}"`);
-    }
-    if (overrides.appBaseUrl !== undefined) {
-      body = body.replace('appBaseUrl: ""', `appBaseUrl: "${overrides.appBaseUrl}"`);
-    }
-    await route.fulfill({ response, body });
-  });
-}
-
-async function stubPackageBackend(page, packages) {
-  await page.route("https://api.test/packages", async (route) => {
-    await route.fulfill({
-      status: 200,
-      contentType: "application/json",
-      body: JSON.stringify({ data: packages }),
-    });
-  });
-}
-
-/** Serve a variant of the Login Page with RouterOS template values substituted. */
-async function serveLoginPage(page, substitutions) {
-  await page.route("**/login.html*", async (route) => {
-    const response = await route.fetch();
-    let body = await response.text();
-    for (const [from, to] of Object.entries(substitutions)) {
-      body = body.split(from).join(to);
-    }
-    await route.fulfill({ response, body });
-  });
-}
+const serveLoginPage = (page, substitutions) => servePage(page, "**/login.html*", substitutions);
 
 test.describe("Login Page smoke", () => {
   test("shows a clear Package error and keeps hotspot login usable when no backend is configured", async ({ page }) => {
@@ -175,7 +133,7 @@ test.describe("Login Page smoke", () => {
 
     await serveLoginPage(page, { "$(error)": "uptime limit reached" });
     await page.goto("/login.html");
-    await expect(page.locator("#serverError")).toContainText(/masa aktif/i);
+    await expect(page.locator("#serverError")).toContainText(/berakhir/i);
   });
 
   test("shows a clear message when the PIN is not 6 digits", async ({ page }) => {

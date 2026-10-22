@@ -16,6 +16,13 @@ var cfgVoucher = {
   // Path of the public Package list endpoint on the backend.
   packagesPath: "/packages",
 
+  // Path of the public Active Period endpoint on the backend (see ADR 0005).
+  // Contract: GET <backendBaseUrl><activePeriodPath>?phone=<Phone Number> -> { expiry }.
+  activePeriodPath: "/active-period",
+
+  // Hours before the Active Period ends that count as "almost over" (the Extend nudge).
+  expiryWarningHours: 24,
+
   // Base URL of the purchase web app (Svelte). The "Beli" button links here.
   // Required for the Beli button; when empty, the button is rendered disabled
   // and the Package list still loads. Contract with the app: the client appends

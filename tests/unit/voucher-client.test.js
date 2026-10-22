@@ -38,6 +38,9 @@ describe("voucher client seam", () => {
     expect(typeof VoucherClient.resolveConfig).toBe("function");
     expect(typeof VoucherClient.client.fetchPackages).toBe("function");
     expect(typeof VoucherClient.client.loadPackages).toBe("function");
+    expect(typeof VoucherClient.client.fetchActivePeriod).toBe("function");
+    expect(typeof VoucherClient.client.activePeriodStatus).toBe("function");
+    expect(typeof VoucherClient.client.renderActivePeriod).toBe("function");
     expect(typeof VoucherClient.client.renderPackages).toBe("function");
     expect(typeof VoucherClient.client.buildPurchaseUrl).toBe("function");
     expect(typeof VoucherClient.client.hashPin).toBe("function");
@@ -389,6 +392,119 @@ describe("voucher client seam", () => {
 
       expect(() => client.login({ phoneNumber: "0812", pin: "12345" })).toThrow(/6 digits/i);
       expect(() => client.login({ phoneNumber: "0812", pin: "abcdef" })).toThrow(/6 digits/i);
+    });
+  });
+
+  describe("active period status", () => {
+    const HOUR = 3600000;
+    const DAY = 24 * HOUR;
+    const NOW = Date.UTC(2026, 0, 10, 12, 0, 0);
+
+    it("reports an active Account with the remaining Active Period and an Extend action", () => {
+      const { createVoucherClient } = loadModule();
+      const client = createVoucherClient();
+
+      const status = client.activePeriodStatus(new Date(NOW + 2 * DAY + 3 * HOUR), { now: NOW, warningMs: DAY });
+
+      expect(status.state).toBe("active");
+      expect(status.remainingText).toBe("2 hari 3 jam");
+      expect(status.actionLabel).toMatch(/extend/i);
+    });
+
+    it("flags an expiring Active Period as almost over", () => {
+      const { createVoucherClient } = loadModule();
+      const client = createVoucherClient();
+
+      const status = client.activePeriodStatus(new Date(NOW + 2 * HOUR), { now: NOW, warningMs: DAY });
+
+      expect(status.state).toBe("expiring");
+      expect(status.message).toMatch(/hampir habis/i);
+    });
+
+    it("reports an ended Active Period with a buy-again action", () => {
+      const { createVoucherClient } = loadModule();
+      const client = createVoucherClient();
+
+      const status = client.activePeriodStatus(new Date(NOW - HOUR), { now: NOW, warningMs: DAY });
+
+      expect(status.state).toBe("expired");
+      expect(status.message).toMatch(/berakhir/i);
+      expect(status.actionLabel).toMatch(/beli/i);
+    });
+
+    it("returns null when there is no usable expiry", () => {
+      const { createVoucherClient } = loadModule();
+      const client = createVoucherClient();
+
+      expect(client.activePeriodStatus(null)).toBeNull();
+      expect(client.activePeriodStatus("not-a-date")).toBeNull();
+    });
+
+    it("formats the remaining Active Period in days, hours and minutes", () => {
+      const { createVoucherClient } = loadModule();
+      const client = createVoucherClient();
+
+      expect(client.formatActivePeriod(2 * DAY + 3 * HOUR)).toBe("2 hari 3 jam");
+      expect(client.formatActivePeriod(2 * DAY + 30 * 60000)).toBe("2 hari 30 menit");
+      expect(client.formatActivePeriod(45 * 60000)).toBe("45 menit");
+    });
+
+    it("accepts an epoch-seconds expiry (the FreeRADIUS Expiration convention)", () => {
+      const { createVoucherClient } = loadModule();
+      const client = createVoucherClient();
+
+      const status = client.activePeriodStatus((NOW + 2 * DAY) / 1000, { now: NOW, warningMs: DAY });
+
+      expect(status.state).toBe("active");
+      expect(status.remainingText).toBe("2 hari");
+    });
+  });
+
+  describe("renderActivePeriod", () => {
+    it("shows the remaining Active Period, an indication and an Extend action", () => {
+      const { createVoucherClient } = loadModule();
+      const client = createVoucherClient({ document });
+      const container = document.createElement("div");
+      const status = client.activePeriodStatus(new Date(Date.now() + 3 * 86400000), { warningMs: 86400000 });
+
+      client.renderActivePeriod(container, status);
+
+      expect(container.textContent).toMatch(/sisa active period/i);
+      expect(container.textContent).toMatch(/extend/i);
+      expect(container.querySelector("a").getAttribute("href")).toBe("#paketInternet");
+    });
+
+    it("directs an expired Account back to the Package list to buy again", () => {
+      const { createVoucherClient } = loadModule();
+      const client = createVoucherClient({ document });
+      const container = document.createElement("div");
+      const status = client.activePeriodStatus(new Date(Date.now() - 1000), { warningMs: 86400000 });
+
+      client.renderActivePeriod(container, status, { packagesTarget: "paketSaya" });
+
+      expect(container.textContent).toMatch(/beli paket baru/i);
+      expect(container.querySelector("a").getAttribute("href")).toBe("#paketSaya");
+    });
+  });
+
+  describe("fetchActivePeriod", () => {
+    it("fetches the end of the Active Period from the configured backend endpoint", async () => {
+      const { createVoucherClient } = loadModule();
+      const fetchMock = vi.fn().mockResolvedValue({ ok: true, json: async () => ({ data: { expiry: "2026-01-10T12:00:00Z" } }) });
+      const client = createVoucherClient({ config: { backendBaseUrl: "https://api.example", activePeriodPath: "/active-period" }, fetch: fetchMock });
+
+      const account = await client.fetchActivePeriod("08123456789");
+
+      expect(fetchMock.mock.calls[0][0]).toBe("https://api.example/active-period?phone=08123456789");
+      expect(account.expiry).toBe("2026-01-10T12:00:00Z");
+    });
+
+    it("rejects with a coded error when the Active Period backend is unreachable", async () => {
+      const { createVoucherClient } = loadModule();
+      const fetchMock = vi.fn().mockRejectedValue(new TypeError("Failed to fetch"));
+      const client = createVoucherClient({ config: { backendBaseUrl: "https://api.example" }, fetch: fetchMock });
+
+      await expect(client.fetchActivePeriod("0812")).rejects.toMatchObject({ code: "network_error" });
     });
   });
 
