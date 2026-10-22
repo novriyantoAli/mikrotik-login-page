@@ -300,7 +300,22 @@
 
 	<script src="./assets/md5.js?v=21.1"></script>
 
-	<script src="./assets/voucher-client.js?v=21.1"></script>
+	<script src="./assets/voucher-client.js?v=21.2"></script>
+
+	<script>
+		// Render the Package list from the backend. The client shows loading,
+		// empty and error states and never rejects on a failed fetch, so an
+		// unreachable backend does not break the hotspot login form below.
+		(function () {
+			var container = document.getElementById("paketInternet");
+			var api = window.VoucherClient;
+			if (!container || !api || !api.client || typeof api.client.loadPackages !== "function") {
+				return;
+			}
+			container.classList.remove("hidden");
+			api.client.loadPackages(container);
+		})();
+	</script>
 
 </body>
 

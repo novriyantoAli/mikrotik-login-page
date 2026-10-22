@@ -37,6 +37,7 @@ describe("voucher client seam", () => {
     expect(typeof VoucherClient.createVoucherClient).toBe("function");
     expect(typeof VoucherClient.resolveConfig).toBe("function");
     expect(typeof VoucherClient.client.fetchPackages).toBe("function");
+    expect(typeof VoucherClient.client.loadPackages).toBe("function");
     expect(typeof VoucherClient.client.renderPackages).toBe("function");
     expect(typeof VoucherClient.client.buildPurchaseUrl).toBe("function");
     expect(typeof VoucherClient.client.hashPin).toBe("function");
@@ -232,6 +233,84 @@ describe("voucher client seam", () => {
       expect(navigate).toHaveBeenCalledTimes(1);
       expect(navigate.mock.calls[0][0]).toContain("package=1");
       expect(navigate.mock.calls[0][0]).toContain("return=");
+    });
+  });
+
+  describe("loadPackages", () => {
+    const backendConfig = { packagesFromBackend: 1, backendBaseUrl: "https://api.example" };
+    const backendPayload = {
+      data: [{ id: 1, nama: "Paket Harian", harga: "Rp 5.000", durasiActivePeriod: "1 Hari", batasKecepatan: "10M" }],
+    };
+
+    it("shows a loading indicator, then renders the Packages fetched from the backend", async () => {
+      const { createVoucherClient } = loadModule();
+      let respond;
+      const fetchMock = vi.fn().mockReturnValue(new Promise((resolve) => {
+        respond = resolve;
+      }));
+      const client = createVoucherClient({ config: backendConfig, fetch: fetchMock, document });
+      const container = document.createElement("div");
+
+      const pending = client.loadPackages(container);
+      expect(container.textContent).toMatch(/memuat paket/i);
+
+      respond({ ok: true, json: async () => backendPayload });
+      const result = await pending;
+
+      expect(result.status).toBe("success");
+      expect(result.packages).toHaveLength(1);
+      expect(container.textContent).toContain("Paket Harian");
+      expect(container.textContent).toContain("Rp 5.000");
+      expect(container.textContent).toContain("1 Hari");
+      expect(container.textContent).toContain("10M");
+    });
+
+    it("shows an informative empty state when the backend has no Packages", async () => {
+      const { createVoucherClient } = loadModule();
+      const fetchMock = vi.fn().mockResolvedValue({ ok: true, json: async () => ({ data: [] }) });
+      const client = createVoucherClient({ config: backendConfig, fetch: fetchMock, document });
+      const container = document.createElement("div");
+
+      const result = await client.loadPackages(container);
+
+      expect(result.status).toBe("empty");
+      expect(container.textContent).toMatch(/belum ada paket/i);
+    });
+
+    it("shows a clear error state and resolves without throwing when the backend is unreachable", async () => {
+      const { createVoucherClient } = loadModule();
+      const fetchMock = vi.fn().mockRejectedValue(new TypeError("Failed to fetch"));
+      const client = createVoucherClient({ config: backendConfig, fetch: fetchMock, document });
+      const container = document.createElement("div");
+
+      const result = await client.loadPackages(container);
+
+      expect(result.status).toBe("error");
+      expect(result.error).toBeTruthy();
+      expect(container.textContent).toMatch(/gagal memuat paket/i);
+    });
+
+    it("tells the user the Package list is not configured when the backend URL is missing", async () => {
+      const { createVoucherClient } = loadModule();
+      const client = createVoucherClient({ config: { packagesFromBackend: 1, backendBaseUrl: "" }, fetch: vi.fn(), document });
+      const container = document.createElement("div");
+
+      const result = await client.loadPackages(container);
+
+      expect(result.status).toBe("error");
+      expect(container.textContent).toMatch(/belum dikonfigurasi/i);
+    });
+
+    it("keeps the login seam usable after the Package backend fails", async () => {
+      const { createVoucherClient } = loadModule();
+      const fetchMock = vi.fn().mockRejectedValue(new TypeError("Failed to fetch"));
+      const client = createVoucherClient({ config: backendConfig, fetch: fetchMock, md5: loadRepoMd5(), document });
+      const container = document.createElement("div");
+
+      await client.loadPackages(container);
+
+      const payload = client.login({ phoneNumber: "08123456789", pin: "123456" });
+      expect(payload.username).toBe("08123456789");
     });
   });
 

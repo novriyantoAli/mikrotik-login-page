@@ -13,21 +13,8 @@ var cfgIP = {
     sub_title: "124+ puas dengan internet kami",
   },
 
-  data: [
-    {
-      name: "Paket harian",
-      price: "Rp 0",
-      url: "https://apjii.or.id/anggota/penyelengara?name=&legality=&page=45",
-    },
-    {
-      name: "Paket 12 Jam",
-      price: "Rp 0",
-      url: "https://apjii.or.id/anggota/penyelengara?name=&legality=&page=45",
-    },
-    {
-      name: "Paket Bulanan",
-      price: "Hubungi admin",
-      url: "https://apjii.or.id/anggota/penyelengara?name=&legality=&page=45",
-    },
-  ],
+  // The Manual Package list has been replaced by the backend Package list
+  // (see cfgVoucher in config/data/voucher.js). Kept empty so enabling the old
+  // cfgIP renderer cannot reintroduce a hand-maintained list.
+  data: [],
 };

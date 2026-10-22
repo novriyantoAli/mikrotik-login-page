@@ -78,6 +78,7 @@
     loading: "Memuat paket...",
     empty: "Belum ada paket tersedia.",
     error: "Gagal memuat paket. Silakan coba lagi.",
+    notConfigured: "Daftar paket belum dikonfigurasi. Hubungi admin.",
     expired: "Masa aktif Anda telah berakhir. Silakan beli paket baru.",
     wrongPin: "PIN salah. Periksa kembali PIN Anda.",
     generic: "Login gagal. Periksa Phone Number dan PIN Anda.",
@@ -422,6 +423,38 @@
       return element;
     }
 
+    /**
+     * Load the Package list and render it into a container, showing a loading
+     * indicator first. A failed fetch never rejects: it degrades to an empty or
+     * error state so the rest of the Login Page (notably the hotspot login
+     * form) keeps working. An invalid container still throws synchronously,
+     * because that is a programming error, not a runtime condition.
+     * @param {Element|string} container
+     * @returns {Promise<{status: "success"|"empty"|"error", packages: PackageOption[], error: (Error|null)}>}
+     */
+    function loadPackages(container) {
+      renderStatus(container, "loading");
+      return fetchPackages().then(
+        function (packages) {
+          renderPackages(container, packages);
+          return {
+            status: packages.length ? "success" : "empty",
+            packages: packages,
+            error: null,
+          };
+        },
+        function (error) {
+          var isUnconfigured = Boolean(error && error.code === "config_missing");
+          renderStatus(container, "error", isUnconfigured ? MESSAGES.notConfigured : undefined);
+          return {
+            status: "error",
+            packages: [],
+            error: error,
+          };
+        }
+      );
+    }
+
     /** @param {PackageOption} pkg @param {{ returnUrl?: string }} [context] */
     function purchaseUrlFor(pkg, context) {
       return buildPurchaseUrl(config, pkg, context);
@@ -501,6 +534,7 @@
     return {
       config: config,
       fetchPackages: fetchPackages,
+      loadPackages: loadPackages,
       renderPackages: renderPackages,
       renderStatus: renderStatus,
       buildPurchaseUrl: purchaseUrlFor,
