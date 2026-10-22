@@ -65,10 +65,11 @@ Each mode derives the hotspot credentials differently:
 | --- | --- | --- |
 | `phone` — Phone Number + PIN | Phone Number + PIN (6 digits, masked) | `username = Phone Number`, `password = CHAP(PIN)` |
 | `accessCode` — Access Code | one field | `username = code`, `password = CHAP(code)`; the code is a single secret, so no 6-digit rule applies |
-| `user` — User | username + password (masked) | `username` as typed, `password = CHAP(password)` |
+| `user` — User | username + password (masked) | `username` as typed, `password = CHAP(password)`; the password has no 6-digit rule |
 
 A wrong-credential message follows the active mode (for **Access Code** it reads
-"Kode Akses salah."); the expired-account message is shared by every mode.
+"Kode Akses salah.", for **User** "Username atau password salah."); the
+expired-account message is shared by every mode.
 
 ### Backend contracts (read-only, implemented outside this repo)
 

@@ -679,6 +679,25 @@ describe("voucher client seam", () => {
       expect(form.secondaryGroup.classList.contains("hidden")).toBe(true);
     });
 
+    it("renders both fields for a User-only deployment", () => {
+      globalThis.cfgLogin = { modes: { phone: { status: 0 }, user: { status: 1 } } };
+      const { createVoucherClient } = loadModule();
+      const client = createVoucherClient({ document });
+      const form = buildLoginForm(document);
+      form.title.textContent = "Login";
+
+      const control = client.renderLoginModes(form.container, { fields: form.fields });
+
+      expect(control.mode).toBe("user");
+      expect(control.modes).toEqual(["user"]);
+      expect(form.container.classList.contains("hidden")).toBe(true);
+      expect(form.title.textContent).toBe("Login");
+      expect(form.primaryInput.getAttribute("placeholder")).toBe("Username");
+      expect(form.secondaryInput.getAttribute("placeholder")).toBe("Password");
+      expect(form.secondaryGroup.classList.contains("hidden")).toBe(false);
+      expect(form.secondaryInput.getAttribute("type")).toBe("password");
+    });
+
     it("maps the form slots onto each mode's credential keys", () => {
       const { createVoucherClient } = loadModule();
       const client = createVoucherClient();
@@ -701,7 +720,7 @@ describe("voucher client seam", () => {
       expect(() => client.login({ mode: "accessCode", accessCode: "12" })).not.toThrow();
     });
 
-    it("submits a User as username plus a separately hashed password", () => {
+    it("submits a User with the username as typed and a separately hashed password of any length", () => {
       const { createVoucherClient } = loadModule();
       const client = createVoucherClient({ md5: loadRepoMd5() });
 
@@ -710,6 +729,24 @@ describe("voucher client seam", () => {
       expect(payload.username).toBe("budi");
       expect(payload.password).toBe(expectedMd5("idrahasiach"));
       expect(payload.password).not.toBe(payload.username);
+
+      // The username is sent exactly as typed and the password has no 6-digit
+      // PIN rule, unlike Phone Number + PIN.
+      const short = client.login({ mode: "user", username: "Budi Santoso", password: "abc", chapId: "id", chapChallenge: "ch" });
+
+      expect(short.username).toBe("Budi Santoso");
+      expect(short.password).toBe(expectedMd5("idabcch"));
+    });
+
+    it("hashes a User password even when it is typed the same as the username", () => {
+      const { createVoucherClient } = loadModule();
+      const client = createVoucherClient({ md5: loadRepoMd5() });
+
+      const payload = client.login({ mode: "user", username: "budi", password: "budi", chapId: "id", chapChallenge: "ch" });
+
+      expect(payload.username).toBe("budi");
+      expect(payload.password).toBe(expectedMd5("idbudich"));
+      expect(payload.password).not.toBe("budi");
     });
 
     it("requires the credentials of the active mode", () => {

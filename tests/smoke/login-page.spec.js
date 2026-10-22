@@ -215,6 +215,117 @@ test.describe("Login Page smoke", () => {
     expect(submitted.password).not.toBe("budi");
   });
 
+  test("uses User mode by default when it is the only enabled mode", async ({ page }) => {
+    await configureLoginModes(page, { phone: 0, user: 1 });
+    await page.goto("/login.html");
+
+    // Only one mode is enabled, so there is no tab: the form starts in User mode.
+    await expect(page.locator("#loginModes")).toBeHidden();
+    await expect(page.locator(".login-modes__tab")).toHaveCount(0);
+    await expect(page.locator("#labelForm")).toContainText(/login/i);
+    await expect(page.locator("#username")).toHaveAttribute("placeholder", /username/i);
+    await expect(page.locator("#domPassword")).toBeVisible();
+    await expect(page.locator("#password")).toHaveAttribute("placeholder", /password/i);
+
+    const submitted = await page.evaluate(() => {
+      document.getElementById("username").value = "budi";
+      document.getElementById("password").value = "rahasia";
+      document.sendin.submit = function () {};
+      window.doLogin();
+      return {
+        username: document.sendin.username.value,
+        password: document.sendin.password.value,
+      };
+    });
+
+    const expected = createHash("md5").update("$(chap-id)" + "rahasia" + "$(chap-challenge)").digest("hex");
+    expect(submitted.username).toBe("budi");
+    expect(submitted.password).toBe(expected);
+  });
+
+  test("asks for a username and a masked password in User mode", async ({ page }) => {
+    await configureLoginModes(page, { user: 1 });
+    await page.goto("/login.html");
+    await page.locator("#loginModes .login-modes__tab").filter({ hasText: /^user$/i }).click();
+
+    // User mode offers both credential fields, with a plain username and a
+    // masked password; the username has no reveal toggle.
+    await expect(page.locator("#domUsername")).toBeVisible();
+    await expect(page.locator("#username")).toBeVisible();
+    await expect(page.locator("#username")).toHaveAttribute("placeholder", /username/i);
+    await expect(page.locator("#username")).toHaveAttribute("type", "text");
+    await expect(page.locator("#iconTypePasswordUser")).toBeHidden();
+    await expect(page.locator("#domPassword")).toBeVisible();
+    await expect(page.locator("#password")).toBeVisible();
+    await expect(page.locator("#password")).toHaveAttribute("placeholder", /password/i);
+    await expect(page.locator("#password")).toHaveAttribute("type", "password");
+
+    // The password can still be revealed and hidden again.
+    await page.locator("#iconTypePassword").click();
+    await expect(page.locator("#password")).toHaveAttribute("type", "text");
+    await page.locator("#iconTypePassword").click();
+    await expect(page.locator("#password")).toHaveAttribute("type", "password");
+  });
+
+  test("follows the mode for a wrong User credential while keeping the expired message", async ({ page }) => {
+    await configureLoginModes(page, { user: 1 });
+    await serveLoginPage(page, { "$(error)": "invalid password" });
+    await page.goto("/login.html");
+
+    await expect(page.locator("#serverError")).toContainText(/PIN salah/i);
+    await page.locator("#loginModes .login-modes__tab").filter({ hasText: /^user$/i }).click();
+    await expect(page.locator("#serverError")).toContainText(/username atau password salah/i);
+
+    // An expired account keeps the shared message in User mode too.
+    await serveLoginPage(page, { "$(error)": "uptime limit reached" });
+    await page.goto("/login.html");
+    await page.locator("#loginModes .login-modes__tab").filter({ hasText: /^user$/i }).click();
+    await expect(page.locator("#serverError")).toContainText(/berakhir/i);
+  });
+
+  test("accepts a non-6-digit User password without the PIN rule", async ({ page }) => {
+    await configureLoginModes(page, { user: 1 });
+    await page.goto("/login.html");
+    await page.locator("#loginModes .login-modes__tab").filter({ hasText: /^user$/i }).click();
+
+    const submitted = await page.evaluate(() => {
+      document.getElementById("username").value = "budi";
+      document.getElementById("password").value = "abc";
+      document.sendin.submit = function () {};
+      window.doLogin();
+      return {
+        username: document.sendin.username.value,
+        password: document.sendin.password.value,
+      };
+    });
+
+    await expect(page.locator("#loginError")).toBeHidden();
+    const expected = createHash("md5").update("$(chap-id)" + "abc" + "$(chap-challenge)").digest("hex");
+    expect(submitted.username).toBe("budi");
+    expect(submitted.password).toBe(expected);
+  });
+
+  test("keeps the Package list, Beli button and trial flow with User enabled", async ({ page }) => {
+    await configureLoginModes(page, { user: 1 });
+    await configureDeployment(page, { backendBaseUrl: "https://api.test", appBaseUrl: "https://app.test/beli" });
+    await stubPackageBackend(page, [PACKAGE_FIXTURE]);
+    await serveLoginPage(page, { "$(trial)": "yes" });
+
+    await page.goto("/login.html");
+    await page.locator("#loginModes .login-modes__tab").filter({ hasText: /^user$/i }).click();
+
+    // User keeps both credential fields visible.
+    await expect(page.locator("#username")).toBeVisible();
+    await expect(page.locator("#password")).toBeVisible();
+
+    // The Package list, its Beli button and the trial flow stay intact.
+    const packages = page.locator("#paketInternet");
+    await expect(packages).toContainText("Paket Harian");
+    await expect(packages.getByRole("button", { name: "Beli", exact: true })).toBeVisible();
+    await expect(page.locator("#btnTrial")).toBeVisible();
+    await expect(page.locator("#linkTrial")).toHaveAttribute("href", /username=T-/);
+  });
+
   test("offers a single Access Code field and hashes the code as the password", async ({ page }) => {
     await configureLoginModes(page, { accessCode: 1 });
     await page.goto("/login.html");
