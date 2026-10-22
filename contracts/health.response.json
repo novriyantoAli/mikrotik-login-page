@@ -1,0 +1,22 @@
+{
+  "data": {
+    "status": "ok",
+    "service": "mikrotik-login-page",
+    "version": "dev",
+    "checked_at": "2026-03-01T08:30:00Z",
+    "checks": {
+      "postgres": {
+        "status": "up",
+        "latency_ms": 3
+      },
+      "freeradius_mysql": {
+        "status": "up",
+        "latency_ms": 5
+      },
+      "redis": {
+        "status": "up",
+        "latency_ms": 1
+      }
+    }
+  }
+}

@@ -1,0 +1,7 @@
+bin
+tmp
+coverage.out
+config.yaml
+.env
+.env.*
+!.env.example

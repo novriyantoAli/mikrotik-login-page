@@ -1,0 +1,178 @@
+# One origin for the purchase app and the API (ADR 0009): the proxy serves the
+# app and forwards /api to the backend. All values come from .env — nothing that
+# differs per deployment is baked into an image.
+name: mikrotik-login-page
+
+x-backend-image: &backend-image mikrotik-login-page/backend:${BACKEND_TAG:-latest}
+
+# Every key the backend reads (internal/config/config.go). Service hostnames and
+# ports are topology, so they are defined here; anything secret or
+# environment-specific is required from .env.
+x-backend-env: &backend-env
+  APP_NAME: ${APP_NAME:-mikrotik-login-page}
+  APP_ENVIRONMENT: ${APP_ENVIRONMENT:-production}
+  SERVER_HOST: 0.0.0.0
+  SERVER_PORT: "8080"
+  SERVER_READ_TIMEOUT: ${SERVER_READ_TIMEOUT:-10s}
+  SERVER_WRITE_TIMEOUT: ${SERVER_WRITE_TIMEOUT:-15s}
+  SERVER_IDLE_TIMEOUT: ${SERVER_IDLE_TIMEOUT:-60s}
+  SERVER_SHUTDOWN_TIMEOUT: ${SERVER_SHUTDOWN_TIMEOUT:-15s}
+  SERVER_TRUSTED_PROXIES: ${SERVER_TRUSTED_PROXIES:-172.16.0.0/12}
+  LOGGER_LEVEL: ${LOGGER_LEVEL:-info}
+  LOGGER_FORMAT: ${LOGGER_FORMAT:-json}
+  LOGGER_OUTPUT_PATH: ${LOGGER_OUTPUT_PATH:-stdout}
+  POSTGRES_HOST: postgres
+  POSTGRES_PORT: "5432"
+  POSTGRES_USER: ${POSTGRES_USER:?POSTGRES_USER is required}
+  POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
+  POSTGRES_DATABASE: ${POSTGRES_DATABASE:?POSTGRES_DATABASE is required}
+  POSTGRES_SSL_MODE: ${POSTGRES_SSL_MODE:-disable}
+  POSTGRES_SEARCH_PATH: ""
+  POSTGRES_MAX_OPEN_CONNS: ${POSTGRES_MAX_OPEN_CONNS:-20}
+  POSTGRES_MAX_IDLE_CONNS: ${POSTGRES_MAX_IDLE_CONNS:-10}
+  POSTGRES_CONN_MAX_LIFETIME: ${POSTGRES_CONN_MAX_LIFETIME:-30m}
+  FREERADIUS_MYSQL_HOST: freeradius-mysql
+  FREERADIUS_MYSQL_PORT: "3306"
+  FREERADIUS_MYSQL_USER: ${FREERADIUS_MYSQL_USER:?FREERADIUS_MYSQL_USER is required}
+  FREERADIUS_MYSQL_PASSWORD: ${FREERADIUS_MYSQL_PASSWORD:?FREERADIUS_MYSQL_PASSWORD is required}
+  FREERADIUS_MYSQL_DATABASE: ${FREERADIUS_MYSQL_DATABASE:?FREERADIUS_MYSQL_DATABASE is required}
+  FREERADIUS_MYSQL_MAX_OPEN_CONNS: ${FREERADIUS_MYSQL_MAX_OPEN_CONNS:-10}
+  FREERADIUS_MYSQL_MAX_IDLE_CONNS: ${FREERADIUS_MYSQL_MAX_IDLE_CONNS:-5}
+  FREERADIUS_MYSQL_CONN_MAX_LIFETIME: ${FREERADIUS_MYSQL_CONN_MAX_LIFETIME:-30m}
+  REDIS_ADDR: redis:6379
+  REDIS_PASSWORD: ${REDIS_PASSWORD:?REDIS_PASSWORD is required}
+  REDIS_DB: ${REDIS_DB:-0}
+  REDIS_DIAL_TIMEOUT: ${REDIS_DIAL_TIMEOUT:-5s}
+  WORKER_CONCURRENCY: ${WORKER_CONCURRENCY:-10}
+  WORKER_QUEUES: ${WORKER_QUEUES:-critical,default,low}
+  HEALTH_TIMEOUT: ${HEALTH_TIMEOUT:-2s}
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:?POSTGRES_USER is required}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
+      POSTGRES_DB: ${POSTGRES_DATABASE:?POSTGRES_DATABASE is required}
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    restart: unless-stopped
+
+  # FreeRADIUS keeps its own MySQL schema (ADR 0002); the radcheck/radreply
+  # tables are loaded on first boot so the backend's writer has a target.
+  freeradius-mysql:
+    image: mysql:8.4
+    environment:
+      MYSQL_ROOT_PASSWORD: ${FREERADIUS_MYSQL_ROOT_PASSWORD:?FREERADIUS_MYSQL_ROOT_PASSWORD is required}
+      MYSQL_DATABASE: ${FREERADIUS_MYSQL_DATABASE:?FREERADIUS_MYSQL_DATABASE is required}
+      MYSQL_USER: ${FREERADIUS_MYSQL_USER:?FREERADIUS_MYSQL_USER is required}
+      MYSQL_PASSWORD: ${FREERADIUS_MYSQL_PASSWORD:?FREERADIUS_MYSQL_PASSWORD is required}
+    volumes:
+      - freeradius-data:/var/lib/mysql
+      - ./docker/freeradius-mysql/init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 -u root -p$${MYSQL_ROOT_PASSWORD} --silent"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    command:
+      [
+        "redis-server",
+        "--save",
+        "",
+        "--appendonly",
+        "no",
+        "--requirepass",
+        "${REDIS_PASSWORD:?REDIS_PASSWORD is required}",
+      ]
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD:?REDIS_PASSWORD is required}
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli -a \"$${REDIS_PASSWORD}\" ping | grep -q PONG"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+
+  # API and worker run from one image with different commands.
+  api:
+    image: *backend-image
+    build:
+      context: ./backend
+      target: runner
+    command: ["api"]
+    environment: *backend-env
+    depends_on:
+      postgres:
+        condition: service_healthy
+      freeradius-mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    expose:
+      - "8080"
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+
+  worker:
+    image: *backend-image
+    build:
+      context: ./backend
+      target: runner
+    command: ["worker"]
+    environment: *backend-env
+    depends_on:
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+
+  # The purchase app, built to static files and served by nginx.
+  app:
+    image: mikrotik-login-page/app:${APP_TAG:-latest}
+    build:
+      context: ./frontend
+    expose:
+      - "80"
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+
+  # The single origin: app at /, backend at /api.
+  proxy:
+    image: nginx:1.27-alpine
+    ports:
+      - "${PUBLIC_PORT:-8080}:80"
+    volumes:
+      - ./docker/proxy/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+    depends_on:
+      - app
+      - api
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1/api/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  postgres-data:
+  freeradius-data:
+  redis-data:
