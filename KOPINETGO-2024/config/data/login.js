@@ -1,8 +1,21 @@
 var cfgLogin = {
   default: 0,
-  // No voucher/member mode switch: the Login Page uses one credential pair,
-  // Phone Number + PIN (ADR 0004).
+  // Legacy voucher/member switch, kept at 0: the Login Page uses the `modes`
+  // section below instead of that old pair of labels (ADR 0006).
   option: 0,
+
+  // Login modes (ADR 0006). Each toggle enables one credential scheme and
+  // `label` is the segmented-control label for it. Only Phone Number + PIN is
+  // enabled by default, so the Login Page behaves exactly as before and no tab
+  // is shown; the segmented control only appears once more than one is enabled.
+  // The form title, field shape and placeholders are defined by the mode
+  // descriptors in assets/voucher-client.js, not here.
+  modes: {
+    accessCode: { status: 0, label: "Kode Akses" },
+    phone: { status: 1, label: "Nomor HP" },
+    user: { status: 0, label: "User" },
+  },
+
   menu: {
     voucher: {
       status: 1,

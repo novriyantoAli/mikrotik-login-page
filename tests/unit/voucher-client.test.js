@@ -30,6 +30,7 @@ function loadRepoMd5() {
 describe("voucher client seam", () => {
   beforeEach(() => {
     delete globalThis.cfgVoucher;
+    delete globalThis.cfgLogin;
   });
 
   it("exposes a single public interface", () => {
@@ -45,6 +46,11 @@ describe("voucher client seam", () => {
     expect(typeof VoucherClient.client.buildPurchaseUrl).toBe("function");
     expect(typeof VoucherClient.client.hashPin).toBe("function");
     expect(typeof VoucherClient.client.login).toBe("function");
+    expect(typeof VoucherClient.client.loginModes).toBe("function");
+    expect(typeof VoucherClient.client.loginModeDescriptor).toBe("function");
+    expect(typeof VoucherClient.client.renderLoginModes).toBe("function");
+    expect(typeof VoucherClient.client.loginCredentials).toBe("function");
+    expect(typeof VoucherClient.resolveLoginModes).toBe("function");
     expect(typeof VoucherClient.client.describeError).toBe("function");
     expect(typeof VoucherClient.client.describeLoginError).toBe("function");
   });
@@ -548,6 +554,191 @@ describe("voucher client seam", () => {
       const client = createVoucherClient();
 
       expect(client.describeError("some unrecognised hotspot error", "")).toMatch(/Periksa Phone Number dan PIN/i);
+    });
+  });
+
+  describe("login modes", () => {
+    /** A detached stand-in for the Login Page form slots. */
+    function buildLoginForm(document) {
+      const title = document.createElement("p");
+      const primaryGroup = document.createElement("div");
+      const primaryInput = document.createElement("input");
+      const primaryReveal = document.createElement("div");
+      const secondaryGroup = document.createElement("div");
+      const secondaryInput = document.createElement("input");
+      const secondaryReveal = document.createElement("div");
+      return {
+        container: document.createElement("div"),
+        title,
+        primaryGroup,
+        primaryInput,
+        primaryReveal,
+        secondaryGroup,
+        secondaryInput,
+        secondaryReveal,
+        fields: {
+          title,
+          primary: { group: primaryGroup, input: primaryInput, reveal: primaryReveal },
+          secondary: { group: secondaryGroup, input: secondaryInput, reveal: secondaryReveal },
+        },
+      };
+    }
+
+    it("enables only Phone Number + PIN by default", () => {
+      const { createVoucherClient } = loadModule();
+      const client = createVoucherClient();
+
+      expect(client.loginModes().map((mode) => mode.id)).toEqual(["phone"]);
+    });
+
+    it("reads the enabled modes and their labels from the cfgLogin toggles", () => {
+      globalThis.cfgLogin = { modes: { phone: { status: 1 }, user: { status: 1, label: "Pengguna" } } };
+      const { createVoucherClient } = loadModule();
+      const client = createVoucherClient();
+
+      const modes = client.loginModes();
+      expect(modes.map((mode) => mode.id)).toEqual(["phone", "user"]);
+      expect(modes[0].label).toBe("Nomor HP");
+      expect(modes[1].label).toBe("Pengguna");
+    });
+
+    it("falls back to the default mode when every toggle is off", () => {
+      const { resolveLoginModes } = loadModule();
+      const modes = resolveLoginModes({ modes: { phone: { status: 0 }, accessCode: { status: 0 }, user: { status: 0 } } });
+
+      expect(modes.map((mode) => mode.id)).toEqual(["phone"]);
+    });
+
+    it("rejects a mode the seam does not know", () => {
+      const { createVoucherClient } = loadModule();
+      const client = createVoucherClient({ md5: loadRepoMd5() });
+
+      expect(() => client.loginModeDescriptor("magic")).toThrow(/unknown login mode/i);
+      expect(() => client.login({ mode: "magic", phoneNumber: "0812", pin: "123456" })).toThrow(/unknown login mode/i);
+      expect(() => client.describeError("invalid password", "", "magic")).toThrow(/unknown login mode/i);
+    });
+
+    it("renders no tab and applies the descriptor when only one mode is enabled", () => {
+      const { createVoucherClient } = loadModule();
+      const client = createVoucherClient({ document });
+      const form = buildLoginForm(document);
+      form.title.textContent = "Masuk";
+
+      const control = client.renderLoginModes(form.container, { fields: form.fields });
+
+      expect(control.mode).toBe("phone");
+      expect(control.modes).toEqual(["phone"]);
+      expect(form.container.classList.contains("hidden")).toBe(true);
+      expect(form.container.querySelectorAll(".login-modes__tab")).toHaveLength(0);
+
+      // With a single mode the page config keeps owning the title.
+      expect(form.title.textContent).toBe("Masuk");
+      expect(form.primaryInput.getAttribute("placeholder")).toBe("Phone Number");
+      expect(form.secondaryInput.getAttribute("placeholder")).toBe("PIN");
+      expect(form.secondaryInput.getAttribute("type")).toBe("password");
+      expect(form.secondaryGroup.classList.contains("hidden")).toBe(false);
+      expect(form.primaryReveal.style.display).toBe("none");
+    });
+
+    it("shows a segmented control once more than one mode is enabled and switches the field shape", () => {
+      globalThis.cfgLogin = { modes: { phone: { status: 1 }, user: { status: 1 } } };
+      const { createVoucherClient } = loadModule();
+      const client = createVoucherClient({ document });
+      const form = buildLoginForm(document);
+      form.title.textContent = "Masuk";
+      const onChange = vi.fn();
+
+      client.renderLoginModes(form.container, { fields: form.fields, onChange });
+
+      expect(form.container.classList.contains("hidden")).toBe(false);
+      expect(form.title.textContent).toBe("Login");
+      const tabs = form.container.querySelectorAll(".login-modes__tab");
+      expect(Array.from(tabs).map((tab) => tab.textContent)).toEqual(["Nomor HP", "User"]);
+      expect(tabs[0].getAttribute("aria-selected")).toBe("true");
+
+      tabs[1].click();
+
+      expect(onChange).toHaveBeenCalledWith("user");
+      expect(tabs[1].getAttribute("aria-selected")).toBe("true");
+      expect(tabs[0].getAttribute("aria-selected")).toBe("false");
+      expect(form.primaryInput.getAttribute("placeholder")).toBe("Username");
+      expect(form.secondaryInput.getAttribute("placeholder")).toBe("Password");
+      expect(form.secondaryReveal.style.display).toBe("");
+    });
+
+    it("renders a single field for the Access Code mode", () => {
+      globalThis.cfgLogin = { modes: { phone: { status: 0 }, accessCode: { status: 1 } } };
+      const { createVoucherClient } = loadModule();
+      const client = createVoucherClient({ document });
+      const form = buildLoginForm(document);
+
+      const control = client.renderLoginModes(form.container, { fields: form.fields });
+
+      expect(control.mode).toBe("accessCode");
+      expect(form.primaryInput.getAttribute("placeholder")).toBe("Kode Akses");
+      expect(form.secondaryGroup.classList.contains("hidden")).toBe(true);
+    });
+
+    it("maps the form slots onto each mode's credential keys", () => {
+      const { createVoucherClient } = loadModule();
+      const client = createVoucherClient();
+
+      expect(client.loginCredentials("phone", { primary: "0812", secondary: "123456" })).toEqual({ phoneNumber: "0812", pin: "123456" });
+      expect(client.loginCredentials("accessCode", { primary: "ABC123", secondary: "" })).toEqual({ accessCode: "ABC123" });
+      expect(client.loginCredentials("user", { primary: "budi", secondary: "rahasia" })).toEqual({ username: "budi", password: "rahasia" });
+    });
+
+    it("submits an Access Code as username and password, hashed with CHAP, without the 6-digit rule", () => {
+      const { createVoucherClient } = loadModule();
+      const submit = vi.fn();
+      const client = createVoucherClient({ md5: loadRepoMd5() });
+
+      const payload = client.login({ mode: "accessCode", accessCode: "ABC", chapId: "id", chapChallenge: "ch", submit });
+
+      expect(payload.username).toBe("ABC");
+      expect(payload.password).toBe(expectedMd5("idABCch"));
+      expect(submit).toHaveBeenCalledWith(payload);
+      expect(() => client.login({ mode: "accessCode", accessCode: "12" })).not.toThrow();
+    });
+
+    it("submits a User as username plus a separately hashed password", () => {
+      const { createVoucherClient } = loadModule();
+      const client = createVoucherClient({ md5: loadRepoMd5() });
+
+      const payload = client.login({ mode: "user", username: "budi", password: "rahasia", chapId: "id", chapChallenge: "ch" });
+
+      expect(payload.username).toBe("budi");
+      expect(payload.password).toBe(expectedMd5("idrahasiach"));
+      expect(payload.password).not.toBe(payload.username);
+    });
+
+    it("requires the credentials of the active mode", () => {
+      const { createVoucherClient } = loadModule();
+      const client = createVoucherClient({ md5: loadRepoMd5() });
+
+      expect(() => client.login({ mode: "accessCode", accessCode: "" })).toThrow(/access code is required/i);
+      expect(() => client.login({ mode: "user", username: "budi" })).toThrow(/password is required/i);
+      expect(() => client.login({ mode: "user", password: "rahasia" })).toThrow(/username is required/i);
+    });
+
+    it("follows the mode for credential validation messages", () => {
+      const { createVoucherClient, VoucherError } = loadModule();
+      const client = createVoucherClient();
+
+      expect(client.describeLoginError(new VoucherError("missing_access_code", "x"), "accessCode")).toMatch(/kode akses wajib/i);
+      expect(client.describeLoginError(new VoucherError("missing_username", "x"), "user")).toMatch(/username wajib/i);
+      expect(client.describeLoginError(new VoucherError("missing_password", "x"), "user")).toMatch(/password wajib/i);
+      expect(client.describeLoginError(new Error("boom"), "user")).toMatch(/periksa username dan password/i);
+    });
+
+    it("follows the mode for a wrong credential but keeps one expired message", () => {
+      const { createVoucherClient } = loadModule();
+      const client = createVoucherClient();
+
+      expect(client.describeError("invalid password", "", "accessCode")).toBe("Kode Akses salah.");
+      expect(client.describeError("invalid password", "", "user")).toMatch(/username atau password salah/i);
+      expect(client.describeError("", "expired", "accessCode")).toMatch(/berakhir/i);
+      expect(client.describeError("", "expired", "user")).toMatch(/berakhir/i);
     });
   });
 });

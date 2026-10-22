@@ -21,6 +21,22 @@ export async function configureDeployment(page, overrides) {
   });
 }
 
+/**
+ * Enable/disable login modes (cfgLogin.modes) for this page load. Modes left
+ * out keep their deployed default.
+ */
+export async function configureLoginModes(page, modes) {
+  await page.route("**/config/data/login.js*", async (route) => {
+    const response = await route.fetch();
+    let body = await response.text();
+    const assignments = Object.entries(modes)
+      .map(([id, status]) => `cfgLogin.modes["${id}"].status = ${status ? 1 : 0};`)
+      .join("\n");
+    body += "\n" + assignments + "\n";
+    await route.fulfill({ response, body });
+  });
+}
+
 export async function stubPackageBackend(page, packages) {
   await page.route("https://api.test/packages", async (route) => {
     await route.fulfill({

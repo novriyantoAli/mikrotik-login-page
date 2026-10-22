@@ -61,8 +61,12 @@
 
   /**
    * @typedef {Object} LoginCredentials
-   * @property {string} phoneNumber
-   * @property {string} pin
+   * @property {string} [mode] Login mode id; defaults to the deployment default (Phone Number + PIN).
+   * @property {string} [phoneNumber]
+   * @property {string} [pin]
+   * @property {string} [accessCode]
+   * @property {string} [username]
+   * @property {string} [password]
    * @property {string} [chapId]
    * @property {string} [chapChallenge]
    * @property {(payload: LoginPayload) => void} [submit]
@@ -71,6 +75,7 @@
   /**
    * @typedef {Object} VoucherClientOptions
    * @property {Partial<VoucherConfig>} [config]
+   * @property {LoginConfig} [login]
    * @property {typeof fetch} [fetch]
    * @property {(input: string) => string} [md5]
    * @property {Document} [document]
@@ -93,6 +98,13 @@
     phoneRequired: "Phone Number wajib diisi.",
     pinRequired: "PIN wajib diisi.",
     invalidPin: "PIN harus 6 digit angka.",
+    accessCodeRequired: "Kode Akses wajib diisi.",
+    usernameRequired: "Username wajib diisi.",
+    passwordRequired: "Password wajib diisi.",
+    wrongAccessCode: "Kode Akses salah.",
+    wrongUserPassword: "Username atau password salah.",
+    genericAccessCode: "Login gagal. Periksa Kode Akses Anda.",
+    genericUser: "Login gagal. Periksa username dan password Anda.",
   };
 
   /**
@@ -124,6 +136,237 @@
       return globalThis.cfgVoucher;
     }
     return {};
+  }
+
+  /** @returns {Record<string, unknown>} */
+  function readGlobalLoginConfig() {
+    if (typeof globalThis !== "undefined" && globalThis.cfgLogin) {
+      return globalThis.cfgLogin;
+    }
+    return {};
+  }
+
+  /**
+   * @typedef {Object} LoginModeField
+   * @property {string} key Credential key the field supplies.
+   * @property {"primary"|"secondary"} slot Form slot the field occupies.
+   * @property {string} placeholder Field placeholder.
+   * @property {"text"|"password"} type Input type.
+   * @property {boolean} reveal Whether the show/hide eye toggle is offered.
+   */
+
+  /**
+   * @typedef {Object} LoginMode
+   * @property {string} id
+   * @property {string} label Segmented-control label.
+   * @property {string} title Form title.
+   * @property {LoginModeField[]} fields
+   */
+
+  /**
+   * @typedef {Object} LoginConfig
+   * @property {Record<string, {status?: unknown, label?: string}>} [modes]
+   */
+
+  /**
+   * Descriptors for the three hotspot login modes (ADR 0006). The form title,
+   * field shape and placeholders come from here rather than from the page
+   * markup, so enabling a mode is a configuration change only.
+   *
+   * @type {Record<string, LoginMode & {
+   *   defaultStatus: boolean,
+   *   credentialError: string,
+   *   genericError: string,
+   *   messages: Record<string, string>,
+   *   errors: Record<string, string>,
+   *   validate: (input: Record<string, any>) => string|null,
+   *   credentials: (input: Record<string, any>) => {username: unknown, password: unknown}
+   * }>}
+   */
+  var LOGIN_MODES = {
+    phone: {
+      id: "phone",
+      label: "Nomor HP",
+      title: "Login",
+      defaultStatus: true,
+      fields: [
+        { key: "phoneNumber", slot: "primary", placeholder: "Phone Number", type: "text", reveal: false },
+        { key: "pin", slot: "secondary", placeholder: "PIN", type: "password", reveal: true },
+      ],
+      credentialError: MESSAGES.wrongPin,
+      genericError: MESSAGES.generic,
+      messages: {
+        missing_phone_number: MESSAGES.phoneRequired,
+        missing_pin: MESSAGES.pinRequired,
+        invalid_pin: MESSAGES.invalidPin,
+      },
+      errors: {
+        missing_phone_number: "Phone Number is required",
+        missing_pin: "PIN is required",
+        invalid_pin: "PIN must be 6 digits",
+      },
+      validate: function (input) {
+        if (isBlank(input.phoneNumber)) {
+          return "missing_phone_number";
+        }
+        if (isBlank(input.pin)) {
+          return "missing_pin";
+        }
+        if (!/^\d{6}$/.test(String(input.pin))) {
+          return "invalid_pin";
+        }
+        return null;
+      },
+      credentials: function (input) {
+        return { username: input.phoneNumber, password: input.pin };
+      },
+    },
+    accessCode: {
+      id: "accessCode",
+      label: "Kode Akses",
+      title: "Login",
+      defaultStatus: false,
+      fields: [
+        { key: "accessCode", slot: "primary", placeholder: "Kode Akses", type: "text", reveal: false },
+      ],
+      credentialError: MESSAGES.wrongAccessCode,
+      genericError: MESSAGES.genericAccessCode,
+      messages: { missing_access_code: MESSAGES.accessCodeRequired },
+      errors: { missing_access_code: "Access Code is required" },
+      validate: function (input) {
+        if (isBlank(input.accessCode)) {
+          return "missing_access_code";
+        }
+        return null;
+      },
+      credentials: function (input) {
+        // An Access Code is a single secret: username = password. CHAP hashing
+        // still applies before submission.
+        return { username: input.accessCode, password: input.accessCode };
+      },
+    },
+    user: {
+      id: "user",
+      label: "User",
+      title: "Login",
+      defaultStatus: false,
+      fields: [
+        { key: "username", slot: "primary", placeholder: "Username", type: "text", reveal: false },
+        { key: "password", slot: "secondary", placeholder: "Password", type: "password", reveal: true },
+      ],
+      credentialError: MESSAGES.wrongUserPassword,
+      genericError: MESSAGES.genericUser,
+      messages: {
+        missing_username: MESSAGES.usernameRequired,
+        missing_password: MESSAGES.passwordRequired,
+      },
+      errors: {
+        missing_username: "Username is required",
+        missing_password: "Password is required",
+      },
+      validate: function (input) {
+        if (isBlank(input.username)) {
+          return "missing_username";
+        }
+        if (isBlank(input.password)) {
+          return "missing_password";
+        }
+        return null;
+      },
+      credentials: function (input) {
+        return { username: input.username, password: input.password };
+      },
+    },
+  };
+
+  /** Canonical order of the mode toggles; the first enabled one is the default. */
+  var LOGIN_MODE_ORDER = ["phone", "accessCode", "user"];
+  var DEFAULT_LOGIN_MODE = "phone";
+
+  /**
+   * Default DOM slots the Login Page form exposes to the mode control.
+   * `primary`/`secondary` are the two credential field slots.
+   */
+  var DEFAULT_LOGIN_SLOTS = {
+    title: "labelForm",
+    primary: { group: "domUsername", input: "username", reveal: "iconTypePasswordUser" },
+    secondary: { group: "domPassword", input: "password", reveal: "iconTypePassword" },
+  };
+
+  /**
+   * Merge the deployment login config (cfgLogin) with explicit overrides.
+   * @param {LoginConfig} [overrides]
+   * @returns {LoginConfig}
+   */
+  function resolveLoginConfig(overrides) {
+    /** @type {LoginConfig} */
+    var merged = { modes: {} };
+    var sources = [readGlobalLoginConfig(), overrides || {}];
+
+    for (var i = 0; i < sources.length; i++) {
+      var modes = sources[i] && /** @type {any} */ (sources[i]).modes;
+      if (!modes) {
+        continue;
+      }
+      for (var key in modes) {
+        if (!Object.prototype.hasOwnProperty.call(modes, key)) {
+          continue;
+        }
+        var setting = modes[key] || {};
+        var existing = /** @type {Record<string, any>} */ (merged.modes)[key] || {};
+        var next = {};
+        if (existing.status !== undefined) {
+          next.status = existing.status;
+        }
+        if (existing.label !== undefined) {
+          next.label = existing.label;
+        }
+        if (setting.status !== undefined) {
+          next.status = setting.status;
+        }
+        if (setting.label !== undefined) {
+          next.label = setting.label;
+        }
+        /** @type {Record<string, any>} */ (merged.modes)[key] = next;
+      }
+    }
+
+    return merged;
+  }
+
+  /**
+   * Resolve the login modes enabled by configuration, in canonical order.
+   * Always returns at least the default mode so the Login Page stays usable.
+   * @param {LoginConfig} [config]
+   * @returns {LoginMode[]}
+   */
+  function resolveLoginModes(config) {
+    var settings = (config && config.modes) || {};
+    /** @type {LoginMode[]} */
+    var modes = [];
+
+    for (var i = 0; i < LOGIN_MODE_ORDER.length; i++) {
+      var id = LOGIN_MODE_ORDER[i];
+      var descriptor = LOGIN_MODES[id];
+      var setting = /** @type {Record<string, any>} */ (settings)[id] || {};
+      var status = setting.status === undefined ? descriptor.defaultStatus : Boolean(setting.status);
+      if (!status) {
+        continue;
+      }
+      modes.push({
+        id: id,
+        label: setting.label !== undefined && setting.label !== "" ? String(setting.label) : descriptor.label,
+        title: descriptor.title,
+        fields: descriptor.fields,
+      });
+    }
+
+    if (modes.length === 0) {
+      var fallback = LOGIN_MODES[DEFAULT_LOGIN_MODE];
+      modes.push({ id: fallback.id, label: fallback.label, title: fallback.title, fields: fallback.fields });
+    }
+
+    return modes;
   }
 
   /**
@@ -361,6 +604,262 @@
     var doc = opts.document || (typeof document !== "undefined" ? document : null);
     var navigate = opts.navigate || defaultNavigate;
     var submitLogin = opts.submitLogin || null;
+    var loginConfig = resolveLoginConfig(opts.login);
+
+    /** @returns {LoginMode[]} */
+    function loginModes() {
+      return resolveLoginModes(loginConfig);
+    }
+
+    /**
+     * The default mode is the first enabled one in canonical order, which is
+     * Phone Number + PIN whenever it is enabled (ADR 0006).
+     * @returns {string}
+     */
+    function defaultLoginMode() {
+      var modes = loginModes();
+      return modes.length ? modes[0].id : DEFAULT_LOGIN_MODE;
+    }
+
+    /**
+     * Look up a mode descriptor, rejecting a mode the seam does not know.
+     * @param {string} [mode]
+     * @returns {typeof LOGIN_MODES[string]}
+     */
+    function loginModeDescriptor(mode) {
+      var id = isBlank(mode) ? defaultLoginMode() : String(mode);
+      var descriptor = LOGIN_MODES[id];
+      if (!descriptor) {
+        throw new VoucherError("unknown_mode", "Unknown login mode: " + id);
+      }
+      return descriptor;
+    }
+
+    /**
+     * @param {string|Element|null|undefined} ref
+     * @returns {Element|null}
+     */
+    function resolveElement(ref) {
+      if (!ref) {
+        return null;
+      }
+      if (typeof ref === "string") {
+        if (!doc) {
+          return null;
+        }
+        var first = ref.charAt(0);
+        if (first === "#" || first === "." || first === "[") {
+          return doc.querySelector(ref);
+        }
+        return doc.getElementById(ref);
+      }
+      return ref;
+    }
+
+    /**
+     * @param {{group?: string|Element, input?: string|Element, reveal?: string|Element}} base
+     * @param {{group?: string|Element, input?: string|Element, reveal?: string|Element}} [override]
+     */
+    function mergeSlot(base, override) {
+      var out = { group: base.group, input: base.input, reveal: base.reveal };
+      var source = override || {};
+      for (var key in source) {
+        if (Object.prototype.hasOwnProperty.call(source, key) && source[key] !== undefined) {
+          out[key] = source[key];
+        }
+      }
+      return out;
+    }
+
+    /** @param {Record<string, any>} [overrides] */
+    function resolveFieldSlots(overrides) {
+      var slots = overrides || {};
+      return {
+        title: slots.title !== undefined ? slots.title : DEFAULT_LOGIN_SLOTS.title,
+        primary: mergeSlot(DEFAULT_LOGIN_SLOTS.primary, slots.primary),
+        secondary: mergeSlot(DEFAULT_LOGIN_SLOTS.secondary, slots.secondary),
+      };
+    }
+
+    /**
+     * Fill one form slot from a mode field, hiding the slot when the mode does
+     * not use it.
+     * @param {LoginModeField|undefined} field
+     * @param {Record<string, any>} slot
+     * @param {boolean} reset
+     */
+    function applyFieldSlot(field, slot, reset) {
+      var group = resolveElement(slot.group);
+      var input = /** @type {HTMLInputElement|null} */ (resolveElement(slot.input));
+      var reveal = /** @type {HTMLElement|null} */ (resolveElement(slot.reveal));
+
+      if (!field) {
+        if (group) {
+          group.classList.add("hidden");
+        }
+        return;
+      }
+
+      if (group) {
+        group.classList.remove("hidden");
+      }
+      if (input) {
+        input.setAttribute("placeholder", field.placeholder);
+        input.setAttribute("type", field.type);
+        if (reset) {
+          input.value = "";
+        }
+      }
+      if (reveal) {
+        reveal.style.display = field.reveal ? "" : "none";
+      }
+    }
+
+    /**
+     * Apply a mode descriptor to the form: title, field shape and placeholders.
+     * The initial application keeps prefilled values (RouterOS `$(username)`),
+     * while a mode switch resets them.
+     * @param {typeof LOGIN_MODES[string]} descriptor
+     * @param {Record<string, any>} [fields]
+     * @param {{reset?: boolean, applyTitle?: boolean}} [options]
+     */
+    function applyLoginFields(descriptor, fields, options) {
+      var slots = resolveFieldSlots(fields);
+      var reset = Boolean(options && options.reset);
+      // With a single enabled mode the page (cfgLogin.label) keeps owning the
+      // title; the descriptor only takes over once modes can be switched.
+      var applyTitle = !options || options.applyTitle !== false;
+
+      var titleEl = resolveElement(slots.title);
+      if (titleEl && applyTitle) {
+        titleEl.textContent = descriptor.title;
+      }
+
+      /** @type {Record<string, LoginModeField>} */
+      var layout = {};
+      for (var i = 0; i < descriptor.fields.length; i++) {
+        layout[descriptor.fields[i].slot] = descriptor.fields[i];
+      }
+
+      applyFieldSlot(layout.primary, slots.primary, reset);
+      applyFieldSlot(layout.secondary, slots.secondary, reset);
+    }
+
+    /**
+     * @param {LoginMode} mode
+     * @param {string} active
+     * @param {(id: string) => void} onSelect
+     * @returns {Element}
+     */
+    function buildModeTab(mode, active, onSelect) {
+      var tab = createTextElement("button", "login-modes__tab", mode.label);
+      tab.setAttribute("type", "button");
+      tab.setAttribute("role", "tab");
+      tab.setAttribute("data-mode", mode.id);
+      tab.setAttribute("aria-selected", mode.id === active ? "true" : "false");
+      if (mode.id === active) {
+        tab.classList.add("login-modes__tab--active");
+      }
+      tab.addEventListener("click", function () {
+        onSelect(mode.id);
+      });
+      return tab;
+    }
+
+    /**
+     * @param {LoginMode[]} modes
+     * @param {string} [requested]
+     * @returns {string}
+     */
+    function resolveActiveMode(modes, requested) {
+      for (var i = 0; i < modes.length; i++) {
+        if (modes[i].id === requested) {
+          return String(requested);
+        }
+      }
+      return modes.length ? modes[0].id : DEFAULT_LOGIN_MODE;
+    }
+
+    /**
+     * Render the single login mode control: a segmented control for the enabled
+     * modes (only when more than one is enabled) plus the active mode's form
+     * shape. Returns the active mode so the page can pass it to `login`.
+     * @param {Element|string} container
+     * @param {{config?: LoginConfig, modes?: LoginMode[], activeMode?: string, fields?: Record<string, any>, ariaLabel?: string, onChange?: (mode: string) => void}} [options]
+     * @returns {{mode: string, modes: string[], element: Element}}
+     */
+    function renderLoginModes(container, options) {
+      var opts = options || {};
+      var target = resolveContainer(container);
+      var modes = opts.modes && opts.modes.length ? opts.modes : resolveLoginModes(opts.config !== undefined ? opts.config : loginConfig);
+      var active = resolveActiveMode(modes, opts.activeMode);
+
+      var control = createElement("div", "login-modes");
+      control.setAttribute("role", "tablist");
+      control.setAttribute("aria-label", opts.ariaLabel || "Mode login");
+
+      /** @param {string} modeId */
+      function select(modeId) {
+        if (modeId === active) {
+          return;
+        }
+        active = modeId;
+        var tabs = control.querySelectorAll(".login-modes__tab");
+        for (var i = 0; i < tabs.length; i++) {
+          var isActive = tabs[i].getAttribute("data-mode") === active;
+          tabs[i].classList.toggle("login-modes__tab--active", isActive);
+          tabs[i].setAttribute("aria-selected", isActive ? "true" : "false");
+        }
+        applyLoginFields(loginModeDescriptor(active), opts.fields, { reset: true, applyTitle: true });
+        if (typeof opts.onChange === "function") {
+          opts.onChange(active);
+        }
+      }
+
+      if (modes.length > 1) {
+        for (var i = 0; i < modes.length; i++) {
+          control.appendChild(buildModeTab(modes[i], active, select));
+        }
+      }
+
+      target.innerHTML = "";
+      if (modes.length > 1) {
+        target.classList.remove("hidden");
+        target.appendChild(control);
+      } else {
+        target.classList.add("hidden");
+      }
+
+      applyLoginFields(loginModeDescriptor(active), opts.fields, { reset: false, applyTitle: modes.length > 1 });
+
+      return {
+        mode: active,
+        modes: modes.map(function (mode) {
+          return mode.id;
+        }),
+        element: target,
+      };
+    }
+
+    /**
+     * Map the form slot values onto the credential keys the active mode expects,
+     * so the page never hardcodes which input belongs to which mode.
+     * @param {string} mode
+     * @param {{primary?: string, secondary?: string}} values
+     * @returns {Record<string, string>}
+     */
+    function loginCredentials(mode, values) {
+      var descriptor = loginModeDescriptor(mode);
+      var input = values || {};
+      /** @type {Record<string, string>} */
+      var credentials = {};
+      for (var i = 0; i < descriptor.fields.length; i++) {
+        var key = descriptor.fields[i].key;
+        var value = input[descriptor.fields[i].slot];
+        credentials[key] = value == null ? "" : String(value);
+      }
+      return credentials;
+    }
 
     /**
      * Fetch the Package list from the backend, or the static fallback when the
@@ -684,26 +1183,26 @@
     }
 
     /**
-     * Build the hotspot login payload for Phone Number + PIN, hashing the PIN
-     * with CHAP, and hand it to the submit hook when one is available.
+     * Build the hotspot login payload for the active login mode, hashing the
+     * credential with CHAP, and hand it to the submit hook when one is
+     * available. `mode` defaults to the deployment's default mode (Phone Number
+     * + PIN), and an unknown mode is rejected.
      * @param {LoginCredentials} credentials
      * @returns {LoginPayload}
      */
     function login(credentials) {
       var input = credentials || /** @type {LoginCredentials} */ ({});
-      if (input.phoneNumber === undefined || input.phoneNumber === null || input.phoneNumber === "") {
-        throw new VoucherError("missing_phone_number", "Phone Number is required");
-      }
-      if (input.pin === undefined || input.pin === null || input.pin === "") {
-        throw new VoucherError("missing_pin", "PIN is required");
-      }
-      if (!/^\d{6}$/.test(String(input.pin))) {
-        throw new VoucherError("invalid_pin", "PIN must be 6 digits");
+      var descriptor = loginModeDescriptor(input.mode);
+
+      var validationError = descriptor.validate(input);
+      if (validationError) {
+        throw new VoucherError(validationError, descriptor.errors[validationError] || validationError);
       }
 
+      var pair = descriptor.credentials(input);
       var payload = {
-        username: String(input.phoneNumber),
-        password: hashPin(input.pin, input.chapId, input.chapChallenge),
+        username: String(pair.username),
+        password: hashPin(String(pair.password), input.chapId, input.chapChallenge),
       };
 
       var submit = input.submit || submitLogin;
@@ -715,32 +1214,32 @@
 
     /**
      * Translate a client-side login validation failure (from `login`) into a
-     * message the Login Page can show the user.
+     * message the Login Page can show the user. The credential messages follow
+     * the active mode.
      * @param {unknown} error
+     * @param {string} [mode]
      * @returns {string}
      */
-    function describeLoginError(error) {
+    function describeLoginError(error, mode) {
+      var descriptor = loginModeDescriptor(mode);
       var code = error && typeof error === "object" ? /** @type {any} */ (error).code : undefined;
-      if (code === "missing_phone_number") {
-        return MESSAGES.phoneRequired;
+      if (code && descriptor.messages[code]) {
+        return descriptor.messages[code];
       }
-      if (code === "missing_pin") {
-        return MESSAGES.pinRequired;
-      }
-      if (code === "invalid_pin") {
-        return MESSAGES.invalidPin;
-      }
-      return MESSAGES.generic;
+      return descriptor.genericError;
     }
 
     /**
      * Translate a raw hotspot error / RouterOS expiry value into a human message,
-     * distinguishing an expired account from a wrong PIN.
+     * distinguishing an expired account from a wrong credential. The expired
+     * message is shared by every mode; the credential message follows the mode.
      * @param {string} [error]
      * @param {string} [expiry]
+     * @param {string} [mode]
      * @returns {string}
      */
-    function describeError(error, expiry) {
+    function describeError(error, expiry, mode) {
+      var descriptor = loginModeDescriptor(mode);
       var errorText = String(error == null ? "" : error).toLowerCase();
       var expiryText = String(expiry == null ? "" : expiry).toLowerCase();
 
@@ -754,9 +1253,9 @@
         return MESSAGES.expired;
       }
       if (/invalid\s*password|wrong\s*password|bad\s*password|\bpassword\b|\bpin\b|salah/.test(errorText)) {
-        return MESSAGES.wrongPin;
+        return descriptor.credentialError;
       }
-      return MESSAGES.generic;
+      return descriptor.genericError;
     }
 
     return {
@@ -771,6 +1270,10 @@
       renderStatus: renderStatus,
       buildPurchaseUrl: purchaseUrlFor,
       hashPin: hashPin,
+      loginModes: loginModes,
+      loginModeDescriptor: loginModeDescriptor,
+      renderLoginModes: renderLoginModes,
+      loginCredentials: loginCredentials,
       login: login,
       describeError: describeError,
       describeLoginError: describeLoginError,
@@ -780,6 +1283,8 @@
   var api = {
     createVoucherClient: createVoucherClient,
     resolveConfig: resolveConfig,
+    resolveLoginConfig: resolveLoginConfig,
+    resolveLoginModes: resolveLoginModes,
     VoucherError: VoucherError,
     DEFAULT_CONFIG: DEFAULT_CONFIG,
     messages: MESSAGES,

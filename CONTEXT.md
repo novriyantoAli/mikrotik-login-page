@@ -41,7 +41,7 @@ A single package purchase by a user, covering payment status and provisioning re
 _Avoid_: Order, purchase
 
 **Login Page**:
-The MikroTik hotspot captive portal (KOPINETGO-2024) where the user enters Phone Number + PIN to get online and views the Package list.
+The MikroTik hotspot captive portal (KOPINETGO-2024) where the user logs in with one of the configured credential modes (ADR 0006: Phone Number + PIN, Access Code, or User) and views the Package list.
 _Avoid_: Landing page, portal
 
 **Account Status**:

@@ -1,6 +1,6 @@
 import { test, expect } from "@playwright/test";
 import { createHash } from "node:crypto";
-import { PACKAGE_FIXTURE, configureDeployment, stubPackageBackend, servePage } from "./helpers.mjs";
+import { PACKAGE_FIXTURE, configureDeployment, configureLoginModes, stubPackageBackend, servePage } from "./helpers.mjs";
 
 const serveLoginPage = (page, substitutions) => servePage(page, "**/login.html*", substitutions);
 
@@ -154,5 +154,108 @@ test.describe("Login Page smoke", () => {
     await expect(page.locator("#btnTrial")).toBeVisible();
     await expect(page.locator("#linkTrial")).toHaveAttribute("href", /username=T-/);
     await expect(page.locator("#password")).toHaveAttribute("type", "password");
+  });
+
+  test("shows no mode tabs while only Phone Number + PIN is enabled", async ({ page }) => {
+    await page.goto("/login.html");
+
+    await expect(page.locator("#loginModes")).toBeHidden();
+    await expect(page.locator(".login-modes__tab")).toHaveCount(0);
+    await expect(page.locator("#labelForm")).toContainText(/login/i);
+    await expect(page.locator("#domPassword")).toBeVisible();
+  });
+
+  test("still reveals the PIN field when the voucher client fails to load", async ({ page }) => {
+    await page.route("**/assets/voucher-client.js*", (route) => route.abort());
+    await page.goto("/login.html");
+
+    await expect(page.locator("#domPassword")).toBeVisible();
+    await expect(page.locator("#password")).toBeVisible();
+    await expect(page.locator("#btnLogin")).toBeEnabled();
+  });
+
+  test("offers a segmented control once more than one login mode is enabled", async ({ page }) => {
+    await configureLoginModes(page, { user: 1 });
+    await page.goto("/login.html");
+
+    const tabs = page.locator("#loginModes .login-modes__tab");
+    await expect(tabs).toHaveCount(2);
+    await expect(tabs.nth(0)).toHaveText(/nomor hp/i);
+    await expect(tabs.nth(1)).toHaveText(/^user$/i);
+
+    // Phone Number + PIN stays the default mode.
+    await expect(page.locator("#username")).toHaveAttribute("placeholder", /phone number/i);
+    await expect(page.locator("#password")).toHaveAttribute("placeholder", /pin/i);
+
+    await tabs.nth(1).click();
+
+    await expect(page.locator("#username")).toHaveAttribute("placeholder", /username/i);
+    await expect(page.locator("#password")).toHaveAttribute("placeholder", /password/i);
+  });
+
+  test("submits User mode credentials with a separately hashed password", async ({ page }) => {
+    await configureLoginModes(page, { user: 1 });
+    await page.goto("/login.html");
+    await page.locator("#loginModes .login-modes__tab").nth(1).click();
+
+    const submitted = await page.evaluate(() => {
+      document.getElementById("username").value = "budi";
+      document.getElementById("password").value = "rahasia";
+      document.sendin.submit = function () {};
+      window.doLogin();
+      return {
+        username: document.sendin.username.value,
+        password: document.sendin.password.value,
+      };
+    });
+
+    const expected = createHash("md5").update("$(chap-id)" + "rahasia" + "$(chap-challenge)").digest("hex");
+    expect(submitted.username).toBe("budi");
+    expect(submitted.password).toBe(expected);
+    expect(submitted.password).not.toBe("budi");
+  });
+
+  test("offers a single Access Code field and hashes the code as the password", async ({ page }) => {
+    await configureLoginModes(page, { accessCode: 1 });
+    await page.goto("/login.html");
+
+    const tabs = page.locator("#loginModes .login-modes__tab");
+    await expect(tabs).toHaveCount(2);
+    await tabs.filter({ hasText: /kode akses/i }).click();
+
+    await expect(page.locator("#domPassword")).toBeHidden();
+    await expect(page.locator("#username")).toHaveAttribute("placeholder", /kode akses/i);
+
+    const submitted = await page.evaluate(() => {
+      document.getElementById("username").value = "ABC";
+      document.sendin.submit = function () {};
+      window.doLogin();
+      return {
+        username: document.sendin.username.value,
+        password: document.sendin.password.value,
+      };
+    });
+
+    const expected = createHash("md5").update("$(chap-id)" + "ABC" + "$(chap-challenge)").digest("hex");
+    expect(submitted.username).toBe("ABC");
+    expect(submitted.password).toBe(expected);
+  });
+
+  test("follows the mode for a wrong-credential message while keeping the expired message", async ({ page }) => {
+    await configureLoginModes(page, { accessCode: 1 });
+    await serveLoginPage(page, { "$(error)": "invalid password" });
+    await page.goto("/login.html");
+
+    // The default mode is Phone Number + PIN.
+    await expect(page.locator("#serverError")).toContainText(/PIN salah/i);
+
+    await page.locator("#loginModes .login-modes__tab").filter({ hasText: /kode akses/i }).click();
+    await expect(page.locator("#serverError")).toContainText(/kode akses salah/i);
+
+    // An expired account keeps the shared message in every mode.
+    await serveLoginPage(page, { "$(error)": "uptime limit reached" });
+    await page.goto("/login.html");
+    await page.locator("#loginModes .login-modes__tab").filter({ hasText: /kode akses/i }).click();
+    await expect(page.locator("#serverError")).toContainText(/berakhir/i);
   });
 });

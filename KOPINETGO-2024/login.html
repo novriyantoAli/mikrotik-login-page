@@ -76,6 +76,9 @@
 
 						<p id="labelForm" style="font-weight: bold;" class="text-2xl text-center"></p>
 
+						<!-- kontrol mode login (ADR 0006): tersembunyi selama hanya satu mode aktif -->
+						<div id="loginModes" class="w-full hidden"></div>
+
 						<div class="hidden">
 							$(if chap-id)
 							<form name="sendin" action="$(link-login-only)" method="post">
@@ -203,11 +206,10 @@
 		}
 
 		function doLogin() {
-			var phoneInput = document.getElementById("username");
-			var pinInput = document.getElementById("password");
-			var phoneNumber = phoneInput ? phoneInput.value : "";
-			var pin = pinInput ? pinInput.value : "";
 			var client = window.VoucherClient && window.VoucherClient.client;
+			var mode = window.currentLoginMode || "phone";
+			var usernameInput = document.getElementById("username");
+			var passwordInput = document.getElementById("password");
 
 			function submitPayload(payload) {
 				document.sendin.username.value = payload.username;
@@ -215,26 +217,29 @@
 				document.sendin.submit();
 			}
 
-			// Phone Number is the username, PIN is the CHAP password (ADR 0004).
 			if (client && typeof client.login === "function") {
 				try {
-					client.login({
-						phoneNumber: phoneNumber,
-						pin: pin,
-						chapId: "$(chap-id)",
-						chapChallenge: "$(chap-challenge)",
-						submit: submitPayload,
+					// The mode descriptor maps the form slots onto the credential keys
+					// it expects, so the seam path never hardcodes a mode's fields.
+					var credentials = client.loginCredentials(mode, {
+						primary: usernameInput ? usernameInput.value : "",
+						secondary: passwordInput ? passwordInput.value : "",
 					});
+					credentials.mode = mode;
+					credentials.chapId = "$(chap-id)";
+					credentials.chapChallenge = "$(chap-challenge)";
+					credentials.submit = submitPayload;
+					client.login(credentials);
 				} catch (error) {
-					showLoginError(client.describeLoginError(error));
+					showLoginError(client.describeLoginError(error, mode));
 				}
 				return false;
 			}
 
-			// Fallback when the voucher client is unavailable: still hash only the PIN.
+			// Fallback when the voucher client is unavailable: still hash only the credential.
 			submitPayload({
-				username: phoneNumber,
-				password: hexMD5("$(chap-id)" + pin + "$(chap-challenge)"),
+				username: usernameInput ? usernameInput.value : "",
+				password: hexMD5("$(chap-id)" + (passwordInput ? passwordInput.value : "") + "$(chap-challenge)"),
 			});
 			return false;
 		}
@@ -318,41 +323,48 @@
 	<script src="./assets/voucher-client.js?v=21.2"></script>
 
 	<script>
-		// Phone Number + PIN login (ADR 0004): reveal the PIN field, keep it
-		// masked by default, hide the Phone Number eye toggle, and translate a
-		// server-side hotspot error into a message the user understands.
+		// Login mode control (ADR 0006). The form title, field shape and
+		// placeholders come from the active mode descriptor, and the segmented
+		// control is rendered only when more than one mode is enabled. Phone
+		// Number + PIN is the default, so nothing changes unless config enables
+		// another mode. The expired-account message stays shared by every mode,
+		// while the credential message follows the mode.
 		(function () {
 			var api = window.VoucherClient;
 			var client = api && api.client;
-
-			var pinField = document.getElementById("domPassword");
-			if (pinField) {
-				pinField.classList.remove("hidden");
-			}
-
-			var phoneInput = document.getElementById("username");
-			if (phoneInput) {
-				phoneInput.setAttribute("placeholder", "Phone Number");
-			}
-
-			var pinInput = document.getElementById("password");
-			if (pinInput) {
-				pinInput.setAttribute("type", "password");
-				pinInput.setAttribute("placeholder", "PIN");
-			}
-
-			var phoneEye = document.getElementById("iconTypePasswordUser");
-			if (phoneEye) {
-				phoneEye.style.display = "none";
-			}
+			window.currentLoginMode = "phone";
 
 			var serverError = document.getElementById("serverError");
-			if (client && typeof client.describeError === "function" && serverError) {
-				var raw = (serverError.textContent || "").trim();
-				if (raw && raw.indexOf("$(") === -1) {
-					serverError.textContent = client.describeError(raw);
+			var rawServerError = serverError ? (serverError.textContent || "").trim() : "";
+			if (rawServerError.indexOf("$(") !== -1) {
+				rawServerError = "";
+			}
+
+			function translateServerError() {
+				if (client && typeof client.describeError === "function" && serverError && rawServerError) {
+					serverError.textContent = client.describeError(rawServerError, "", window.currentLoginMode);
 				}
 			}
+
+			var modesContainer = document.getElementById("loginModes");
+			if (client && typeof client.renderLoginModes === "function" && modesContainer) {
+				var control = client.renderLoginModes(modesContainer, {
+					onChange: function (mode) {
+						window.currentLoginMode = mode;
+						translateServerError();
+					},
+				});
+				window.currentLoginMode = control.mode;
+			} else {
+				// The mode control is unavailable (client failed to load): reveal the
+				// default mode's PIN field so Phone Number + PIN login still works.
+				var pinGroup = document.getElementById("domPassword");
+				if (pinGroup) {
+					pinGroup.classList.remove("hidden");
+				}
+			}
+
+			translateServerError();
 		})();
 	</script>
 

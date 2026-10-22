@@ -2,7 +2,8 @@
 
 The MikroTik hotspot captive portal (KOPINETGO-2024) for the voucher purchase
 flow. The Login Page shows the **Package** list from the backend, sends the user
-to the purchase web app, and logs them in with **Phone Number** + **PIN**. The
+to the purchase web app, and logs them in with **Phone Number** + **PIN** by
+default (other credential modes per [ADR 0006](docs/adr/0006-three-hotspot-login-modes.md)). The
 status page shows the remaining **Active Period** and guides **Extend** /
 buy-again.
 
@@ -38,6 +39,25 @@ is hardcoded elsewhere.
 | `appBaseUrl` | `""` | **yes** | Purchase web app base URL. When empty, the "Beli" button is disabled. |
 | `packagesFromBackend` | `1` | no | `1` = read Packages from the backend, `0` = use `fallbackPackages`. |
 | `fallbackPackages` | `[]` | no | Static list used only when the toggle is `0`. |
+
+### Login modes
+
+The hotspot supports three credential schemes (ADR 0006). They are enabled in
+`KOPINETGO-2024/config/data/login.js` (`cfgLogin.modes`), each with a tab label:
+
+```js
+modes: {
+  accessCode: { status: 0, label: "Kode Akses" },
+  phone: { status: 1, label: "Nomor HP" },
+  user: { status: 0, label: "User" },
+},
+```
+
+`status: 1` enables a mode. Only **Phone Number + PIN** is enabled by default,
+so the Login Page behaves exactly as before and no tab is shown; a segmented
+control appears once more than one mode is enabled. The form title, field shape
+and placeholders come from the mode descriptor in
+`KOPINETGO-2024/assets/voucher-client.js`, not from the page markup.
 
 ### Backend contracts (read-only, implemented outside this repo)
 
