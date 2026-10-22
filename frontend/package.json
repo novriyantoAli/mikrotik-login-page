@@ -1,0 +1,42 @@
+{
+  "name": "mikrotik-login-page-app",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite dev --host 0.0.0.0",
+    "build": "vite build",
+    "preview": "vite preview",
+    "prepare": "svelte-kit sync",
+    "typecheck": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "lint": "prettier --check ."
+  },
+  "dependencies": {
+    "@tanstack/svelte-query": "^6.3.5",
+    "axios": "^1.20.0",
+    "clsx": "^2.1.1",
+    "lucide-svelte": "^1.0.1",
+    "tailwind-merge": "^3.7.0",
+    "zod": "^4.6.7"
+  },
+  "devDependencies": {
+    "@sveltejs/adapter-static": "^3.0.10",
+    "@sveltejs/kit": "^2.70.3",
+    "@sveltejs/vite-plugin-svelte": "^5.1.1",
+    "@tailwindcss/vite": "^4.3.3",
+    "@testing-library/jest-dom": "^7.0.1",
+    "@testing-library/svelte": "^5.4.2",
+    "@types/node": "^26.6.5",
+    "jsdom": "^29.1.1",
+    "prettier": "^3.9.10",
+    "prettier-plugin-svelte": "^4.1.1",
+    "svelte": "^5.57.2",
+    "svelte-check": "^4.7.7",
+    "tailwindcss": "^4.3.3",
+    "typescript": "~5.9.3",
+    "vite": "^6.4.5",
+    "vitest": "^5.0.5"
+  }
+}

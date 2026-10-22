@@ -1,0 +1,59 @@
+# Backend configuration sample.
+#
+# Copy to config.yaml only if you prefer a file to environment variables; every
+# key can be overridden by the environment variable of the same name in
+# SECTION_KEY form (postgres.host -> POSTGRES_HOST). See ../.env.example.
+
+app:
+  name: mikrotik-login-page
+  environment: production # development | production
+
+server:
+  host: 0.0.0.0
+  port: 8080
+  read_timeout: 10s
+  write_timeout: 15s
+  idle_timeout: 60s
+  shutdown_timeout: 15s # at most 25s; the process lifecycle budget is 30s
+  # Comma-separated CIDRs allowed to set X-Forwarded-For; empty trusts nobody.
+  trusted_proxies: ""
+
+logger:
+  level: info # debug | info | warn | error
+  format: json # json | console
+  output_path: stdout # stdout | stderr | file path
+
+postgres:
+  host: localhost
+  port: 5432
+  user: hotspot
+  password: ""
+  database: hotspot
+  ssl_mode: disable
+  search_path: "" # tests pin a throwaway schema here
+  max_open_conns: 20
+  max_idle_conns: 10
+  conn_max_lifetime: 30m
+
+freeradius_mysql:
+  host: localhost
+  port: 3306
+  user: radius
+  password: ""
+  database: radius
+  max_open_conns: 10
+  max_idle_conns: 5
+  conn_max_lifetime: 30m
+
+redis:
+  addr: localhost:6379
+  password: ""
+  db: 0
+  dial_timeout: 5s
+
+worker:
+  concurrency: 10
+  queues: [critical, default, low]
+
+health:
+  timeout: 2s

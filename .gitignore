@@ -9,6 +9,7 @@ node_modules/
 .vitest/
 test-results/
 playwright-report/
+coverage.out
 
 # Editor
 .idea/
@@ -16,3 +17,17 @@ playwright-report/
 
 # Logs
 *.log
+
+# Local deployment configuration (never commit secrets)
+.env
+.env.local
+backend/config.yaml
+backend/config.local.yaml
+frontend/.env
+frontend/.env.local
+
+# Build output
+backend/bin/
+backend/docs/
+frontend/build/
+frontend/.svelte-kit/
