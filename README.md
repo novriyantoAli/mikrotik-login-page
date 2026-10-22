@@ -59,6 +59,17 @@ control appears once more than one mode is enabled. The form title, field shape
 and placeholders come from the mode descriptor in
 `KOPINETGO-2024/assets/voucher-client.js`, not from the page markup.
 
+Each mode derives the hotspot credentials differently:
+
+| Mode | Fields | Credentials submitted |
+| --- | --- | --- |
+| `phone` — Phone Number + PIN | Phone Number + PIN (6 digits, masked) | `username = Phone Number`, `password = CHAP(PIN)` |
+| `accessCode` — Access Code | one field | `username = code`, `password = CHAP(code)`; the code is a single secret, so no 6-digit rule applies |
+| `user` — User | username + password (masked) | `username` as typed, `password = CHAP(password)` |
+
+A wrong-credential message follows the active mode (for **Access Code** it reads
+"Kode Akses salah."); the expired-account message is shared by every mode.
+
 ### Backend contracts (read-only, implemented outside this repo)
 
 - `GET <backendBaseUrl><packagesPath>` → `{ data: [{ id, nama, harga, durasiActivePeriod, batasKecepatan }] }`

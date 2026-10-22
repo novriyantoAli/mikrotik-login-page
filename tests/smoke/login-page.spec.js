@@ -258,4 +258,46 @@ test.describe("Login Page smoke", () => {
     await page.locator("#loginModes .login-modes__tab").filter({ hasText: /kode akses/i }).click();
     await expect(page.locator("#serverError")).toContainText(/berakhir/i);
   });
+
+  test("accepts a short numeric Access Code without the 6-digit PIN rule", async ({ page }) => {
+    await configureLoginModes(page, { accessCode: 1 });
+    await page.goto("/login.html");
+    await page.locator("#loginModes .login-modes__tab").filter({ hasText: /kode akses/i }).click();
+
+    const submitted = await page.evaluate(() => {
+      document.getElementById("username").value = "12";
+      document.sendin.submit = function () {};
+      window.doLogin();
+      return {
+        username: document.sendin.username.value,
+        password: document.sendin.password.value,
+      };
+    });
+
+    await expect(page.locator("#loginError")).toBeHidden();
+    const expected = createHash("md5").update("$(chap-id)" + "12" + "$(chap-challenge)").digest("hex");
+    expect(submitted.username).toBe("12");
+    expect(submitted.password).toBe(expected);
+  });
+
+  test("keeps the Package list, Beli button and trial flow with Access Code enabled", async ({ page }) => {
+    await configureLoginModes(page, { accessCode: 1 });
+    await configureDeployment(page, { backendBaseUrl: "https://api.test", appBaseUrl: "https://app.test/beli" });
+    await stubPackageBackend(page, [PACKAGE_FIXTURE]);
+    await serveLoginPage(page, { "$(trial)": "yes" });
+
+    await page.goto("/login.html");
+    await page.locator("#loginModes .login-modes__tab").filter({ hasText: /kode akses/i }).click();
+
+    // Access Code keeps exactly one visible credential field.
+    await expect(page.locator("#username")).toBeVisible();
+    await expect(page.locator("#domPassword")).toBeHidden();
+
+    // The Package list, its Beli button and the trial flow stay intact.
+    const packages = page.locator("#paketInternet");
+    await expect(packages).toContainText("Paket Harian");
+    await expect(packages.getByRole("button", { name: "Beli", exact: true })).toBeVisible();
+    await expect(page.locator("#btnTrial")).toBeVisible();
+    await expect(page.locator("#linkTrial")).toHaveAttribute("href", /username=T-/);
+  });
 });
