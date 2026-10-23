@@ -19,6 +19,7 @@ import (
 	notificationdto "github.com/novriyantoAli/mikrotik-login-page/backend/internal/application/notification/service"
 	packagesservice "github.com/novriyantoAli/mikrotik-login-page/backend/internal/application/packages/service"
 	"github.com/novriyantoAli/mikrotik-login-page/backend/internal/pkg/clock"
+	"github.com/novriyantoAli/mikrotik-login-page/backend/internal/pkg/loginpage"
 	"github.com/novriyantoAli/mikrotik-login-page/backend/internal/pkg/phone"
 	"github.com/novriyantoAli/mikrotik-login-page/backend/internal/pkg/ratelimit"
 	"github.com/novriyantoAli/mikrotik-login-page/backend/internal/pkg/securetoken"
@@ -270,37 +271,16 @@ func (s *service) requirePackage(ctx context.Context, packageID uint) error {
 
 // allowedReturn keeps a return target only when it matches the deployment's
 // Login Page allowlist. The check happens when the link is issued, so redeeming
-// never trusts a value from the URL (ADR 0011).
+// never trusts a value from the URL (ADR 0011). The rule itself lives in one
+// shared package because checkout applies it too.
 func (s *service) allowedReturn(candidate string) string {
-	candidate = strings.TrimSpace(candidate)
-	if candidate == "" {
-		return ""
+	target, ok := loginpage.Allowed(candidate, s.settings.LoginPageAllowlist)
+	if ok {
+		return target
 	}
-
-	parsed, err := url.Parse(candidate)
-	if err != nil || parsed.Scheme == "" || parsed.Host == "" {
-		return ""
+	if strings.TrimSpace(candidate) != "" {
+		s.logger.Warn("return target ignored: not in the Login Page allowlist")
 	}
-
-	for _, allowed := range s.settings.LoginPageAllowlist {
-		target, err := url.Parse(strings.TrimSpace(allowed))
-		if err != nil || target.Scheme == "" || target.Host == "" {
-			continue
-		}
-		if !strings.EqualFold(parsed.Scheme, target.Scheme) || !strings.EqualFold(parsed.Host, target.Host) {
-			continue
-		}
-		if !strings.HasPrefix(parsed.Path, target.Path) {
-			continue
-		}
-
-		parsed.Fragment = ""
-		return parsed.String()
-	}
-
-	s.logger.Warn("return target ignored: not in the Login Page allowlist",
-		zap.String("return_host", parsed.Host),
-	)
 	return ""
 }
 
