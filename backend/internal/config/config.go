@@ -188,16 +188,6 @@ type AuthConfig struct {
 	RateLimit AuthRateLimitConfig `mapstructure:"rate_limit"`
 }
 
-// MagicLinkURL renders the link the SMS carries for one raw token.
-func (c AuthConfig) MagicLinkURL(token string) string {
-	base := strings.TrimSuffix(c.AppBaseURL, "/")
-	path := c.MagicLinkPath
-	if path == "" || path[0] != '/' {
-		path = "/" + path
-	}
-	return base + path + "?token=" + url.QueryEscape(token)
-}
-
 // AuthRateLimitConfig is one fixed window per dimension, both counted in Redis.
 type AuthRateLimitConfig struct {
 	PhoneWindow time.Duration `mapstructure:"phone_window"`

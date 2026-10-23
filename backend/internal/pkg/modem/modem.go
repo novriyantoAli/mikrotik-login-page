@@ -139,6 +139,10 @@ func (m *Modem) close() {
 // dialog runs one full send: text mode, GSM charset, recipient prompt, message,
 // and the +CMGS acknowledgement.
 func (m *Modem) dialog(transport Transport, phoneNumber, message string) error {
+	// Bytes a previous dialog read past its last token (a trailing "OK" is
+	// common) must not be allowed to answer this dialog's first command.
+	m.pending = ""
+
 	if _, err := m.command(transport, "AT"); err != nil {
 		return err
 	}

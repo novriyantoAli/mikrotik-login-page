@@ -28,8 +28,9 @@ type Repository interface {
 	MarkSent(ctx context.Context, id uint, sentAt time.Time) error
 	// MarkFailed either reschedules the row (nextAttemptAt set) or closes it as
 	// failed (nextAttemptAt nil). The policy that chooses between the two lives
-	// in the service.
-	MarkFailed(ctx context.Context, id uint, nextAttemptAt *time.Time, cause string) error
+	// in the service, including the timestamp, so the repository never reads the
+	// wall clock on its own.
+	MarkFailed(ctx context.Context, id uint, nextAttemptAt *time.Time, cause string, now time.Time) error
 }
 
 type smsRepository struct {
@@ -117,7 +118,13 @@ func (r *smsRepository) MarkSent(ctx context.Context, id uint, sentAt time.Time)
 	return nil
 }
 
-func (r *smsRepository) MarkFailed(ctx context.Context, id uint, nextAttemptAt *time.Time, cause string) error {
+func (r *smsRepository) MarkFailed(
+	ctx context.Context,
+	id uint,
+	nextAttemptAt *time.Time,
+	cause string,
+	now time.Time,
+) error {
 	state := entity.StateFailed
 	updates := map[string]any{
 		"lease_until": nil,
@@ -128,7 +135,7 @@ func (r *smsRepository) MarkFailed(ctx context.Context, id uint, nextAttemptAt *
 		updates["next_attempt_at"] = *nextAttemptAt
 	}
 	updates["state"] = state
-	updates["updated_at"] = time.Now().UTC()
+	updates["updated_at"] = now
 
 	if err := r.db.WithContext(ctx).Model(&entity.SMS{}).Where("id = ?", id).Updates(updates).Error; err != nil {
 		r.logger.Error("mark sms failed", zap.Uint("sms_id", id), zap.Error(err))
