@@ -15,7 +15,7 @@ import (
 	"gorm.io/gorm"
 
 	appfx "github.com/novriyantoAli/mikrotik-login-page/backend/internal/app"
-	"github.com/novriyantoAli/mikrotik-login-page/backend/internal/application/notification"
+	"github.com/novriyantoAli/mikrotik-login-page/backend/internal/application/notification/sms"
 	"github.com/novriyantoAli/mikrotik-login-page/backend/internal/application/packages/service"
 	"github.com/novriyantoAli/mikrotik-login-page/backend/internal/application/payment"
 	"github.com/novriyantoAli/mikrotik-login-page/backend/internal/application/provisioning"
@@ -41,7 +41,7 @@ type APIHarness struct {
 	Postgres *gorm.DB
 
 	Gateway      payment.Gateway
-	SMSSender    notification.Sender
+	SMSSender    sms.Sender
 	RadiusWriter provisioning.Writer
 
 	// Catalog is the Package catalog service, and Migrator the deployment
@@ -116,7 +116,7 @@ func NewAPIHarness(t *testing.T, options ...HarnessOption) *APIHarness {
 			cfg *config.Config,
 			router *serverapi.Router,
 			gateway payment.Gateway,
-			sender notification.Sender,
+			sender sms.Sender,
 			writer provisioning.Writer,
 			catalog service.Service,
 			migrator *servermigration.Migrator,
@@ -171,6 +171,19 @@ func (h *APIHarness) Migrate(t *testing.T) {
 // Do sends one request through the production router.
 func (h *APIHarness) Do(t *testing.T, method, path string, body []byte) *httptest.ResponseRecorder {
 	t.Helper()
+	return h.DoRequest(t, method, path, body, nil)
+}
+
+// DoRequest sends one request and lets the caller adjust it before it reaches
+// the router: cookies, headers and a distinct RemoteAddr (which rate limits key
+// on) are all set this way.
+func (h *APIHarness) DoRequest(
+	t *testing.T,
+	method, path string,
+	body []byte,
+	mutate func(*http.Request),
+) *httptest.ResponseRecorder {
+	t.Helper()
 
 	var reader io.Reader
 	if body != nil {
@@ -180,6 +193,9 @@ func (h *APIHarness) Do(t *testing.T, method, path string, body []byte) *httptes
 	request := httptest.NewRequest(method, path, reader)
 	if body != nil {
 		request.Header.Set("Content-Type", "application/json")
+	}
+	if mutate != nil {
+		mutate(request)
 	}
 
 	recorder := httptest.NewRecorder()

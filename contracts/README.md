@@ -19,6 +19,10 @@ silently.
 | `health.degraded.response.json` | `GET /api/health` (503, one dependency down) | same two test files |
 | `packages.response.json` | `GET /api/packages` (200) | `backend/test/integration/packages_contract_test.go`, `tests/unit/login-page-contract.test.js` |
 | `active-period.response.json` | `GET /api/active-period?phone=…` (200) | `backend/test/integration/active_period_contract_test.go`, `tests/unit/login-page-contract.test.js` |
+| `magic-link.request.json` | `POST /api/auth/magic-link` (request body) | `backend/test/integration/auth_contract_test.go`, `frontend/tests/unit/auth.contract.test.ts` |
+| `magic-link.response.json` | `POST /api/auth/magic-link` (202) | same two test files |
+| `magic-link.exchange.response.json` | `POST /api/auth/magic-link/exchange` (200) | same two test files |
+| `session.response.json` | `GET /api/auth/session` (200) | same two test files |
 
 Rules:
 
@@ -33,6 +37,9 @@ Rules:
   change here is a breaking change to a shipped page, not a refactor. An
   unknown Phone Number answers `{"data":{"expiry":null}}`, which the seam
   renders as "no Active Period" rather than as a failure.
+- The auth fixtures are the **session contract** (ADR 0011). The session token
+  never appears in a body — only in the `Set-Cookie` header — so a fixture that
+  grows a `token` field is a leak, not a feature.
 - Values are examples, not assertions of live data (latency, timestamps).
 - Never edit a fixture to make one side's test pass without updating the other
   side's schema/DTO in the same change.

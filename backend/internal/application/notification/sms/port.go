@@ -1,7 +1,7 @@
-// Package notification owns the SMS sender port. The modem adapter (AT commands,
+// Package sms owns the SMS sender port and the wake-up task name. The modem adapter (AT commands,
 // ADR 0003) implements it later; the Transaction/Provisioning code only ever
 // sees "send this text to this Phone Number".
-package notification
+package sms
 
 import "context"
 

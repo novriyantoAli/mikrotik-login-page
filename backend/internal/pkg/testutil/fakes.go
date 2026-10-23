@@ -7,7 +7,7 @@ import (
 
 	"go.uber.org/fx"
 
-	"github.com/novriyantoAli/mikrotik-login-page/backend/internal/application/notification"
+	"github.com/novriyantoAli/mikrotik-login-page/backend/internal/application/notification/sms"
 	"github.com/novriyantoAli/mikrotik-login-page/backend/internal/application/payment"
 	"github.com/novriyantoAli/mikrotik-login-page/backend/internal/application/provisioning"
 	"github.com/novriyantoAli/mikrotik-login-page/backend/internal/pkg/clock"
@@ -66,7 +66,7 @@ func (d *TestDoubles) FxOption(options ...DoublesOption) fx.Option {
 			func() *FakeGateway { return d.Gateway },
 			func(f *FakeGateway) payment.Gateway { return f },
 			func() *FakeSMSSender { return d.SMS },
-			func(f *FakeSMSSender) notification.Sender { return f },
+			func(f *FakeSMSSender) sms.Sender { return f },
 			func() *FakeRadiusWriter { return d.Radius },
 			func(f *FakeRadiusWriter) provisioning.Writer { return f },
 			func() *FakeRadiusReader { return d.RadiusReader },
@@ -182,7 +182,7 @@ type SentSMS struct {
 // NewFakeSMSSender builds an empty fake sender.
 func NewFakeSMSSender() *FakeSMSSender { return &FakeSMSSender{} }
 
-// Send implements notification.Sender.
+// Send implements sms.Sender.
 func (s *FakeSMSSender) Send(_ context.Context, phoneNumber, message string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()

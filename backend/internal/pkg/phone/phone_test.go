@@ -73,3 +73,12 @@ func TestNormalizeRejectsValuesThatAreNotPhoneNumbers(t *testing.T) {
 		}
 	}
 }
+
+func TestMaskKeepsEndsOnly(t *testing.T) {
+	if got := phone.Mask("6281234567890"); got != "6281****7890" {
+		t.Fatalf("Mask = %q", got)
+	}
+	if got := phone.Mask("62812"); got != "****" {
+		t.Fatalf("Mask of a short value = %q, want fully masked", got)
+	}
+}

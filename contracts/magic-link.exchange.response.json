@@ -1,0 +1,9 @@
+{
+  "data": {
+    "phone_number": "6281234567890",
+    "expires_at": "2026-11-21T09:00:00Z",
+    "purpose": "checkout",
+    "package_id": 1,
+    "return_url": "http://192.168.88.1/login?mac=aa-bb-cc-dd-ee-ff"
+  }
+}

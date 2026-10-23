@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"net/url"
 	"os"
 	"strings"
 	"time"
@@ -44,6 +45,8 @@ type Config struct {
 	Redis           RedisConfig    `mapstructure:"redis"`
 	Worker          WorkerConfig   `mapstructure:"worker"`
 	Health          HealthConfig   `mapstructure:"health"`
+	Auth            AuthConfig     `mapstructure:"auth"`
+	SMS             SMSConfig      `mapstructure:"sms"`
 }
 
 // AppConfig identifies this service in logs and health responses.
@@ -159,6 +162,69 @@ type HealthConfig struct {
 	Timeout time.Duration `mapstructure:"timeout"`
 }
 
+// AuthConfig configures the passwordless entry path: Magic Link lifetime,
+// session lifetime, the cookie that carries the session, the rate limits on
+// requesting a Magic Link, and where the app is reachable when the SMS link is
+// built (ADR 0011).
+type AuthConfig struct {
+	// MagicLinkTTL is how long a Magic Link stays usable.
+	MagicLinkTTL time.Duration `mapstructure:"magic_link_ttl"`
+	// SessionTTL is the lifetime of the cookie session and of its hash row.
+	SessionTTL time.Duration `mapstructure:"session_ttl"`
+	// CookieSecure sets the Secure attribute; off only for local plain-HTTP
+	// deployments behind the reverse proxy (ADR 0011).
+	CookieSecure bool `mapstructure:"cookie_secure"`
+	// CookieName is the name of the session cookie.
+	CookieName string `mapstructure:"cookie_name"`
+	// AppBaseURL is the origin the SMS link points at. It is deployment
+	// configuration, never derived from a request header.
+	AppBaseURL string `mapstructure:"app_base_url"`
+	// MagicLinkPath is the app route that redeems the token.
+	MagicLinkPath string `mapstructure:"magic_link_path"`
+	// LoginPageAllowlist holds the absolute Login Page URLs a `return` may name.
+	// Empty means every return target is dropped (ADR 0011).
+	LoginPageAllowlist []string `mapstructure:"login_page_allowlist"`
+	// RateLimit bounds Magic Link requests per Phone Number and per IP.
+	RateLimit AuthRateLimitConfig `mapstructure:"rate_limit"`
+}
+
+// MagicLinkURL renders the link the SMS carries for one raw token.
+func (c AuthConfig) MagicLinkURL(token string) string {
+	base := strings.TrimSuffix(c.AppBaseURL, "/")
+	path := c.MagicLinkPath
+	if path == "" || path[0] != '/' {
+		path = "/" + path
+	}
+	return base + path + "?token=" + url.QueryEscape(token)
+}
+
+// AuthRateLimitConfig is one fixed window per dimension, both counted in Redis.
+type AuthRateLimitConfig struct {
+	PhoneWindow time.Duration `mapstructure:"phone_window"`
+	PhoneLimit  int           `mapstructure:"phone_limit"`
+	IPWindow    time.Duration `mapstructure:"ip_window"`
+	IPLimit     int           `mapstructure:"ip_limit"`
+}
+
+// SMSConfig configures the modem adapter and the outbox drainer (ADR 0010).
+type SMSConfig struct {
+	// Device is the serial device the Wavecom modem is attached to.
+	Device string `mapstructure:"device"`
+	// Baud is the serial speed the modem is configured for.
+	Baud int `mapstructure:"baud"`
+	// CommandTimeout bounds one AT command round trip.
+	CommandTimeout time.Duration `mapstructure:"command_timeout"`
+	// Lease is how long a claimed outbox row stays owned by one drainer.
+	Lease time.Duration `mapstructure:"lease"`
+	// SweepInterval is how often the drainer looks for due rows even when no
+	// wake-up task arrived.
+	SweepInterval time.Duration `mapstructure:"sweep_interval"`
+	// MaxAttempts is the number of send attempts before a row is left failed.
+	MaxAttempts int `mapstructure:"max_attempts"`
+	// RetryBackoff is the base delay between attempts; it doubles per attempt.
+	RetryBackoff time.Duration `mapstructure:"retry_backoff"`
+}
+
 // defaults doubles as the documented list of every configuration key. Each key
 // is also bound to its environment variable so that viper.Unmarshal sees env
 // overrides (AutomaticEnv alone does not populate nested unmarshalled keys).
@@ -200,6 +266,24 @@ var defaults = map[string]any{
 	"worker.concurrency":                 10,
 	"worker.queues":                      []string{"critical", "default", "low"},
 	"health.timeout":                     "2s",
+	"auth.magic_link_ttl":                "15m",
+	"auth.session_ttl":                   "720h",
+	"auth.cookie_secure":                 false,
+	"auth.cookie_name":                   "session",
+	"auth.app_base_url":                  "http://localhost:5173",
+	"auth.magic_link_path":               "/masuk/tautan",
+	"auth.login_page_allowlist":          []string{},
+	"auth.rate_limit.phone_window":       "5m",
+	"auth.rate_limit.phone_limit":        1,
+	"auth.rate_limit.ip_window":          "5m",
+	"auth.rate_limit.ip_limit":           10,
+	"sms.device":                         "/dev/ttyUSB0",
+	"sms.baud":                           115200,
+	"sms.command_timeout":                "10s",
+	"sms.lease":                          "2m",
+	"sms.sweep_interval":                 "30s",
+	"sms.max_attempts":                   5,
+	"sms.retry_backoff":                  "1m",
 }
 
 // Keys returns every configuration key this package understands. Tests and
@@ -298,6 +382,8 @@ func (c *Config) Validate() error {
 	problems = append(problems, c.validateRedis()...)
 	problems = append(problems, c.validateWorker()...)
 	problems = append(problems, c.validateHealth()...)
+	problems = append(problems, c.validateAuth()...)
+	problems = append(problems, c.validateSMS()...)
 
 	if len(problems) > 0 {
 		return fmt.Errorf("invalid configuration:\n  - %s", strings.Join(problems, "\n  - "))
@@ -407,4 +493,56 @@ func (c *Config) validateHealth() []string {
 		return []string{"health.timeout must be a positive duration"}
 	}
 	return nil
+}
+
+func (c *Config) validateAuth() []string {
+	var problems []string
+
+	if c.Auth.MagicLinkTTL <= 0 {
+		problems = append(problems, "auth.magic_link_ttl must be a positive duration")
+	}
+	if c.Auth.SessionTTL <= 0 {
+		problems = append(problems, "auth.session_ttl must be a positive duration")
+	}
+	if c.Auth.CookieName == "" {
+		problems = append(problems, "auth.cookie_name must be set")
+	}
+	if c.Auth.AppBaseURL == "" {
+		problems = append(problems, "auth.app_base_url must be set")
+	}
+	if c.Auth.RateLimit.PhoneWindow <= 0 || c.Auth.RateLimit.PhoneLimit <= 0 {
+		problems = append(problems, "auth.rate_limit.phone_window and auth.rate_limit.phone_limit must be positive")
+	}
+	if c.Auth.RateLimit.IPWindow <= 0 || c.Auth.RateLimit.IPLimit <= 0 {
+		problems = append(problems, "auth.rate_limit.ip_window and auth.rate_limit.ip_limit must be positive")
+	}
+	for _, allowed := range c.Auth.LoginPageAllowlist {
+		parsed, err := url.Parse(allowed)
+		if err != nil || parsed.Scheme == "" || parsed.Host == "" {
+			problems = append(problems,
+				fmt.Sprintf("auth.login_page_allowlist entry %q must be an absolute URL", allowed))
+		}
+	}
+	return problems
+}
+
+func (c *Config) validateSMS() []string {
+	var problems []string
+
+	if c.SMS.Device == "" {
+		problems = append(problems, "sms.device must be set")
+	}
+	if c.SMS.Baud <= 0 {
+		problems = append(problems, "sms.baud must be positive")
+	}
+	if c.SMS.CommandTimeout <= 0 || c.SMS.Lease <= 0 || c.SMS.SweepInterval <= 0 {
+		problems = append(problems, "sms.command_timeout, sms.lease and sms.sweep_interval must be positive durations")
+	}
+	if c.SMS.MaxAttempts <= 0 {
+		problems = append(problems, "sms.max_attempts must be positive")
+	}
+	if c.SMS.RetryBackoff <= 0 {
+		problems = append(problems, "sms.retry_backoff must be a positive duration")
+	}
+	return problems
 }

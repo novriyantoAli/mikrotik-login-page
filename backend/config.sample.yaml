@@ -57,3 +57,28 @@ worker:
 
 health:
   timeout: 2s
+
+auth:
+  magic_link_ttl: 15m
+  session_ttl: 720h
+  cookie_secure: false
+  cookie_name: session
+  # Origin the SMS link points at; the app route that redeems the token.
+  app_base_url: http://localhost:5173
+  magic_link_path: /masuk/tautan
+  # Absolute Login Page URLs a `return` may name; empty drops every return.
+  login_page_allowlist: []
+  rate_limit:
+    phone_window: 5m
+    phone_limit: 1
+    ip_window: 5m
+    ip_limit: 10
+
+sms:
+  device: /dev/ttyUSB0
+  baud: 115200
+  command_timeout: 10s
+  lease: 2m
+  sweep_interval: 30s
+  max_attempts: 5
+  retry_backoff: 1m
