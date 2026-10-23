@@ -195,12 +195,27 @@ origin (ADR 0014).
 ### Purchase app contract
 
 The "Beli" button links to
-`<appBaseUrl>?package=<Package id>&return=<Login Page URL>`.
+`<appBaseUrl>?package=<Package id>&return=<Login Page URL>`; point
+`appBaseUrl` at the app's `/beli` route.
 
-The app answers `GET <appBaseUrl>` by forwarding those two parameters to
-`/masuk`, the entry screen. It never trusts them: the backend re-validates the
-Package and only stores `return` when it matches the deployment's
-`AUTH_LOGIN_PAGE_ALLOWLIST` (ADR 0011).
+`/beli` shows the Package and asks for a **Phone Number** when there is no
+session, then offers the closed-payment channels and the payment instructions.
+It never trusts the URL: the backend re-validates the Package, and `return` is
+only echoed back after it matches the deployment's
+`AUTH_LOGIN_PAGE_ALLOWLIST` (ADR 0011/0015).
+
+Checkout endpoints (session cookie required):
+
+| Endpoint | Body |
+| --- | --- |
+| `GET /api/transactions/channels` | `{"data":[{"code","name","group","fee_flat_idr","fee_percent"}]}` |
+| `POST /api/transactions` | `{"package_id","channel"}` → the pending Transaction, or the same one that already exists |
+| `GET /api/transactions/{id}` | the Transaction the app polls until it settles |
+| `POST /api/payments/callback` | public; signed by the gateway, the only path to `paid` |
+
+Fees are shown separately from the Package price, and polling stops at a
+terminal state or while the tab is hidden; the gateway callback remains the
+authority (ADR 0008/0015).
 
 The passwordless entry endpoints (session cookie per ADR 0009/0011):
 

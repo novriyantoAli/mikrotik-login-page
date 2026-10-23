@@ -20,8 +20,9 @@ sequence.
 | [0012](0012-seed-package-catalog.md) | Seed the Package catalog until the Admin Panel exists |
 | [0013](0013-purchase-app-spa-single-origin.md) | Purchase app is a SPA; no SSR holds the session |
 | [0014](0014-active-period-read-port.md) | Read the Active Period through the provisioning port; unknown means empty |
+| [0015](0015-transaction-transition-guard.md) | Transaction transitions are guarded UPDATEs; checkout idempotency is a partial unique index |
 
 0010 and 0011 were **reserved** (not written) while 0012–0014 were already in
 place, so the numbers record the order the PRD decisions were taken, not the
 order the files were created. No numbers are free: the next decision continues
-at 0015.
+at 0016.

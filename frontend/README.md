@@ -11,7 +11,7 @@ origin as the API (ADR 0013); no SSR process holds a session.
 | `src/routes/`               | Thin route adapters (`+layout.svelte`, `+page.svelte`)                          |
 | `src/lib/api/client.ts`     | The single axios instance + one normalised error shape                          |
 | `src/lib/config/env.ts`     | Typed wrapper over the build-time `VITE_*` values                               |
-| `src/lib/domains/<domain>/` | Vertical slice: `schemas/` (zod), `api/`, `queries/`, `components/`, `index.ts` |
+| `src/lib/domains/<domain>/` | Vertical slice: `schemas/` (zod), `api/`, `queries/`, optional `state/`, `components/`, `index.ts` |
 | `src/lib/components/ui/`    | shadcn-svelte primitives (vendeored source, no business logic)                  |
 | `tests/unit/`               | Vitest + Testing Library tests against the shared contract fixtures             |
 
@@ -24,6 +24,24 @@ added from the shadcn-svelte registry source rather than by running the
 interactive `shadcn-svelte init` CLI (which requires a design-system preset).
 `components.json` is present, so re-running the CLI later regenerates them with
 the same aliases; keep business logic out of that directory.
+
+## Routes
+
+| Route | Purpose |
+| --- | --- |
+| `/` | System status (health) |
+| `/masuk` | Phone Number → Magic Link request |
+| `/masuk/tautan` | Redeem the Magic Link; a checkout link lands on `/beli` |
+| `/beli?package=<id>&return=<Login Page URL>` | Checkout: Package, payment channel, instructions, polling |
+
+Domains: `packages` (public catalog), `auth` (Magic Link + session), `checkout`
+(channels, Transaction, instructions, polling), `health` (system status).
+
+Checkout polls one Transaction every 4s until it settles, and never while the
+tab is hidden (`refetchIntervalInBackground: false`); the gateway callback is
+still the only authority for settlement (ADR 0008/0015). The `return` target is
+rendered from the Transaction the backend validated, never straight from the
+address bar.
 
 ## Configuration
 
