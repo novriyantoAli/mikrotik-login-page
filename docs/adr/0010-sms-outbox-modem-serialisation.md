@@ -14,6 +14,15 @@ a crash between the modem's `OK` and the commit resends, so a duplicate SMS is
 acceptable while a *missing* **PIN** is not. Nothing dedupes by message body —
 only the row transition and the claim lock prevent a double send.
 
+Atomicity has two levels, and only one of them is free. A caller that already
+writes inside a Postgres transaction — account provisioning, when it lands — must
+insert the outbox row in that same transaction, so "provisioned but never
+queued" cannot commit. The auth slice instead writes the token first and enqueues
+after it: a token whose SMS was lost is inert, and the buyer simply asks again,
+so a shared transaction would buy nothing there. The consequence is explicit
+here so a later caller does not mistake `Outbox.Enqueue` for proof of atomicity
+with its own write.
+
 Chosen because the two hard requirements here are both transactional:
 
 - **A paid buyer must not lose the PIN because the modem is off.** A direct AT
