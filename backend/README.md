@@ -17,7 +17,9 @@ Documentation: [`../docs/adr/`](../docs/adr), [`../CONTEXT.md`](../CONTEXT.md),
 | `internal/application/<domain>` | Vertical slice: `dto/`, `entity/`, `repository/`, `service/`, `handler/`, `worker/`, `module.go` |
 | `internal/application/packages` | Package catalog: seed data, public `GET /packages` |
 | `internal/application/activeperiod` | Public `GET /active-period`, read through the provisioning port |
-| `internal/application/{payment,notification,provisioning}` | Vendor ports (gateway, SMS sender, FreeRADIUS writer and expiration reader) |
+| `internal/application/transaction` | Transaction state machine, idempotent checkout, gateway callback, expiry sweep (ADR 0015) |
+| `internal/application/payment` | The `Gateway` port and its Tripay adapter (`payment/tripay`), the only code that knows the vendor |
+| `internal/application/{notification,provisioning}` | Vendor ports (SMS sender, FreeRADIUS writer and expiration reader) |
 | `internal/pkg` | Infrastructure: `database`, `logger`, `clock`, `httpx`, `testutil` |
 | `internal/server/{api,worker,migration}` | Transports, the migration step, Fx wiring |
 | `test/integration` | HTTP-contract integration tests, process tests, deployment tests |
@@ -68,6 +70,34 @@ origin (ADR 0014). The Phone Number is normalised (`08…`, `+62…`,
 spaced → `628…`); a malformed one is `400 invalid_request`, while an unreachable
 FreeRADIUS MySQL is `503 dependency_unavailable`. The shapes are frozen by the
 Login Page and pinned by `contracts/*.json` on both sides.
+
+## Checkout and settlement (#14)
+
+Every endpoint below needs the session cookie (`middleware.RequireSession`),
+except the gateway callback, which authenticates its raw body with the shared
+secret instead.
+
+| Endpoint | Body |
+| --- | --- |
+| `GET /api/transactions/channels` | `{"data":[{"code","name","group","fee_flat_idr","fee_percent"}]}` from the gateway, fees separate from the Package price |
+| `POST /api/transactions` | `{"package_id","channel","return_url"?}` → `200 {"data":{…Transaction}}`; a second call for the same Package returns the same live pending Transaction |
+| `GET /api/transactions/{id}` | `200 {"data":{…Transaction}}`; another buyer's Transaction is `404`, never `403` |
+| `POST /api/payments/callback` | public; `X-Callback-Signature` over the raw body. The only path into `paid` (ADR 0008/0015) |
+
+A Transaction is `pending`, `paid`, `provisioned`, `failed` or `expired`; the
+allowed transitions are `pending → paid|failed|expired` and
+`paid → provisioned`, enforced by guarded `UPDATE … WHERE state = …` statements.
+A repeated callback, a late settlement and a repeated "Bayar" tap all lose that
+guard and change nothing. Pending Transactions whose deadline passed are expired
+by the worker sweep (`transaction.expiry_sweep_interval`), never by a client.
+
+Configuration: `transaction.payment_ttl`, `transaction.expiry_sweep_interval`,
+and `tripay.{api_key,private_key,merchant_code,base_url,callback_url,
+return_url,request_timeout}`. Empty Tripay credentials still boot; checkout
+answers `502 dependency_unavailable` until they are set.
+
+Fixtures live in `../contracts/{channels,transaction*}.json` and are decoded by
+both the Go integration tests and the app's strict zod schemas.
 
 ## Test harness (`internal/pkg/testutil`)
 

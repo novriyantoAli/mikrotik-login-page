@@ -23,6 +23,10 @@ silently.
 | `magic-link.response.json` | `POST /api/auth/magic-link` (202) | same two test files |
 | `magic-link.exchange.response.json` | `POST /api/auth/magic-link/exchange` (200) | same two test files |
 | `session.response.json` | `GET /api/auth/session` (200) | same two test files |
+| `channels.response.json` | `GET /api/transactions/channels` (200) | `backend/test/integration/transaction_contract_test.go`, `frontend/tests/unit/checkout.contract.test.ts` |
+| `transaction.create.request.json` | `POST /api/transactions` (request body) | same two test files |
+| `transaction.response.json` | `POST /api/transactions` and `GET /api/transactions/{id}` (200, pending) | same two test files |
+| `transaction.paid.response.json` | `GET /api/transactions/{id}` (200, paid) | same two test files |
 
 Rules:
 
@@ -37,6 +41,10 @@ Rules:
   change here is a breaking change to a shipped page, not a refactor. An
   unknown Phone Number answers `{"data":{"expiry":null}}`, which the seam
   renders as "no Active Period" rather than as a failure.
+- The checkout fixtures are the **transaction contract** (ADR 0015). The amount
+  is integer rupiah, the channel fee is separate from it, and `paid_at` is
+  `null` until settlement; the payload never carries a vendor field such as
+  Tripay's own `reference`.
 - The auth fixtures are the **session contract** (ADR 0011). The session token
   never appears in a body — only in the `Set-Cookie` header — so a fixture that
   grows a `token` field is a leak, not a feature.
