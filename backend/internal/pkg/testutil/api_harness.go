@@ -19,6 +19,7 @@ import (
 	"github.com/novriyantoAli/mikrotik-login-page/backend/internal/application/packages/service"
 	"github.com/novriyantoAli/mikrotik-login-page/backend/internal/application/payment"
 	"github.com/novriyantoAli/mikrotik-login-page/backend/internal/application/provisioning"
+	transactionservice "github.com/novriyantoAli/mikrotik-login-page/backend/internal/application/transaction/service"
 	"github.com/novriyantoAli/mikrotik-login-page/backend/internal/config"
 	serverapi "github.com/novriyantoAli/mikrotik-login-page/backend/internal/server/api"
 	servermigration "github.com/novriyantoAli/mikrotik-login-page/backend/internal/server/migration"
@@ -48,6 +49,9 @@ type APIHarness struct {
 	// migration step, so a test can re-run the seed against its own schema.
 	Catalog  service.Service
 	Migrator *servermigration.Migrator
+	// TransactionExpiry drives the payment deadline in tests: the worker sweeps
+	// in production, and the test advances the frozen clock and sweeps once.
+	TransactionExpiry transactionservice.Expiry
 }
 
 // HarnessOption adjusts one harness before it starts.
@@ -120,6 +124,7 @@ func NewAPIHarness(t *testing.T, options ...HarnessOption) *APIHarness {
 			writer provisioning.Writer,
 			catalog service.Service,
 			migrator *servermigration.Migrator,
+			expiry transactionservice.Expiry,
 		) {
 			harness.Config = cfg
 			harness.Engine = router.Engine
@@ -128,6 +133,7 @@ func NewAPIHarness(t *testing.T, options ...HarnessOption) *APIHarness {
 			harness.RadiusWriter = writer
 			harness.Catalog = catalog
 			harness.Migrator = migrator
+			harness.TransactionExpiry = expiry
 		}),
 	)
 

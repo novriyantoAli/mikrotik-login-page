@@ -1,0 +1,36 @@
+{
+  "success": true,
+  "message": "",
+  "data": [
+    {
+      "code": "BRIVA",
+      "name": "BRIVA",
+      "group": "Virtual Account",
+      "active": true,
+      "fee_merchant": { "flat": 0, "percent": 0 },
+      "fee_customer": { "flat": 2500, "percent": 0 },
+      "total_fee": { "flat": 0, "percent": 0 },
+      "icon_url": "https://tripay.co.id/icon/briva.png"
+    },
+    {
+      "code": "QRIS",
+      "name": "QRIS",
+      "group": "QRIS",
+      "active": true,
+      "fee_merchant": { "flat": 0, "percent": 0 },
+      "fee_customer": { "flat": 0, "percent": 0.7 },
+      "total_fee": { "flat": 0, "percent": 0 },
+      "icon_url": "https://tripay.co.id/icon/qris.png"
+    },
+    {
+      "code": "ALFAMIDI",
+      "name": "Alfamidi",
+      "group": "Gerai Retail",
+      "active": false,
+      "fee_merchant": { "flat": 0, "percent": 0 },
+      "fee_customer": { "flat": 0, "percent": 0 },
+      "total_fee": { "flat": 0, "percent": 0 },
+      "icon_url": "https://tripay.co.id/icon/alfamidi.png"
+    }
+  ]
+}

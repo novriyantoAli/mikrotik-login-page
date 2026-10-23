@@ -74,6 +74,24 @@ auth:
     ip_window: 5m
     ip_limit: 10
 
+transaction:
+  # How long a buyer has to pay before the worker expires the Transaction.
+  payment_ttl: 1h
+  # How often the worker closes overdue pending Transactions.
+  expiry_sweep_interval: 1m
+
+tripay:
+  # Empty credentials let the stack boot; checkout reports 502 until they are set.
+  api_key: ""
+  private_key: ""
+  merchant_code: ""
+  base_url: https://tripay.co.id/api-sandbox
+  # Public URL Tripay posts settlements to (the API's /api path).
+  callback_url: http://localhost:8080/api/payments/callback
+  # Fallback destination after paying; the app navigates itself.
+  return_url: http://localhost:8080/
+  request_timeout: 20s
+
 sms:
   device: /dev/ttyUSB0
   baud: 115200

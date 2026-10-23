@@ -18,6 +18,9 @@ import (
 	"github.com/novriyantoAli/mikrotik-login-page/backend/internal/application/notification"
 	notificationworker "github.com/novriyantoAli/mikrotik-login-page/backend/internal/application/notification/worker"
 	"github.com/novriyantoAli/mikrotik-login-page/backend/internal/application/packages"
+	"github.com/novriyantoAli/mikrotik-login-page/backend/internal/application/payment/tripay"
+	"github.com/novriyantoAli/mikrotik-login-page/backend/internal/application/transaction"
+	transactionworker "github.com/novriyantoAli/mikrotik-login-page/backend/internal/application/transaction/worker"
 	"github.com/novriyantoAli/mikrotik-login-page/backend/internal/config"
 	"github.com/novriyantoAli/mikrotik-login-page/backend/internal/pkg/clock"
 	"github.com/novriyantoAli/mikrotik-login-page/backend/internal/pkg/database"
@@ -85,6 +88,8 @@ func routerWithBase(base fx.Option, extra ...fx.Option) fx.Option {
 		activeperiod.Module(),
 		notification.Module(),
 		auth.Module(),
+		tripay.Module(),
+		transaction.Module(),
 		serverapi.RouterModule(),
 		fx.Options(extra...),
 	)
@@ -119,6 +124,7 @@ func WorkerWithBase(base fx.Option, extra ...fx.Option) fx.Option {
 		database.RedisModule(),
 		database.PostgresModule(),
 		notification.WorkerModule(),
+		transaction.WorkerModule(),
 		modem.Module(),
 		serverworker.Module(),
 		fx.Provide(
@@ -127,8 +133,16 @@ func WorkerWithBase(base fx.Option, extra ...fx.Option) fx.Option {
 			func(cfg *config.Config) notificationworker.Settings {
 				return notificationworker.Settings{SweepInterval: cfg.SMS.SweepInterval}
 			},
+			func(cfg *config.Config) transactionworker.Settings {
+				return transactionworker.Settings{SweepInterval: cfg.Transaction.ExpirySweepInterval}
+			},
 			fx.Annotate(
 				notificationworker.NewDrainer,
+				fx.As(new(serverworker.TaskRegistrar)),
+				fx.ResultTags(`group:"worker_tasks"`),
+			),
+			fx.Annotate(
+				transactionworker.NewExpiry,
 				fx.As(new(serverworker.TaskRegistrar)),
 				fx.ResultTags(`group:"worker_tasks"`),
 			),
