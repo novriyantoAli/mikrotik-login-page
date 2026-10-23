@@ -333,6 +333,30 @@ func TestPendingTransactionExpiresOnTheDeadline(t *testing.T) {
 	}
 }
 
+// TestCheckoutAfterTheDeadlineOpensANewTransaction covers the window between a
+// deadline passing and the worker sweep: the one-pending index must not turn a
+// legitimate second purchase into a server error.
+func TestCheckoutAfterTheDeadlineOpensANewTransaction(t *testing.T) {
+	harness := testutil.NewAPIHarness(t)
+	cookie := newSessionCookie(t, harness, "081300000022", "198.51.100.22")
+	packageID := firstPackageID(t, harness)
+
+	first := checkout(t, harness, cookie, packageID, "BRIVA")
+
+	harness.Doubles.Clock.Advance(2 * time.Hour)
+	second := checkout(t, harness, cookie, packageID, "BRIVA")
+	if second.ID == first.ID {
+		t.Fatal("checkout after the deadline returned the overdue Transaction")
+	}
+
+	if state := getTransaction(t, harness, cookie, first.ID).State; state != string(entity.StateExpired) {
+		t.Fatalf("old Transaction state = %q, want expired", state)
+	}
+	if state := getTransaction(t, harness, cookie, second.ID).State; state != string(entity.StatePending) {
+		t.Fatalf("new Transaction state = %q, want pending", state)
+	}
+}
+
 func TestCheckoutEchoesOnlyTheAllowlistedReturnTarget(t *testing.T) {
 	t.Setenv("AUTH_LOGIN_PAGE_ALLOWLIST", "http://192.168.88.1/login")
 

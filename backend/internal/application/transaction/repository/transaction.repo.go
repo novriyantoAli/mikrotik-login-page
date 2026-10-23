@@ -43,6 +43,11 @@ type Repository interface {
 	// expired and reports how many it changed. The clock is the caller's, so the
 	// rule stays testable.
 	ExpireOverdue(ctx context.Context, now time.Time) (int64, error)
+	// ExpirePending closes the overdue pending Transaction for one Phone Number
+	// and Package, if there is one. Checkout calls it before opening a new
+	// Transaction so a deadline the worker has not swept yet cannot block the
+	// partial unique index.
+	ExpirePending(ctx context.Context, phoneNumber string, packageID uint, now time.Time) (int64, error)
 }
 
 type transactionRepository struct {
@@ -142,6 +147,27 @@ func (r *transactionRepository) Transition(
 		return false, fmt.Errorf("transition transaction %d to %s: %w", id, to, result.Error)
 	}
 	return result.RowsAffected > 0, nil
+}
+
+func (r *transactionRepository) ExpirePending(
+	ctx context.Context,
+	phoneNumber string,
+	packageID uint,
+	now time.Time,
+) (int64, error) {
+	result := r.db.WithContext(ctx).
+		Model(&entity.Transaction{}).
+		Where("phone_number = ? AND package_id = ? AND state = ? AND expires_at <= ?",
+			phoneNumber, packageID, entity.StatePending, now).
+		Updates(map[string]any{
+			"state":      entity.StateExpired,
+			"updated_at": now,
+		})
+	if result.Error != nil {
+		r.logger.Error("expire the overdue Transaction of one session", zap.Error(result.Error))
+		return 0, fmt.Errorf("expire overdue transaction: %w", result.Error)
+	}
+	return result.RowsAffected, nil
 }
 
 func (r *transactionRepository) ExpireOverdue(ctx context.Context, now time.Time) (int64, error) {
