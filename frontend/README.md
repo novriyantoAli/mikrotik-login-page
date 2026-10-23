@@ -6,14 +6,14 @@ origin as the API (ADR 0013); no SSR process holds a session.
 
 ## Layout
 
-| Path                        | Role                                                                            |
-| --------------------------- | ------------------------------------------------------------------------------- |
-| `src/routes/`               | Thin route adapters (`+layout.svelte`, `+page.svelte`)                          |
-| `src/lib/api/client.ts`     | The single axios instance + one normalised error shape                          |
-| `src/lib/config/env.ts`     | Typed wrapper over the build-time `VITE_*` values                               |
+| Path                        | Role                                                                                               |
+| --------------------------- | -------------------------------------------------------------------------------------------------- |
+| `src/routes/`               | Thin route adapters (`+layout.svelte`, `+page.svelte`)                                             |
+| `src/lib/api/client.ts`     | The single axios instance + one normalised error shape                                             |
+| `src/lib/config/env.ts`     | Typed wrapper over the build-time `VITE_*` values                                                  |
 | `src/lib/domains/<domain>/` | Vertical slice: `schemas/` (zod), `api/`, `queries/`, optional `state/`, `components/`, `index.ts` |
-| `src/lib/components/ui/`    | shadcn-svelte primitives (vendeored source, no business logic)                  |
-| `tests/unit/`               | Vitest + Testing Library tests against the shared contract fixtures             |
+| `src/lib/components/ui/`    | shadcn-svelte primitives (vendeored source, no business logic)                                     |
+| `tests/unit/`               | Vitest + Testing Library tests against the shared contract fixtures                                |
 
 Layering is one direction only: `route → component → query → api → axios
 client`. Components never import axios; every response is parsed by the domain's
@@ -27,11 +27,11 @@ the same aliases; keep business logic out of that directory.
 
 ## Routes
 
-| Route | Purpose |
-| --- | --- |
-| `/` | System status (health) |
-| `/masuk` | Phone Number → Magic Link request |
-| `/masuk/tautan` | Redeem the Magic Link; a checkout link lands on `/beli` |
+| Route                                        | Purpose                                                   |
+| -------------------------------------------- | --------------------------------------------------------- |
+| `/`                                          | System status (health)                                    |
+| `/masuk`                                     | Phone Number → Magic Link request                         |
+| `/masuk/tautan`                              | Redeem the Magic Link; a checkout link lands on `/beli`   |
 | `/beli?package=<id>&return=<Login Page URL>` | Checkout: Package, payment channel, instructions, polling |
 
 Domains: `packages` (public catalog), `auth` (Magic Link + session), `checkout`
