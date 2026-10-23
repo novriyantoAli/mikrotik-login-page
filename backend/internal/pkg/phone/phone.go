@@ -61,3 +61,14 @@ func Normalize(input string) (string, error) {
 	}
 	return normalized, nil
 }
+
+// Mask renders a Phone Number for logs and metrics: enough to correlate a
+// complaint, not enough to become a second copy of the customer list (ADR 0010).
+// It keeps the country code and the last four digits ("6281****7890") and masks
+// everything between, including numbers too short to hide anything in.
+func Mask(phoneNumber string) string {
+	if len(phoneNumber) < 9 {
+		return "****"
+	}
+	return phoneNumber[:4] + "****" + phoneNumber[len(phoneNumber)-4:]
+}

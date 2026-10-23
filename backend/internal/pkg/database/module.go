@@ -6,6 +6,7 @@ import (
 
 	"github.com/novriyantoAli/mikrotik-login-page/backend/internal/application/health/service"
 	"github.com/novriyantoAli/mikrotik-login-page/backend/internal/application/provisioning"
+	"github.com/novriyantoAli/mikrotik-login-page/backend/internal/pkg/ratelimit"
 )
 
 // RedisModule provides only the Redis client, for processes (the worker) that
@@ -43,6 +44,9 @@ func Module() fx.Option {
 				NewRadiusExpirationReader,
 				fx.As(new(provisioning.ExpirationReader)),
 			),
+			// Rate limits live in Redis, which is already a hard dependency
+			// (Asynq), so Magic Link limits add no infrastructure (ADR 0011).
+			ratelimit.NewRedisLimiter,
 		),
 		fx.Provide(
 			fx.Annotate(NewPostgresChecker, fx.ResultTags(group)),

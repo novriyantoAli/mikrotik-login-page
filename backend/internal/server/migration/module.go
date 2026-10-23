@@ -12,6 +12,8 @@ import (
 	"go.uber.org/zap"
 	"gorm.io/gorm"
 
+	"github.com/novriyantoAli/mikrotik-login-page/backend/internal/application/auth"
+	"github.com/novriyantoAli/mikrotik-login-page/backend/internal/application/notification"
 	"github.com/novriyantoAli/mikrotik-login-page/backend/internal/application/packages"
 	"github.com/novriyantoAli/mikrotik-login-page/backend/internal/application/packages/service"
 )
@@ -37,7 +39,7 @@ func NewMigrator(db *gorm.DB, catalog service.Service, logger *zap.Logger) *Migr
 // Package catalog. Both steps are idempotent: running the command again
 // changes nothing and inserts no duplicate Package (ADR 0012).
 func (m *Migrator) Up(ctx context.Context) error {
-	if err := m.db.WithContext(ctx).AutoMigrate(packages.Migrations()...); err != nil {
+	if err := m.db.WithContext(ctx).AutoMigrate(migrations()...); err != nil {
 		m.logger.Error("apply schema", zap.Error(err))
 		return fmt.Errorf("apply schema: %w", err)
 	}
@@ -50,6 +52,16 @@ func (m *Migrator) Up(ctx context.Context) error {
 
 	m.logger.Info("migration complete", zap.Int64("packages_inserted", inserted))
 	return nil
+}
+
+// migrations collects every table the domains declare, so a new domain only has
+// to add itself here.
+func migrations() []any {
+	tables := make([]any, 0, 4)
+	tables = append(tables, packages.Migrations()...)
+	tables = append(tables, auth.Migrations()...)
+	tables = append(tables, notification.Migrations()...)
+	return tables
 }
 
 // Module runs the migration when the process starts.

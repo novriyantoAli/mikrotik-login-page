@@ -13,12 +13,16 @@ import (
 	"go.uber.org/zap"
 
 	"github.com/novriyantoAli/mikrotik-login-page/backend/internal/application/activeperiod"
+	"github.com/novriyantoAli/mikrotik-login-page/backend/internal/application/auth"
 	"github.com/novriyantoAli/mikrotik-login-page/backend/internal/application/health"
+	"github.com/novriyantoAli/mikrotik-login-page/backend/internal/application/notification"
+	notificationworker "github.com/novriyantoAli/mikrotik-login-page/backend/internal/application/notification/worker"
 	"github.com/novriyantoAli/mikrotik-login-page/backend/internal/application/packages"
 	"github.com/novriyantoAli/mikrotik-login-page/backend/internal/config"
 	"github.com/novriyantoAli/mikrotik-login-page/backend/internal/pkg/clock"
 	"github.com/novriyantoAli/mikrotik-login-page/backend/internal/pkg/database"
 	"github.com/novriyantoAli/mikrotik-login-page/backend/internal/pkg/logger"
+	"github.com/novriyantoAli/mikrotik-login-page/backend/internal/pkg/modem"
 	serverapi "github.com/novriyantoAli/mikrotik-login-page/backend/internal/server/api"
 	servermigration "github.com/novriyantoAli/mikrotik-login-page/backend/internal/server/migration"
 	serverworker "github.com/novriyantoAli/mikrotik-login-page/backend/internal/server/worker"
@@ -79,6 +83,8 @@ func routerWithBase(base fx.Option, extra ...fx.Option) fx.Option {
 		health.Module(),
 		packages.Module(),
 		activeperiod.Module(),
+		notification.Module(),
+		auth.Module(),
 		serverapi.RouterModule(),
 		fx.Options(extra...),
 	)
@@ -104,12 +110,29 @@ func Worker(extra ...fx.Option) fx.Option {
 	return WorkerWithBase(Base(), extra...)
 }
 
-// WorkerWithBase builds the background process on an explicit base.
+// WorkerWithBase builds the background process on an explicit base. The worker
+// owns the modem, so it is the only process that builds the SMS drainer and the
+// vendor adapter (ADR 0010).
 func WorkerWithBase(base fx.Option, extra ...fx.Option) fx.Option {
 	return fx.Options(
 		base,
 		database.RedisModule(),
+		database.PostgresModule(),
+		notification.WorkerModule(),
+		modem.Module(),
 		serverworker.Module(),
+		fx.Provide(
+			// Fx cannot inject a bare time.Duration, so the drainer gets the one
+			// knob it needs in a local settings struct.
+			func(cfg *config.Config) notificationworker.Settings {
+				return notificationworker.Settings{SweepInterval: cfg.SMS.SweepInterval}
+			},
+			fx.Annotate(
+				notificationworker.NewDrainer,
+				fx.As(new(serverworker.TaskRegistrar)),
+				fx.ResultTags(`group:"worker_tasks"`),
+			),
+		),
 		fx.Options(extra...),
 	)
 }

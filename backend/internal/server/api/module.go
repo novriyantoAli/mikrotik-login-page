@@ -9,6 +9,7 @@ import (
 	"go.uber.org/fx"
 
 	activeperiodhandler "github.com/novriyantoAli/mikrotik-login-page/backend/internal/application/activeperiod/handler"
+	authhandler "github.com/novriyantoAli/mikrotik-login-page/backend/internal/application/auth/handler"
 	healthhandler "github.com/novriyantoAli/mikrotik-login-page/backend/internal/application/health/handler"
 	packagehandler "github.com/novriyantoAli/mikrotik-login-page/backend/internal/application/packages/handler"
 )
@@ -35,6 +36,11 @@ func RouterModule() fx.Option {
 			),
 			fx.Annotate(
 				activeperiodhandler.NewHandler,
+				fx.As(new(RouteRegistrar)),
+				fx.ResultTags(routesGroup),
+			),
+			fx.Annotate(
+				authhandler.NewHandler,
 				fx.As(new(RouteRegistrar)),
 				fx.ResultTags(routesGroup),
 			),

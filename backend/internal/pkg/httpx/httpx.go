@@ -36,6 +36,9 @@ const (
 	CodeConflict         = "conflict"
 	CodeRateLimited      = "rate_limited"
 	CodeDependencyFailed = "dependency_unavailable"
+	// CodeMagicLinkInvalid is the one answer for an unknown, expired or already
+	// used Magic Link, so a caller cannot tell them apart (ADR 0011).
+	CodeMagicLinkInvalid = "magic_link_invalid"
 )
 
 // Data writes a success envelope.
@@ -52,4 +55,28 @@ func Error(c *gin.Context, status int, code, message string) {
 // caller; the message is generic and the details belong in the log.
 func Internal(c *gin.Context) {
 	Error(c, http.StatusInternalServerError, CodeInternal, "Terjadi kesalahan pada server.")
+}
+
+// SetSessionCookie writes the opaque session cookie (ADR 0009/0011). The value is
+// a random token, never a JWT, and JavaScript can never read it.
+func SetSessionCookie(c *gin.Context, name, value string, maxAgeSeconds int, secure bool) {
+	c.SetSameSite(http.SameSiteLaxMode)
+	c.SetCookie(name, value, maxAgeSeconds, "/", "", secure, true)
+}
+
+// ReadSessionCookie returns the cookie value, or ok=false when the browser sent
+// none. An empty cookie is treated as absent.
+func ReadSessionCookie(c *gin.Context, name string) (string, bool) {
+	value, err := c.Cookie(name)
+	if err != nil || value == "" {
+		return "", false
+	}
+	return value, true
+}
+
+// ClearSessionCookie removes the cookie. It must be paired with a server-side
+// revocation: the cookie alone is not the session (ADR 0011).
+func ClearSessionCookie(c *gin.Context, name string, secure bool) {
+	c.SetSameSite(http.SameSiteLaxMode)
+	c.SetCookie(name, "", -1, "/", "", secure, true)
 }
