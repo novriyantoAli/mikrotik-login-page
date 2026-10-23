@@ -209,7 +209,7 @@ Checkout endpoints (session cookie required):
 | Endpoint | Body |
 | --- | --- |
 | `GET /api/transactions/channels` | `{"data":[{"code","name","group","fee_flat_idr","fee_percent"}]}` |
-| `POST /api/transactions` | `{"package_id","channel"}` → the pending Transaction, or the same one that already exists |
+| `POST /api/transactions` | `{"package_id","channel","return_url"?}` → the pending Transaction, or the same one that already exists |
 | `GET /api/transactions/{id}` | the Transaction the app polls until it settles |
 | `POST /api/payments/callback` | public; signed by the gateway, the only path to `paid` |
 

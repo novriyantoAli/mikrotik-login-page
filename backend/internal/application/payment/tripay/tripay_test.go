@@ -197,7 +197,12 @@ func TestParseChannels_KeepsActiveChannelsAndTheirFees(t *testing.T) {
 
 	channels := parseChannels(envelope.Data)
 	if len(channels) != 2 {
-		t.Fatalf("got %d channels, want the 2 active ones", len(channels))
+		t.Fatalf("got %d channels, want the 2 active closed ones", len(channels))
+	}
+	for _, channel := range channels {
+		if channel.Group == "Gerai Retail" {
+			t.Fatalf("an open-payment channel leaked into checkout: %+v", channel)
+		}
 	}
 	if channels[0].Code != "BRIVA" || channels[0].FeeCustomer.FlatIDR != 2500 {
 		t.Fatalf("first channel = %+v", channels[0])

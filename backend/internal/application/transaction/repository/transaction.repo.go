@@ -155,31 +155,35 @@ func (r *transactionRepository) ExpirePending(
 	packageID uint,
 	now time.Time,
 ) (int64, error) {
-	result := r.db.WithContext(ctx).
-		Model(&entity.Transaction{}).
-		Where("phone_number = ? AND package_id = ? AND state = ? AND expires_at <= ?",
-			phoneNumber, packageID, entity.StatePending, now).
-		Updates(map[string]any{
-			"state":      entity.StateExpired,
-			"updated_at": now,
-		})
-	if result.Error != nil {
-		r.logger.Error("expire the overdue Transaction of one session", zap.Error(result.Error))
-		return 0, fmt.Errorf("expire overdue transaction: %w", result.Error)
-	}
-	return result.RowsAffected, nil
+	return r.expire(ctx, now,
+		"phone_number = ? AND package_id = ? AND state = ? AND expires_at <= ?",
+		phoneNumber, packageID, entity.StatePending, now,
+	)
 }
 
 func (r *transactionRepository) ExpireOverdue(ctx context.Context, now time.Time) (int64, error) {
+	return r.expire(ctx, now,
+		"state = ? AND expires_at <= ?", entity.StatePending, now,
+	)
+}
+
+// expire is the one guarded UPDATE both expiry paths use: closing a deadline is
+// the same operation whether it is scoped to one session or to the whole table.
+func (r *transactionRepository) expire(
+	ctx context.Context,
+	now time.Time,
+	condition string,
+	args ...any,
+) (int64, error) {
 	result := r.db.WithContext(ctx).
 		Model(&entity.Transaction{}).
-		Where("state = ? AND expires_at <= ?", entity.StatePending, now).
+		Where(condition, args...).
 		Updates(map[string]any{
 			"state":      entity.StateExpired,
 			"updated_at": now,
 		})
 	if result.Error != nil {
-		r.logger.Error("expire overdue transactions", zap.Error(result.Error))
+		r.logger.Error("expire overdue transactions", zap.String("condition", condition), zap.Error(result.Error))
 		return 0, fmt.Errorf("expire overdue transactions: %w", result.Error)
 	}
 	return result.RowsAffected, nil

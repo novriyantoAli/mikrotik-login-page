@@ -95,10 +95,9 @@ func NewService(
 }
 
 func (s *service) Channels(ctx context.Context) ([]dto.ChannelResponse, error) {
-	channels, err := s.gateway.Channels(ctx)
+	channels, err := s.channelList(ctx)
 	if err != nil {
-		s.logger.Error("list payment channels", zap.Error(err))
-		return nil, fmt.Errorf("%w: %w", ErrGatewayUnavailable, err)
+		return nil, err
 	}
 
 	responses := make([]dto.ChannelResponse, 0, len(channels))
@@ -206,6 +205,17 @@ func (s *service) Get(
 	return toResponse(row), nil
 }
 
+// channelList is the one place the gateway's channel list is read and its
+// failure is turned into a dependency error.
+func (s *service) channelList(ctx context.Context) ([]payment.Channel, error) {
+	channels, err := s.gateway.Channels(ctx)
+	if err != nil {
+		s.logger.Error("list payment channels", zap.Error(err))
+		return nil, fmt.Errorf("%w: %w", ErrGatewayUnavailable, err)
+	}
+	return channels, nil
+}
+
 // resolve reads the Package and checks the channel against the gateway's list, so
 // a buyer gets a clear 400 instead of a vendor rejection.
 func (s *service) resolve(
@@ -228,10 +238,9 @@ func (s *service) resolve(
 }
 
 func (s *service) findChannel(ctx context.Context, code string) (*payment.Channel, error) {
-	channels, err := s.gateway.Channels(ctx)
+	channels, err := s.channelList(ctx)
 	if err != nil {
-		s.logger.Error("list payment channels", zap.Error(err))
-		return nil, fmt.Errorf("%w: %w", ErrGatewayUnavailable, err)
+		return nil, err
 	}
 
 	for index := range channels {

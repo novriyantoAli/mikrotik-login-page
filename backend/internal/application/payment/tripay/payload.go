@@ -113,12 +113,22 @@ func parseCreateResponse(data createData, fallbackExpiry time.Time) *payment.Cre
 	}
 }
 
+// closedPaymentGroups are the only Tripay groups checkout can render inside the
+// app: a virtual account number or a QRIS code the buyer pays from within the
+// page. Retail and card channels are open payments that need a hosted redirect,
+// which ADR 0008 rejects for this flow, so they are never offered even when the
+// merchant has them active (PRD point 19).
+var closedPaymentGroups = map[string]bool{
+	"Virtual Account": true,
+	"QRIS":            true,
+}
+
 // parseChannels keeps the active closed-payment methods only: an inactive
-// channel is not something the checkout may offer.
+// channel, or one that would leave the app, is not something checkout may offer.
 func parseChannels(rows []channelPayload) []payment.Channel {
 	channels := make([]payment.Channel, 0, len(rows))
 	for _, row := range rows {
-		if !row.Active || row.Code == "" {
+		if !row.Active || row.Code == "" || !closedPaymentGroups[row.Group] {
 			continue
 		}
 		channels = append(channels, payment.Channel{

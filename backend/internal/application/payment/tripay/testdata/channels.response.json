@@ -26,7 +26,7 @@
       "code": "ALFAMIDI",
       "name": "Alfamidi",
       "group": "Gerai Retail",
-      "active": false,
+      "active": true,
       "fee_merchant": { "flat": 0, "percent": 0 },
       "fee_customer": { "flat": 0, "percent": 0 },
       "total_fee": { "flat": 0, "percent": 0 },

@@ -175,6 +175,28 @@ func TestRequireOwnPhoneNumber_OwnNumberIsAllowed(t *testing.T) {
 	}
 }
 
+func TestRequireOwnPhoneNumber_OwnNumberInAnotherFormatIsAllowed(t *testing.T) {
+	t.Parallel()
+
+	auth := fakeAuthenticator{session: &authdto.SessionResponse{PhoneNumber: "6281200000001"}}
+	recorder := do(newRouter(auth), "/api/phone/0812-0000-0001", "good")
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("status = %d; the shared normalization must accept the national form", recorder.Code)
+	}
+}
+
+func TestRequireOwnPhoneNumber_UnparseableNumberIsNotFound(t *testing.T) {
+	t.Parallel()
+
+	auth := fakeAuthenticator{session: &authdto.SessionResponse{PhoneNumber: "6281200000001"}}
+	recorder := do(newRouter(auth), "/api/phone/not-a-number", "good")
+
+	if recorder.Code != http.StatusNotFound {
+		t.Fatalf("status = %d, want 404", recorder.Code)
+	}
+}
+
 func TestRequireOwnPhoneNumber_EmptyNumberIsAllowed(t *testing.T) {
 	t.Parallel()
 

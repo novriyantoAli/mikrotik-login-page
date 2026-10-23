@@ -28,10 +28,13 @@
   const transactionQuery = createTransactionQuery(() => state.transactionId);
 
   const pkg = $derived(packagesQuery.data ? findPackage(packagesQuery.data, packageId) : undefined);
-  const activeChannel = $derived(
-    channelsQuery.data?.find((channel) => channel.code === state.channel),
-  );
   const transaction = $derived(transactionQuery.data ?? createTransaction.data);
+  // The fee belongs to the Transaction the backend returned, not to the buyer's
+  // last pick: an idempotent checkout may hand back a pending Transaction that
+  // was opened on another channel (PRD point 17/19).
+  const transactionChannel = $derived(
+    channelsQuery.data?.find((channel) => channel.code === transaction?.channel),
+  );
 
   function pay() {
     if (!state.channel) {
@@ -124,7 +127,7 @@
       {#if transaction}
         <PaymentInstructions
           {transaction}
-          channel={activeChannel}
+          channel={transactionChannel}
           onNewTransaction={startNewTransaction}
         />
       {:else if channelsQuery.isPending}

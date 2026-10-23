@@ -216,6 +216,20 @@ func TestTransactionOfAnotherPhoneNumberIsNotFound(t *testing.T) {
 	if recorder.Code != http.StatusNotFound {
 		t.Fatalf("foreign Phone Number in the body answered %d, want 404", recorder.Code)
 	}
+
+	// The owner may name their own number in any accepted form: the shared
+	// normalization decides, not a raw string comparison.
+	_, catalog := harness.GetJSON(t, "/api/packages")
+	second := catalog["data"].([]any)[1].(map[string]any)["id"].(float64)
+	recorder = harness.DoRequest(t, http.MethodPost, "/api/transactions",
+		mustJSON(t, map[string]any{
+			"package_id": uint(second), "channel": "BRIVA", "phone_number": "0813-0000-0014",
+		}),
+		withCookie(owner, "198.51.100.114"))
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("the owner's own number in national form answered %d (%s), want 200",
+			recorder.Code, recorder.Body.String())
+	}
 }
 
 func TestCallbackSettlesOnceAndRepeatsChangeNothing(t *testing.T) {
