@@ -11,6 +11,7 @@ import (
 	"github.com/gin-gonic/gin"
 
 	"github.com/novriyantoAli/mikrotik-login-page/backend/internal/application/packages/dto"
+	"github.com/novriyantoAli/mikrotik-login-page/backend/internal/application/packages/entity"
 	"github.com/novriyantoAli/mikrotik-login-page/backend/internal/application/packages/handler"
 	"github.com/novriyantoAli/mikrotik-login-page/backend/internal/application/packages/service"
 )
@@ -22,6 +23,10 @@ type stubCatalog struct {
 
 func (s stubCatalog) ListPackages(context.Context) ([]dto.PackageResponse, error) {
 	return s.packages, s.err
+}
+
+func (stubCatalog) GetPackage(context.Context, uint) (*entity.Package, error) {
+	return nil, service.ErrPackageNotFound
 }
 
 func (stubCatalog) Seed(context.Context) (int64, error) { return 0, nil }

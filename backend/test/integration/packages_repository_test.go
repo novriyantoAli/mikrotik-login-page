@@ -2,6 +2,7 @@ package integration
 
 import (
 	"context"
+	"errors"
 	"testing"
 
 	"go.uber.org/zap"
@@ -67,5 +68,36 @@ func TestPackageRepositoryListsAndSeeds(t *testing.T) {
 
 	if err := harness.Postgres.Where("code = ?", "uji-repo").Delete(&entity.Package{}).Error; err != nil {
 		t.Fatalf("clean up: %v", err)
+	}
+}
+
+// TestPackageRepositoryGetByID covers the typed read checkout depends on: the
+// row comes back whole (price, duration, rate limit), and an unknown identity is
+// the repository sentinel rather than a GORM error.
+func TestPackageRepositoryGetByID(t *testing.T) {
+	harness := testutil.NewAPIHarness(t)
+	repo := repository.NewRepository(harness.Postgres, zap.NewNop())
+	ctx := context.Background()
+
+	catalog, err := repo.List(ctx)
+	if err != nil {
+		t.Fatalf("List: %v", err)
+	}
+	if len(catalog) == 0 {
+		t.Fatal("List returned an empty catalog; the seed should have run")
+	}
+
+	seeded := catalog[0]
+	found, err := repo.GetByID(ctx, seeded.ID)
+	if err != nil {
+		t.Fatalf("GetByID(%d): %v", seeded.ID, err)
+	}
+	if found.Code != seeded.Code || found.PriceIDR != seeded.PriceIDR ||
+		found.DurationMinutes != seeded.DurationMinutes || found.RateLimit != seeded.RateLimit {
+		t.Fatalf("GetByID returned %+v, want the seeded row %+v", found, seeded)
+	}
+
+	if _, err := repo.GetByID(ctx, 999999); !errors.Is(err, repository.ErrPackageNotFound) {
+		t.Fatalf("unknown Package error = %v, want repository.ErrPackageNotFound", err)
 	}
 }
