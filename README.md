@@ -133,6 +133,10 @@ The entry path and the SMS outbox are configured with environment variables
 `SMS_SWEEP_INTERVAL`, `SMS_MAX_ATTEMPTS`, `SMS_RETRY_BACKOFF`. The modem is only
 opened by the `worker` process; the `api` process never touches the device.
 
+`AUTH_COOKIE_SECURE` defaults to `true` in `.env.example` and the compose file,
+because the deployment terminates TLS in front of the proxy. A local plain-HTTP
+setup must set it to `false`, otherwise the browser drops the session cookie.
+
 ### Deployment configuration
 
 All deployment values live in `KOPINETGO-2024/config/data/voucher.js`. Nothing
