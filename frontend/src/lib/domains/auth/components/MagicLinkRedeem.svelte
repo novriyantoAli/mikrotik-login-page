@@ -12,6 +12,7 @@
     CardTitle,
   } from '$lib/components/ui/card';
 
+  import { isRetriableAuthError } from '../api/auth.api';
   import { createExchangeMagicLinkMutation } from '../queries/auth.queries';
   import { invalidLinkMessage } from '../schemas/auth.schema';
 
@@ -22,10 +23,15 @@
   // The link is redeemed exactly once, as soon as the screen loads: the token is
   // single-use, so a second attempt would fail anyway.
   onMount(() => {
-    mutation.mutate(token);
+    mutation.mutate(token, {
+      // The token is spent; keeping it in the address bar would leave a used
+      // credential in history for no benefit.
+      onSuccess: () => history.replaceState(null, '', resolve('/masuk/tautan')),
+    });
   });
 
   const continueHref = $derived(mutation.data?.return_url ?? '/');
+  const canRetry = $derived(mutation.isError && isRetriableAuthError(mutation.error));
 </script>
 
 <Card>
@@ -50,9 +56,13 @@
       <p>Tautan hanya berlaku sekali dan punya batas waktu.</p>
     </CardContent>
     <CardFooter class="justify-between gap-3">
-      <Button variant="outline" type="button" onclick={() => mutation.mutate(token)}>
-        Coba lagi
-      </Button>
+      {#if canRetry}
+        <Button variant="outline" type="button" onclick={() => mutation.mutate(token)}>
+          Coba lagi
+        </Button>
+      {:else}
+        <span></span>
+      {/if}
       <a class="text-sm underline-offset-4 hover:underline" href={resolve('/masuk')}
         >Minta tautan baru</a
       >

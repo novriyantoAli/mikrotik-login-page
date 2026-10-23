@@ -53,3 +53,15 @@ export const authApi: AuthApi = {
     await apiClient.post('/auth/logout');
   },
 };
+
+/**
+ * Whether a failed redemption is worth retrying. A used, expired or unknown
+ * token answers 400, and retrying it can never succeed — only a transport
+ * failure (no status) or a server fault is retriable.
+ */
+export function isRetriableAuthError(error: unknown): boolean {
+  if (!isAppError(error)) {
+    return true;
+  }
+  return error.status === undefined || error.status >= 500;
+}
