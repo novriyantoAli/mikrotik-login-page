@@ -122,6 +122,17 @@ the status page shows as "tidak dapat dimuat" instead of a wrong expiry.
 The pages are served by RouterOS, so `$(...)` template variables
 (`$(username)`, `$(chap-id)`, `$(error)`, …) remain in the HTML.
 
+### Auth and SMS configuration
+
+The entry path and the SMS outbox are configured with environment variables
+(documented in `.env.example`): `AUTH_MAGIC_LINK_TTL`, `AUTH_SESSION_TTL`,
+`AUTH_COOKIE_SECURE`, `AUTH_COOKIE_NAME`, `AUTH_APP_BASE_URL`,
+`AUTH_MAGIC_LINK_PATH`, `AUTH_LOGIN_PAGE_ALLOWLIST`,
+`AUTH_RATE_LIMIT_PHONE_WINDOW/LIMIT`, `AUTH_RATE_LIMIT_IP_WINDOW/LIMIT`, and
+`SMS_DEVICE`, `SMS_BAUD`, `SMS_COMMAND_TIMEOUT`, `SMS_LEASE`,
+`SMS_SWEEP_INTERVAL`, `SMS_MAX_ATTEMPTS`, `SMS_RETRY_BACKOFF`. The modem is only
+opened by the `worker` process; the `api` process never touches the device.
+
 ### Deployment configuration
 
 All deployment values live in `KOPINETGO-2024/config/data/voucher.js`. Nothing
@@ -181,6 +192,23 @@ origin (ADR 0014).
 
 The "Beli" button links to
 `<appBaseUrl>?package=<Package id>&return=<Login Page URL>`.
+
+The app answers `GET <appBaseUrl>` by forwarding those two parameters to
+`/masuk`, the entry screen. It never trusts them: the backend re-validates the
+Package and only stores `return` when it matches the deployment's
+`AUTH_LOGIN_PAGE_ALLOWLIST` (ADR 0011).
+
+The passwordless entry endpoints (session cookie per ADR 0009/0011):
+
+| Endpoint | Body |
+| --- | --- |
+| `POST /api/auth/magic-link` | `{"phone_number","package_id","return_url"}` → `202 {"data":{"sent":true}}`, identical for every number |
+| `POST /api/auth/magic-link/exchange` | `{"token"}` → `200 {"data":{"phone_number","expires_at","purpose","package_id","return_url"}}` and sets the `HttpOnly` session cookie |
+| `GET /api/auth/session` | `200 {"data":{"phone_number","expires_at"}}`, or `401 {"error":{"code":"unauthorized",…}}` |
+| `POST /api/auth/logout` | `204`; revokes the session row and clears the cookie |
+
+Fixtures for all four live in `contracts/` and are decoded by both the backend
+integration tests and the app's zod schemas.
 
 ### Legacy Mikhmon expiry (optional)
 

@@ -10,6 +10,9 @@ export default defineConfig({
   resolve: {
     alias: {
       $lib: path.resolve('./src/lib'),
+      // `$app/paths` only exists inside SvelteKit's build; resolve() is a no-op
+      // for a root-served SPA, which is all the component tests need.
+      '$app/paths': path.resolve('./tests/support/app-paths.ts'),
     },
     conditions: ['browser'],
   },
