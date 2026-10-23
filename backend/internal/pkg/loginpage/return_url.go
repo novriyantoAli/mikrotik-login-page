@@ -9,7 +9,7 @@ import (
 	"strings"
 )
 
-// Allowed returns the sanitised return target when candidate matches one of the
+// Allowed returns the sanitized return target when candidate matches one of the
 // configured Login Page URLs, and ok=false otherwise. A candidate is accepted
 // only when its scheme and host match an allowlist entry and its path starts
 // with that entry's path: an allowlisted page may not be turned into a redirect

@@ -16,6 +16,7 @@ import (
 	"github.com/novriyantoAli/mikrotik-login-page/backend/internal/application/notification"
 	"github.com/novriyantoAli/mikrotik-login-page/backend/internal/application/packages"
 	"github.com/novriyantoAli/mikrotik-login-page/backend/internal/application/packages/service"
+	"github.com/novriyantoAli/mikrotik-login-page/backend/internal/application/transaction"
 )
 
 // upTimeout bounds one migration run; it is a process budget, not a deployment
@@ -57,10 +58,11 @@ func (m *Migrator) Up(ctx context.Context) error {
 // migrations collects every table the domains declare, so a new domain only has
 // to add itself here.
 func migrations() []any {
-	tables := make([]any, 0, 4)
+	tables := make([]any, 0, 5)
 	tables = append(tables, packages.Migrations()...)
 	tables = append(tables, auth.Migrations()...)
 	tables = append(tables, notification.Migrations()...)
+	tables = append(tables, transaction.Migrations()...)
 	return tables
 }
 

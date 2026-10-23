@@ -1,0 +1,17 @@
+{
+  "success": true,
+  "event": "payment_status",
+  "data": {
+    "reference": "T000100231029000001",
+    "merchant_ref": "TRX-0123456789ABCDEF",
+    "payment_method": "BRIVA",
+    "payment_name": "BRIVA",
+    "amount": 25000,
+    "fee_customer": 2500,
+    "total_fee": 2500,
+    "amount_received": 25000,
+    "status": "PAID",
+    "paid_at": 1792728306,
+    "is_closed_payment": 1
+  }
+}

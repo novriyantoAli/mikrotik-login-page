@@ -2,6 +2,7 @@ package testutil
 
 import (
 	"context"
+	"encoding/json"
 	"sync"
 	"time"
 
@@ -64,7 +65,6 @@ func (d *TestDoubles) FxOption(options ...DoublesOption) fx.Option {
 			func() clock.Clock { return d.Clock },
 			func() *FakeClock { return d.Clock },
 			func() *FakeGateway { return d.Gateway },
-			func(f *FakeGateway) payment.Gateway { return f },
 			func() *FakeSMSSender { return d.SMS },
 			func(f *FakeSMSSender) sms.Sender { return f },
 			func() *FakeRadiusWriter { return d.Radius },
@@ -72,6 +72,11 @@ func (d *TestDoubles) FxOption(options ...DoublesOption) fx.Option {
 			func() *FakeRadiusReader { return d.RadiusReader },
 		),
 	}
+	// The production graph provides the Tripay adapter behind payment.Gateway, so
+	// the fake takes its place rather than competing with it.
+	provided = append(provided, fx.Decorate(
+		func(_ payment.Gateway, fake *FakeGateway) payment.Gateway { return fake },
+	))
 	if !settings.realRadiusReader {
 		// Decorate rather than Provide: the production graph already offers the
 		// MySQL adapter, and the fake has to take its place, not compete with it.
@@ -91,15 +96,44 @@ type FakeGateway struct {
 	CreateRequests []payment.CreateTransactionRequest
 	Callbacks      []payment.Callback
 	Statuses       map[string]payment.PaymentStatus
+	ChannelList    []payment.Channel
 
 	CreateErr   error
 	StatusErr   error
 	CallbackErr error
+	ChannelsErr error
 }
 
-// NewFakeGateway builds an empty fake gateway.
+// NewFakeGateway builds an empty fake gateway with one channel of each shape a
+// buyer can pick: a virtual account and a QRIS code.
 func NewFakeGateway() *FakeGateway {
-	return &FakeGateway{Statuses: make(map[string]payment.PaymentStatus)}
+	return &FakeGateway{
+		Statuses: make(map[string]payment.PaymentStatus),
+		ChannelList: []payment.Channel{
+			{Code: "BRIVA", Name: "BRIVA", Group: "Virtual Account",
+				FeeCustomer: payment.ChannelFee{FlatIDR: 2500}},
+			{Code: "QRIS", Name: "QRIS", Group: "QRIS",
+				FeeCustomer: payment.ChannelFee{Percent: 0.7}},
+		},
+	}
+}
+
+// SetChannelList replaces the channels the fake offers.
+func (g *FakeGateway) SetChannelList(channels []payment.Channel) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	g.ChannelList = channels
+}
+
+// Channels implements payment.Gateway.
+func (g *FakeGateway) Channels(_ context.Context) ([]payment.Channel, error) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+
+	if g.ChannelsErr != nil {
+		return nil, g.ChannelsErr
+	}
+	return append([]payment.Channel(nil), g.ChannelList...), nil
 }
 
 // LastCreateRequest returns the most recent request, or false when none was
@@ -127,10 +161,15 @@ func (g *FakeGateway) CreateTransaction(
 
 	g.CreateRequests = append(g.CreateRequests, req)
 	return &payment.CreateTransactionResponse{
-		Reference: req.Reference,
-		PayCode:   "8808812345678901",
-		PayURL:    "https://sandbox.tripay.example/pay/" + req.Reference,
-		QRURL:     "https://sandbox.tripay.example/qr/" + req.Reference,
+		Reference:   req.Reference,
+		ChannelName: req.Channel,
+		PayCode:     "8808812345678901",
+		PayURL:      "https://sandbox.tripay.example/pay/" + req.Reference,
+		QRString:    "00020101021226" + req.Reference,
+		QRURL:       "https://sandbox.tripay.example/qr/" + req.Reference,
+		Instructions: []payment.Instruction{
+			{Title: "Cara pembayaran", Steps: []string{"Buka aplikasi bank", "Masukkan kode bayar"}},
+		},
 		ExpiresAt: req.ExpiresAt,
 	}, nil
 }
@@ -150,17 +189,43 @@ func (g *FakeGateway) GetStatus(_ context.Context, reference string) (*payment.P
 	return &status, nil
 }
 
+// ValidCallbackSignature is the signature the fake gateway accepts. It stands in
+// for the vendor's HMAC: the real adapter is the only place that knows the real
+// payload shape and the merchant secret.
+const ValidCallbackSignature = "test-valid-signature"
+
+// fakeCallbackPayload is the test double's notification body. It is deliberately
+// this system's vocabulary, because no Tripay shape may leak into the service.
+type fakeCallbackPayload struct {
+	Reference string         `json:"reference"`
+	Status    payment.Status `json:"status"`
+	Amount    int64          `json:"amount"`
+	PaidAt    *time.Time     `json:"paid_at"`
+}
+
 // VerifyCallback implements payment.Gateway.
-func (g *FakeGateway) VerifyCallback(raw []byte, _ string) (*payment.Callback, error) {
+func (g *FakeGateway) VerifyCallback(raw []byte, signature string) (*payment.Callback, error) {
 	g.mu.Lock()
 	defer g.mu.Unlock()
 
 	if g.CallbackErr != nil {
 		return nil, g.CallbackErr
 	}
-	// The fake treats the raw body as the reference; the real adapter is the
-	// only place that knows a vendor payload shape.
-	callback := payment.Callback{Reference: string(raw), Status: payment.StatusPaid}
+	if signature != ValidCallbackSignature {
+		return nil, payment.ErrSignatureMismatch
+	}
+
+	var payload fakeCallbackPayload
+	if err := json.Unmarshal(raw, &payload); err != nil {
+		return nil, err
+	}
+
+	callback := payment.Callback{
+		Reference: payload.Reference,
+		Status:    payload.Status,
+		Amount:    payload.Amount,
+		PaidAt:    payload.PaidAt,
+	}
 	g.Callbacks = append(g.Callbacks, callback)
 	return &callback, nil
 }

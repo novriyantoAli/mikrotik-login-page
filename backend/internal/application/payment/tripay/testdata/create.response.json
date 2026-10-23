@@ -1,0 +1,28 @@
+{
+  "success": true,
+  "message": "",
+  "data": {
+    "reference": "T000100231029000001",
+    "merchant_ref": "TRX-0123456789ABCDEF",
+    "payment_name": "BRIVA",
+    "payment_method": "BRIVA",
+    "pay_code": "8808812345678901",
+    "pay_url": "https://sandbox.tripay.example/pay/T000100231029000001",
+    "qr_string": "",
+    "qr_url": "",
+    "amount": 25000,
+    "fee_customer": 2500,
+    "total_fee": 2500,
+    "amount_received": 25000,
+    "expired_time": 1792731600,
+    "instructions": [
+      {
+        "title": "Cara Pembayaran",
+        "steps": [
+          "Buka aplikasi mobile banking Anda.",
+          "Masukkan kode bayar 8808812345678901."
+        ]
+      }
+    ]
+  }
+}

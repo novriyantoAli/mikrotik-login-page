@@ -10,8 +10,10 @@ import (
 
 	activeperiodhandler "github.com/novriyantoAli/mikrotik-login-page/backend/internal/application/activeperiod/handler"
 	authhandler "github.com/novriyantoAli/mikrotik-login-page/backend/internal/application/auth/handler"
+	authservice "github.com/novriyantoAli/mikrotik-login-page/backend/internal/application/auth/service"
 	healthhandler "github.com/novriyantoAli/mikrotik-login-page/backend/internal/application/health/handler"
 	packagehandler "github.com/novriyantoAli/mikrotik-login-page/backend/internal/application/packages/handler"
+	transactionhandler "github.com/novriyantoAli/mikrotik-login-page/backend/internal/application/transaction/handler"
 	"github.com/novriyantoAli/mikrotik-login-page/backend/internal/config"
 	"github.com/novriyantoAli/mikrotik-login-page/backend/internal/middleware"
 )
@@ -24,13 +26,18 @@ func RouterModule() fx.Option {
 		fx.Provide(
 			NewEngine,
 			// The session guard is transport-level: HTTP routes that need a
-			// buyer's identity depend on it, and it authorises through the auth
+			// buyer's identity depend on it, and it authorizes through the auth
 			// service rather than reading the sessions table (PRD point 13).
 			func(cfg *config.Config) middleware.SessionSettings {
 				return middleware.SessionSettings{
 					CookieName: cfg.Auth.CookieName,
 					Secure:     cfg.Auth.CookieSecure,
 				}
+			},
+			// Fx matches concrete interface types, so the narrow authenticator the
+			// guard depends on is bridged explicitly from the auth service.
+			func(authService authservice.Service) middleware.SessionAuthenticator {
+				return authService
 			},
 			middleware.NewSessionGuard,
 			// RouteRegistrar is the second parameter; the engine itself is not
@@ -53,6 +60,11 @@ func RouterModule() fx.Option {
 			),
 			fx.Annotate(
 				authhandler.NewHandler,
+				fx.As(new(RouteRegistrar)),
+				fx.ResultTags(routesGroup),
+			),
+			fx.Annotate(
+				transactionhandler.NewHandler,
 				fx.As(new(RouteRegistrar)),
 				fx.ResultTags(routesGroup),
 			),

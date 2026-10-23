@@ -1,0 +1,558 @@
+package service_test
+
+import (
+	"context"
+	"errors"
+	"testing"
+	"time"
+
+	"go.uber.org/zap"
+
+	packagesdto "github.com/novriyantoAli/mikrotik-login-page/backend/internal/application/packages/dto"
+	packagesentity "github.com/novriyantoAli/mikrotik-login-page/backend/internal/application/packages/entity"
+	packageservice "github.com/novriyantoAli/mikrotik-login-page/backend/internal/application/packages/service"
+	"github.com/novriyantoAli/mikrotik-login-page/backend/internal/application/payment"
+	"github.com/novriyantoAli/mikrotik-login-page/backend/internal/application/transaction/dto"
+	"github.com/novriyantoAli/mikrotik-login-page/backend/internal/application/transaction/entity"
+	"github.com/novriyantoAli/mikrotik-login-page/backend/internal/application/transaction/repository"
+	"github.com/novriyantoAli/mikrotik-login-page/backend/internal/application/transaction/service"
+)
+
+const (
+	testPhone     = "6281200000001"
+	otherPhone    = "6281200000002"
+	goodSignature = "good"
+	badSignature  = "bad"
+)
+
+// --- fakes -----------------------------------------------------------------
+
+type fakeRepository struct {
+	rows []entity.Transaction
+	next uint
+
+	createErr       error
+	pendingErr      error
+	pendingSequence []*entity.Transaction
+	pendingCalls    int
+	transitionErr   error
+	transitionCount int
+}
+
+var _ repository.Repository = (*fakeRepository)(nil)
+
+func (r *fakeRepository) Create(_ context.Context, row *entity.Transaction) error {
+	if r.createErr != nil {
+		return r.createErr
+	}
+	for _, existing := range r.rows {
+		if existing.Reference == row.Reference {
+			return errors.New("duplicate reference")
+		}
+	}
+	r.next++
+	row.ID = r.next
+	if row.CreatedAt.IsZero() {
+		row.CreatedAt = row.ExpiresAt
+	}
+	r.rows = append(r.rows, *row)
+	return nil
+}
+
+func (r *fakeRepository) GetByID(_ context.Context, id uint) (*entity.Transaction, error) {
+	for index := range r.rows {
+		if r.rows[index].ID == id {
+			copied := r.rows[index]
+			return &copied, nil
+		}
+	}
+	return nil, repository.ErrNotFound
+}
+
+func (r *fakeRepository) GetByReference(_ context.Context, reference string) (*entity.Transaction, error) {
+	for index := range r.rows {
+		if r.rows[index].Reference == reference {
+			copied := r.rows[index]
+			return &copied, nil
+		}
+	}
+	return nil, repository.ErrNotFound
+}
+
+func (r *fakeRepository) Pending(
+	_ context.Context,
+	phoneNumber string,
+	packageID uint,
+	now time.Time,
+) (*entity.Transaction, error) {
+	if r.pendingErr != nil {
+		return nil, r.pendingErr
+	}
+	if r.pendingSequence != nil {
+		index := r.pendingCalls
+		r.pendingCalls++
+		if index < len(r.pendingSequence) {
+			return r.pendingSequence[index], nil
+		}
+		return nil, nil
+	}
+
+	for index := range r.rows {
+		row := r.rows[index]
+		if row.PhoneNumber == phoneNumber && row.PackageID == packageID &&
+			row.State == entity.StatePending && row.ExpiresAt.After(now) {
+			copied := row
+			return &copied, nil
+		}
+	}
+	return nil, nil
+}
+
+func (r *fakeRepository) Transition(
+	_ context.Context,
+	id uint,
+	from, to entity.State,
+	at time.Time,
+) (bool, error) {
+	if r.transitionErr != nil {
+		return false, r.transitionErr
+	}
+	for index := range r.rows {
+		if r.rows[index].ID != id || r.rows[index].State != from {
+			continue
+		}
+		r.rows[index].State = to
+		r.rows[index].UpdatedAt = at
+		if to == entity.StatePaid {
+			paidAt := at
+			r.rows[index].PaidAt = &paidAt
+		}
+		r.transitionCount++
+		return true, nil
+	}
+	return false, nil
+}
+
+func (r *fakeRepository) ExpireOverdue(_ context.Context, now time.Time) (int64, error) {
+	var expired int64
+	for index := range r.rows {
+		if r.rows[index].State == entity.StatePending && !r.rows[index].ExpiresAt.After(now) {
+			r.rows[index].State = entity.StateExpired
+			expired++
+		}
+	}
+	return expired, nil
+}
+
+type fakeCatalog struct {
+	packages map[uint]packagesentity.Package
+}
+
+func (c *fakeCatalog) ListPackages(context.Context) ([]packagesdto.PackageResponse, error) {
+	return nil, nil
+}
+
+func (c *fakeCatalog) GetPackage(_ context.Context, id uint) (*packagesentity.Package, error) {
+	pkg, ok := c.packages[id]
+	if !ok {
+		return nil, packageservice.ErrPackageNotFound
+	}
+	return &pkg, nil
+}
+
+func (c *fakeCatalog) Seed(context.Context) (int64, error) { return 0, nil }
+
+type fakeGateway struct {
+	channels    []payment.Channel
+	channelsErr error
+	createErr   error
+	callbacks   map[string]*payment.Callback
+	createCalls int
+}
+
+func (g *fakeGateway) CreateTransaction(
+	_ context.Context,
+	req payment.CreateTransactionRequest,
+) (*payment.CreateTransactionResponse, error) {
+	if g.createErr != nil {
+		return nil, g.createErr
+	}
+	g.createCalls++
+	return &payment.CreateTransactionResponse{
+		Reference:   req.Reference,
+		ChannelName: req.Channel,
+		PayCode:     "8808812345678901",
+		Instructions: []payment.Instruction{
+			{Title: "Cara Pembayaran", Steps: []string{"Buka aplikasi bank"}},
+		},
+		ExpiresAt: req.ExpiresAt,
+	}, nil
+}
+
+func (g *fakeGateway) GetStatus(context.Context, string) (*payment.PaymentStatus, error) {
+	return &payment.PaymentStatus{Status: payment.StatusUnpaid}, nil
+}
+
+func (g *fakeGateway) VerifyCallback(raw []byte, signature string) (*payment.Callback, error) {
+	if signature != goodSignature {
+		return nil, payment.ErrSignatureMismatch
+	}
+	callback, ok := g.callbacks[string(raw)]
+	if !ok {
+		return nil, errors.New("unknown callback payload")
+	}
+	return callback, nil
+}
+
+func (g *fakeGateway) Channels(context.Context) ([]payment.Channel, error) {
+	if g.channelsErr != nil {
+		return nil, g.channelsErr
+	}
+	return g.channels, nil
+}
+
+type fixture struct {
+	repo    *fakeRepository
+	catalog *fakeCatalog
+	gateway *fakeGateway
+	clock   *fakeClock
+	service service.Service
+}
+
+type fakeClock struct{ now time.Time }
+
+func (c *fakeClock) Now() time.Time { return c.now }
+
+func (c *fakeClock) Advance(duration time.Duration) { c.now = c.now.Add(duration) }
+
+func newFixture() *fixture {
+	f := &fixture{
+		repo: &fakeRepository{},
+		catalog: &fakeCatalog{packages: map[uint]packagesentity.Package{
+			7: {ID: 7, Name: "Paket Mingguan", PriceIDR: 25000, DurationMinutes: 10080, RateLimit: "10M/10M"},
+		}},
+		gateway: &fakeGateway{
+			channels: []payment.Channel{
+				{Code: "BRIVA", Name: "BRIVA", Group: "Virtual Account",
+					FeeCustomer: payment.ChannelFee{FlatIDR: 2500}},
+			},
+			callbacks: make(map[string]*payment.Callback),
+		},
+		clock: &fakeClock{now: time.Date(2026, time.October, 23, 8, 0, 0, 0, time.UTC)},
+	}
+	f.service = service.NewService(
+		f.repo,
+		f.catalog,
+		f.gateway,
+		f.clock,
+		service.Settings{
+			PaymentTTL:         time.Hour,
+			LoginPageAllowlist: []string{"https://hotspot.local/login"},
+		},
+		zap.NewNop(),
+	)
+	return f
+}
+
+func (f *fixture) checkout(t *testing.T, request dto.CreateTransactionRequest) *dto.TransactionResponse {
+	t.Helper()
+
+	transaction, err := f.service.Create(context.Background(), testPhone, &request)
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	return transaction
+}
+
+func validRequest() dto.CreateTransactionRequest {
+	return dto.CreateTransactionRequest{PackageID: 7, Channel: "BRIVA"}
+}
+
+// --- checkout --------------------------------------------------------------
+
+func TestCreate_SecondRequestReturnsTheSamePendingTransaction(t *testing.T) {
+	t.Parallel()
+
+	f := newFixture()
+	first := f.checkout(t, validRequest())
+	second := f.checkout(t, validRequest())
+
+	if first.ID != second.ID || first.Reference != second.Reference {
+		t.Fatalf("second checkout returned a different Transaction: %+v vs %+v", first, second)
+	}
+	if f.gateway.createCalls != 1 {
+		t.Fatalf("gateway was asked %d times, want 1: a repeat tap must not open a second bill",
+			f.gateway.createCalls)
+	}
+	if len(f.repo.rows) != 1 {
+		t.Fatalf("stored %d Transactions, want 1", len(f.repo.rows))
+	}
+}
+
+func TestCreate_SnapshotsTheTypedPackagePrice(t *testing.T) {
+	t.Parallel()
+
+	f := newFixture()
+	transaction := f.checkout(t, validRequest())
+
+	if transaction.AmountIDR != 25000 {
+		t.Fatalf("amount = %d, want the typed Package price 25000", transaction.AmountIDR)
+	}
+	if transaction.PackageName != "Paket Mingguan" {
+		t.Fatalf("package name = %q", transaction.PackageName)
+	}
+	if transaction.State != string(entity.StatePending) {
+		t.Fatalf("state = %q, want pending", transaction.State)
+	}
+	if len(transaction.Instructions) != 1 {
+		t.Fatalf("instructions lost: %+v", transaction.Instructions)
+	}
+}
+
+func TestCreate_UnknownPackageIsRejectedBeforeCallingTheGateway(t *testing.T) {
+	t.Parallel()
+
+	f := newFixture()
+	_, err := f.service.Create(context.Background(), testPhone,
+		&dto.CreateTransactionRequest{PackageID: 999, Channel: "BRIVA"})
+
+	if !errors.Is(err, service.ErrPackageUnknown) {
+		t.Fatalf("err = %v, want ErrPackageUnknown", err)
+	}
+	if f.gateway.createCalls != 0 {
+		t.Fatalf("gateway was called %d times for an unknown Package", f.gateway.createCalls)
+	}
+}
+
+func TestCreate_UnknownChannelIsRejectedBeforeCallingTheGateway(t *testing.T) {
+	t.Parallel()
+
+	f := newFixture()
+	_, err := f.service.Create(context.Background(), testPhone,
+		&dto.CreateTransactionRequest{PackageID: 7, Channel: "KREDIT"})
+
+	if !errors.Is(err, service.ErrChannelUnknown) {
+		t.Fatalf("err = %v, want ErrChannelUnknown", err)
+	}
+	if f.gateway.createCalls != 0 {
+		t.Fatalf("gateway was called %d times for an unknown channel", f.gateway.createCalls)
+	}
+}
+
+func TestCreate_GatewayFailureIsADependencyError(t *testing.T) {
+	t.Parallel()
+
+	f := newFixture()
+	f.gateway.createErr = errors.New("dial timeout")
+
+	_, err := f.service.Create(context.Background(), testPhone, &dto.CreateTransactionRequest{
+		PackageID: 7, Channel: "BRIVA",
+	})
+	if !errors.Is(err, service.ErrGatewayUnavailable) {
+		t.Fatalf("err = %v, want ErrGatewayUnavailable", err)
+	}
+	if len(f.repo.rows) != 0 {
+		t.Fatal("a failed gateway call must not leave a Transaction behind")
+	}
+}
+
+func TestCreate_ReturnTargetIsOnlyKeptWhenTheAllowlistAcceptsIt(t *testing.T) {
+	t.Parallel()
+
+	f := newFixture()
+	allowed := validRequest()
+	allowed.ReturnURL = "https://hotspot.local/login?mac=AA:BB"
+	if got := f.checkout(t, allowed).ReturnURL; got != allowed.ReturnURL {
+		t.Fatalf("return_url = %q, want %q", got, allowed.ReturnURL)
+	}
+
+	f = newFixture()
+	refused := validRequest()
+	refused.ReturnURL = "https://evil.example/login"
+	if got := f.checkout(t, refused).ReturnURL; got != "" {
+		t.Fatalf("return_url = %q, want it dropped by the allowlist", got)
+	}
+}
+
+func TestCreate_LosingThePendingRaceReturnsTheExistingTransaction(t *testing.T) {
+	t.Parallel()
+
+	f := newFixture()
+	existing := entity.Transaction{
+		ID: 42, Reference: "TRX-EXISTING", PhoneNumber: testPhone, PackageID: 7,
+		State: entity.StatePending, AmountIDR: 25000,
+		ExpiresAt: f.clock.now.Add(30 * time.Minute),
+	}
+	f.repo.rows = append(f.repo.rows, existing)
+	f.repo.createErr = errors.New("duplicate key value violates unique constraint")
+	// First Pending (before the gateway call) misses, the second one — after the
+	// insert lost the race — finds the winner.
+	f.repo.pendingSequence = []*entity.Transaction{nil, &existing}
+
+	transaction := f.checkout(t, validRequest())
+
+	if transaction.ID != existing.ID {
+		t.Fatalf("id = %d, want the existing pending Transaction %d", transaction.ID, existing.ID)
+	}
+}
+
+// --- reading ---------------------------------------------------------------
+
+func TestGet_AnotherPhoneNumberIsNotFound(t *testing.T) {
+	t.Parallel()
+
+	f := newFixture()
+	transaction := f.checkout(t, validRequest())
+
+	if _, err := f.service.Get(context.Background(), otherPhone, transaction.ID); !errors.Is(err, service.ErrNotFound) {
+		t.Fatalf("err = %v, want ErrNotFound (never forbidden: it would confirm the Transaction)", err)
+	}
+	if _, err := f.service.Get(context.Background(), testPhone, transaction.ID); err != nil {
+		t.Fatalf("own Transaction: %v", err)
+	}
+}
+
+// --- callbacks -------------------------------------------------------------
+
+func (f *fixture) callback(t *testing.T, reference string, status payment.Status, amount int64) ([]byte, string) {
+	t.Helper()
+
+	raw := []byte("callback:" + reference + ":" + string(status))
+	f.gateway.callbacks[string(raw)] = &payment.Callback{
+		Reference: reference,
+		Status:    status,
+		Amount:    amount,
+	}
+	return raw, goodSignature
+}
+
+func TestHandleCallback_MarksPendingPaidOnce(t *testing.T) {
+	t.Parallel()
+
+	f := newFixture()
+	transaction := f.checkout(t, validRequest())
+	raw, signature := f.callback(t, transaction.Reference, payment.StatusPaid, 25000)
+
+	if err := f.service.HandleCallback(context.Background(), raw, signature); err != nil {
+		t.Fatalf("HandleCallback: %v", err)
+	}
+	if err := f.service.HandleCallback(context.Background(), raw, signature); err != nil {
+		t.Fatalf("repeat HandleCallback: %v", err)
+	}
+
+	if f.repo.rows[0].State != entity.StatePaid {
+		t.Fatalf("state = %q, want paid", f.repo.rows[0].State)
+	}
+	if f.repo.transitionCount != 1 {
+		t.Fatalf("transitions = %d, want exactly 1: a repeated callback must not transition twice",
+			f.repo.transitionCount)
+	}
+}
+
+func TestHandleCallback_UnsignedCallbackIsRejected(t *testing.T) {
+	t.Parallel()
+
+	f := newFixture()
+	transaction := f.checkout(t, validRequest())
+	raw, _ := f.callback(t, transaction.Reference, payment.StatusPaid, 25000)
+
+	err := f.service.HandleCallback(context.Background(), raw, badSignature)
+	if !errors.Is(err, payment.ErrSignatureMismatch) {
+		t.Fatalf("err = %v, want payment.ErrSignatureMismatch", err)
+	}
+	if f.repo.rows[0].State != entity.StatePending {
+		t.Fatalf("state = %q, want the Transaction untouched", f.repo.rows[0].State)
+	}
+}
+
+func TestHandleCallback_AmountMismatchIsRefused(t *testing.T) {
+	t.Parallel()
+
+	f := newFixture()
+	transaction := f.checkout(t, validRequest())
+	raw, signature := f.callback(t, transaction.Reference, payment.StatusPaid, 1000)
+
+	if err := f.service.HandleCallback(context.Background(), raw, signature); !errors.Is(err, service.ErrAmountMismatch) {
+		t.Fatalf("err = %v, want ErrAmountMismatch", err)
+	}
+	if f.repo.rows[0].State != entity.StatePending {
+		t.Fatalf("state = %q, want the Transaction untouched", f.repo.rows[0].State)
+	}
+}
+
+func TestHandleCallback_PaidCannotBecomeExpired(t *testing.T) {
+	t.Parallel()
+
+	f := newFixture()
+	transaction := f.checkout(t, validRequest())
+	paidRaw, signature := f.callback(t, transaction.Reference, payment.StatusPaid, 25000)
+	if err := f.service.HandleCallback(context.Background(), paidRaw, signature); err != nil {
+		t.Fatalf("settle: %v", err)
+	}
+
+	expiredRaw, signature := f.callback(t, transaction.Reference, payment.StatusExpired, 25000)
+	if err := f.service.HandleCallback(context.Background(), expiredRaw, signature); err != nil {
+		t.Fatalf("late expiry callback: %v", err)
+	}
+
+	if f.repo.rows[0].State != entity.StatePaid {
+		t.Fatalf("state = %q, want paid: paid → expired is a forbidden transition", f.repo.rows[0].State)
+	}
+}
+
+func TestHandleCallback_FailedClosesAPendingTransaction(t *testing.T) {
+	t.Parallel()
+
+	f := newFixture()
+	transaction := f.checkout(t, validRequest())
+	raw, signature := f.callback(t, transaction.Reference, payment.StatusFailed, 25000)
+
+	if err := f.service.HandleCallback(context.Background(), raw, signature); err != nil {
+		t.Fatalf("HandleCallback: %v", err)
+	}
+	if f.repo.rows[0].State != entity.StateFailed {
+		t.Fatalf("state = %q, want failed", f.repo.rows[0].State)
+	}
+}
+
+func TestHandleCallback_UnknownReferenceIsAcknowledgedWithoutChangingAnything(t *testing.T) {
+	t.Parallel()
+
+	f := newFixture()
+	raw, signature := f.callback(t, "TRX-UNKNOWN", payment.StatusPaid, 25000)
+
+	if err := f.service.HandleCallback(context.Background(), raw, signature); err != nil {
+		t.Fatalf("an unknown reference must be acknowledged, not retried forever: %v", err)
+	}
+	if len(f.repo.rows) != 0 {
+		t.Fatal("a callback for an unknown reference must not create a Transaction")
+	}
+}
+
+// --- expiry ----------------------------------------------------------------
+
+func TestExpireDue_ClosesOnlyOverduePendingTransactions(t *testing.T) {
+	t.Parallel()
+
+	f := newFixture()
+	overdue := f.checkout(t, validRequest())
+
+	f.clock.Advance(2 * time.Hour)
+	expired, err := service.NewExpiry(f.repo, f.clock, zap.NewNop()).ExpireDue(context.Background())
+	if err != nil {
+		t.Fatalf("ExpireDue: %v", err)
+	}
+	if expired != 1 {
+		t.Fatalf("expired %d Transactions, want 1", expired)
+	}
+	if f.repo.rows[0].State != entity.StateExpired {
+		t.Fatalf("state = %q, want expired", f.repo.rows[0].State)
+	}
+
+	// The deadline is a one-way door: a checkout after expiry opens a new
+	// Transaction instead of reviving the old one.
+	fresh := f.checkout(t, validRequest())
+	if fresh.ID == overdue.ID {
+		t.Fatal("checkout after expiry reused the expired Transaction")
+	}
+}

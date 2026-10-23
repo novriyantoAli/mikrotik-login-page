@@ -37,16 +37,18 @@ const (
 
 // Config is the root configuration object injected through Fx.
 type Config struct {
-	App             AppConfig      `mapstructure:"app"`
-	Server          ServerConfig   `mapstructure:"server"`
-	Logger          LoggerConfig   `mapstructure:"logger"`
-	Postgres        PostgresConfig `mapstructure:"postgres"`
-	FreeRADIUSMySQL MySQLConfig    `mapstructure:"freeradius_mysql"`
-	Redis           RedisConfig    `mapstructure:"redis"`
-	Worker          WorkerConfig   `mapstructure:"worker"`
-	Health          HealthConfig   `mapstructure:"health"`
-	Auth            AuthConfig     `mapstructure:"auth"`
-	SMS             SMSConfig      `mapstructure:"sms"`
+	App             AppConfig         `mapstructure:"app"`
+	Server          ServerConfig      `mapstructure:"server"`
+	Logger          LoggerConfig      `mapstructure:"logger"`
+	Postgres        PostgresConfig    `mapstructure:"postgres"`
+	FreeRADIUSMySQL MySQLConfig       `mapstructure:"freeradius_mysql"`
+	Redis           RedisConfig       `mapstructure:"redis"`
+	Worker          WorkerConfig      `mapstructure:"worker"`
+	Health          HealthConfig      `mapstructure:"health"`
+	Auth            AuthConfig        `mapstructure:"auth"`
+	SMS             SMSConfig         `mapstructure:"sms"`
+	Transaction     TransactionConfig `mapstructure:"transaction"`
+	Tripay          TripayConfig      `mapstructure:"tripay"`
 }
 
 // AppConfig identifies this service in logs and health responses.
@@ -215,6 +217,36 @@ type SMSConfig struct {
 	RetryBackoff time.Duration `mapstructure:"retry_backoff"`
 }
 
+// TransactionConfig configures checkout and the expiry sweep (PRD point 20).
+type TransactionConfig struct {
+	// PaymentTTL is how long a pending Transaction may be paid before the
+	// background sweep moves it to expired.
+	PaymentTTL time.Duration `mapstructure:"payment_ttl"`
+	// ExpirySweepInterval is how often the worker looks for overdue pending
+	// Transactions, with or without a wake-up task.
+	ExpirySweepInterval time.Duration `mapstructure:"expiry_sweep_interval"`
+}
+
+// TripayConfig configures the Tripay adapter (ADR 0008). The secrets are empty
+// by default so a developer can boot the stack without a gateway account;
+// checkout only fails when it actually calls the vendor.
+type TripayConfig struct {
+	APIKey     string `mapstructure:"api_key"`
+	PrivateKey string `mapstructure:"private_key"`
+	// MerchantCode is Tripay's merchant identity, sent on the callback payload.
+	MerchantCode string `mapstructure:"merchant_code"`
+	// BaseURL is the sandbox or production API origin, without a trailing slash.
+	BaseURL string `mapstructure:"base_url"`
+	// CallbackURL is the public URL Tripay posts settlements to. It is
+	// deployment configuration, never derived from a request header.
+	CallbackURL string `mapstructure:"callback_url"`
+	// ReturnURL is where the vendor sends the buyer back after paying; the app
+	// itself navigates with its own controls, so this is only the fallback.
+	ReturnURL string `mapstructure:"return_url"`
+	// RequestTimeout bounds one Tripay API call.
+	RequestTimeout time.Duration `mapstructure:"request_timeout"`
+}
+
 // defaults doubles as the documented list of every configuration key. Each key
 // is also bound to its environment variable so that viper.Unmarshal sees env
 // overrides (AutomaticEnv alone does not populate nested unmarshalled keys).
@@ -274,6 +306,15 @@ var defaults = map[string]any{
 	"sms.sweep_interval":                 "30s",
 	"sms.max_attempts":                   5,
 	"sms.retry_backoff":                  "1m",
+	"transaction.payment_ttl":            "1h",
+	"transaction.expiry_sweep_interval":  "1m",
+	"tripay.api_key":                     "",
+	"tripay.private_key":                 "",
+	"tripay.merchant_code":               "",
+	"tripay.base_url":                    "https://tripay.co.id/api-sandbox",
+	"tripay.callback_url":                "http://localhost:8080/api/payments/callback",
+	"tripay.return_url":                  "http://localhost:8080/",
+	"tripay.request_timeout":             "20s",
 }
 
 // Keys returns every configuration key this package understands. Tests and
@@ -374,6 +415,8 @@ func (c *Config) Validate() error {
 	problems = append(problems, c.validateHealth()...)
 	problems = append(problems, c.validateAuth()...)
 	problems = append(problems, c.validateSMS()...)
+	problems = append(problems, c.validateTransaction()...)
+	problems = append(problems, c.validateTripay()...)
 
 	if len(problems) > 0 {
 		return fmt.Errorf("invalid configuration:\n  - %s", strings.Join(problems, "\n  - "))
@@ -533,6 +576,37 @@ func (c *Config) validateSMS() []string {
 	}
 	if c.SMS.RetryBackoff <= 0 {
 		problems = append(problems, "sms.retry_backoff must be a positive duration")
+	}
+	return problems
+}
+
+func (c *Config) validateTransaction() []string {
+	var problems []string
+
+	if c.Transaction.PaymentTTL <= 0 {
+		problems = append(problems, "transaction.payment_ttl must be a positive duration")
+	}
+	if c.Transaction.ExpirySweepInterval <= 0 {
+		problems = append(problems, "transaction.expiry_sweep_interval must be a positive duration")
+	}
+	return problems
+}
+
+func (c *Config) validateTripay() []string {
+	var problems []string
+
+	if c.Tripay.BaseURL == "" {
+		problems = append(problems, "tripay.base_url must be set")
+	} else if parsed, err := url.Parse(c.Tripay.BaseURL); err != nil || parsed.Scheme == "" || parsed.Host == "" {
+		problems = append(problems, "tripay.base_url must be an absolute URL")
+	}
+	if c.Tripay.CallbackURL == "" {
+		problems = append(problems, "tripay.callback_url must be set")
+	} else if parsed, err := url.Parse(c.Tripay.CallbackURL); err != nil || parsed.Scheme == "" || parsed.Host == "" {
+		problems = append(problems, "tripay.callback_url must be an absolute URL")
+	}
+	if c.Tripay.RequestTimeout <= 0 {
+		problems = append(problems, "tripay.request_timeout must be a positive duration")
 	}
 	return problems
 }
