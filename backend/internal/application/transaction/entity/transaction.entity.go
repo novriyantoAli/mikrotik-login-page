@@ -47,11 +47,6 @@ func (s State) CanTransitionTo(next State) bool {
 	return false
 }
 
-// Final reports whether the state is an end state (nothing follows it).
-func (s State) Final() bool {
-	return s == StateProvisioned || s == StateFailed || s == StateExpired
-}
-
 // Instruction is one rendering block of the payment instructions ("Cara
 // pembayaran", then numbered steps). It is vendor-neutral: only the adapter knows
 // where those strings came from.

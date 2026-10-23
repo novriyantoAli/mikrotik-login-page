@@ -64,7 +64,24 @@ Decision: **expiry is the backend's clock, and only its own.** `pending` rows
 whose `expires_at` passed move to `expired` in one guarded `UPDATE` run by the
 worker sweep (`transaction.expiry_sweep_interval`, default 1 minute) using the
 injected `clock.Clock`. A page left open cannot expire its own **Transaction**,
-and a client cannot keep one alive past its deadline.
+and a client cannot keep one alive past its deadline. Checkout also closes the
+overdue pending row of the *same* **Phone Number** and **Package** before opening
+a new one, so the window between a deadline and the next sweep cannot turn a
+legitimate second purchase into a unique-index failure; both paths are the same
+guarded statement, scoped differently.
+
+Decision: **reconciliation is deferred to #17.** `payment.Gateway.GetStatus`
+exists on the port (ADR 0008) and is implemented by the adapter, but nothing
+calls it yet: PRD point 16's periodic reconciliation for a lost callback is part
+of the hardening slice, not of checkout. Until then a lost callback leaves the
+**Transaction** `pending` until the deadline expires it; the buyer is told the
+payment is being verified, and an operator has the reference in the log. The
+reconciliation job must reuse `settle`/`close`, not add a second path into
+`paid`.
+
+Consequence for the app: polling stops at `paid` because this slice ends there.
+After #15 adds `paid → provisioned`, the checkout may keep watching until
+`provisioned`; that is a frontend change, not a state-machine change.
 
 Decision: **the outbox transaction helper waits for #15.** ADR 0010 requires the
 caller to write the outbox row in its own transaction when it has one. #14 never

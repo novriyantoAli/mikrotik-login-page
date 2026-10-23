@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"net/http"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 	"go.uber.org/zap"
@@ -11,6 +12,7 @@ import (
 	authdto "github.com/novriyantoAli/mikrotik-login-page/backend/internal/application/auth/dto"
 	authservice "github.com/novriyantoAli/mikrotik-login-page/backend/internal/application/auth/service"
 	"github.com/novriyantoAli/mikrotik-login-page/backend/internal/pkg/httpx"
+	"github.com/novriyantoAli/mikrotik-login-page/backend/internal/pkg/phone"
 )
 
 // sessionContextKey is where Require stores the identity for the handler. It is
@@ -110,16 +112,22 @@ func SessionFrom(c *gin.Context) (Session, bool) {
 // not the session's. Mismatches are deliberately "not found" instead of
 // "forbidden", so an endpoint can never confirm that another buyer's data exists
 // (PRD point 13). It returns true when the request may continue.
+//
+// The candidate is normalized with the one shared rule (PRD point 9) before the
+// comparison: a buyer who retypes their own number as "0812…" is still that
+// buyer, and an unparseable value is a mismatch rather than a 400.
 func RequireOwnPhoneNumber(c *gin.Context, phoneNumber string) bool {
 	session, ok := SessionFrom(c)
 	if !ok {
 		unauthorized(c)
 		return false
 	}
-	if phoneNumber == "" {
+	if strings.TrimSpace(phoneNumber) == "" {
 		return true
 	}
-	if phoneNumber != session.PhoneNumber {
+
+	canonical, err := phone.Normalize(phoneNumber)
+	if err != nil || canonical != session.PhoneNumber {
 		httpx.Error(c, http.StatusNotFound, httpx.CodeNotFound, "Data tidak ditemukan.")
 		return false
 	}

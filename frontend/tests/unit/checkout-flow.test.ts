@@ -77,6 +77,42 @@ describe('CheckoutFlow', () => {
     expect(screen.getByText('8808812345678901')).toBeInTheDocument();
   });
 
+  it('shows the fee of the channel the returned Transaction actually uses', async () => {
+    // The buyer picks BRIVA, but an earlier pending Transaction exists on QRIS
+    // and the backend idempotently returns it. The fee must follow QRIS.
+    const replayed = {
+      ...(loadContract('transaction.response.json') as { data: Record<string, unknown> }).data,
+      channel: 'QRIS',
+      channel_name: 'QRIS',
+      pay_code: '',
+      qr_url: 'https://sandbox.tripay.example/qr/TRX-0123456789ABCDEF',
+    };
+
+    stubApiRoutes([
+      { method: 'get', path: '/auth/session', respond: () => ({ data: session }) },
+      {
+        method: 'get',
+        path: '/packages',
+        respond: () => ({ data: loadContract('packages.response.json') }),
+      },
+      {
+        method: 'get',
+        path: '/transactions/channels',
+        respond: () => ({ data: loadContract('channels.response.json') }),
+      },
+      { method: 'post', path: '/transactions', respond: () => ({ data: { data: replayed } }) },
+    ]);
+
+    render(CheckoutFlowFixture, { packageId: 1 });
+
+    await fireEvent.click(await screen.findByRole('radio', { name: /BRIVA/ }));
+    await fireEvent.click(screen.getByRole('button', { name: 'Lanjut ke pembayaran' }));
+
+    expect(await screen.findByText('Selesaikan pembayaran')).toBeInTheDocument();
+    expect(screen.getByText('0,7%')).toBeInTheDocument();
+    expect(screen.queryByText('Rp 2.500')).not.toBeInTheDocument();
+  });
+
   it('keeps the package visible when the channel list fails, and offers a retry', async () => {
     let attempts = 0;
     stubApiRoutes([

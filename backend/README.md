@@ -73,9 +73,9 @@ Login Page and pinned by `contracts/*.json` on both sides.
 
 ## Checkout and settlement (#14)
 
-Every endpoint below needs the session cookie (`middleware.RequireSession`),
-except the gateway callback, which authenticates its raw body with the shared
-secret instead.
+Every endpoint below needs the session cookie
+(`middleware.SessionGuard.Require()`), except the gateway callback, which
+authenticates its raw body with the shared secret instead.
 
 | Endpoint | Body |
 | --- | --- |
