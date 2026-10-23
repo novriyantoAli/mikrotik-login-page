@@ -8,6 +8,7 @@ import (
 	"go.uber.org/zap"
 
 	"github.com/novriyantoAli/mikrotik-login-page/backend/internal/application/packages/entity"
+	"github.com/novriyantoAli/mikrotik-login-page/backend/internal/application/packages/repository"
 	"github.com/novriyantoAli/mikrotik-login-page/backend/internal/application/packages/service"
 )
 
@@ -17,6 +18,7 @@ type fakeRepository struct {
 	inserted int64
 	seedErr  error
 	seeds    [][]entity.Package
+	byIDErr  error
 }
 
 func (r *fakeRepository) List(context.Context) ([]entity.Package, error) {
@@ -24,6 +26,18 @@ func (r *fakeRepository) List(context.Context) ([]entity.Package, error) {
 		return nil, r.listErr
 	}
 	return r.rows, nil
+}
+
+func (r *fakeRepository) GetByID(_ context.Context, id uint) (*entity.Package, error) {
+	if r.byIDErr != nil {
+		return nil, r.byIDErr
+	}
+	for index := range r.rows {
+		if r.rows[index].ID == id {
+			return &r.rows[index], nil
+		}
+	}
+	return nil, repository.ErrPackageNotFound
 }
 
 func (r *fakeRepository) InsertMissing(_ context.Context, packages []entity.Package) (int64, error) {
@@ -93,6 +107,44 @@ func TestListPackages_RepositoryFailureIsReturned(t *testing.T) {
 	repo := &fakeRepository{listErr: errors.New("boom")}
 	if _, err := newService(repo).ListPackages(context.Background()); err == nil {
 		t.Fatal("expected an error")
+	}
+}
+
+func TestGetPackage_ReturnsTheTypedRowCheckoutNeeds(t *testing.T) {
+	t.Parallel()
+
+	repo := &fakeRepository{rows: []entity.Package{
+		{ID: 7, Code: "mingguan", Name: "Paket Mingguan", PriceIDR: 25000, DurationMinutes: 10080, RateLimit: "10M/10M"},
+	}}
+
+	pkg, err := newService(repo).GetPackage(context.Background(), 7)
+	if err != nil {
+		t.Fatalf("GetPackage: %v", err)
+	}
+	if pkg.PriceIDR != 25000 || pkg.DurationMinutes != 10080 || pkg.RateLimit != "10M/10M" {
+		t.Fatalf("typed values lost: %+v", pkg)
+	}
+}
+
+func TestGetPackage_UnknownPackageIsTheServiceSentinel(t *testing.T) {
+	t.Parallel()
+
+	_, err := newService(&fakeRepository{}).GetPackage(context.Background(), 99)
+	if !errors.Is(err, service.ErrPackageNotFound) {
+		t.Fatalf("err = %v, want service.ErrPackageNotFound", err)
+	}
+}
+
+func TestGetPackage_RepositoryFailureIsWrapped(t *testing.T) {
+	t.Parallel()
+
+	repo := &fakeRepository{byIDErr: errors.New("boom")}
+	_, err := newService(repo).GetPackage(context.Background(), 1)
+	if err == nil {
+		t.Fatal("expected an error")
+	}
+	if errors.Is(err, service.ErrPackageNotFound) {
+		t.Fatal("a database failure must not look like a missing Package")
 	}
 }
 

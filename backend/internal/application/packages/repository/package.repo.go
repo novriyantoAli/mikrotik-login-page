@@ -5,6 +5,7 @@ package repository
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"go.uber.org/zap"
@@ -14,10 +15,18 @@ import (
 	"github.com/novriyantoAli/mikrotik-login-page/backend/internal/application/packages/entity"
 )
 
+// ErrPackageNotFound means the catalog holds no Package with that identity. It
+// is a sentinel so a caller (checkout) can answer 400 instead of 500.
+var ErrPackageNotFound = errors.New("package not found")
+
 // Repository reads and seeds the Package catalog.
 type Repository interface {
 	// List returns the catalog in seed order (id ascending).
 	List(ctx context.Context) ([]entity.Package, error)
+	// GetByID returns one Package, or ErrPackageNotFound when the catalog has
+	// no such row. Checkout reads the typed row (price, duration, rate limit)
+	// instead of re-parsing the display strings of List.
+	GetByID(ctx context.Context, id uint) (*entity.Package, error)
 	// InsertMissing inserts only the rows whose code is not in the catalog yet
 	// and reports how many it added. Existing rows are left untouched, so an
 	// operator's edit survives a later deployment (ADR 0012).
@@ -41,6 +50,20 @@ func (r *packageRepository) List(ctx context.Context) ([]entity.Package, error) 
 		return nil, fmt.Errorf("list packages: %w", err)
 	}
 	return packages, nil
+}
+
+func (r *packageRepository) GetByID(ctx context.Context, id uint) (*entity.Package, error) {
+	var pkg entity.Package
+
+	err := r.db.WithContext(ctx).Where("id = ?", id).First(&pkg).Error
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, ErrPackageNotFound
+		}
+		r.logger.Error("read package", zap.Uint("package_id", id), zap.Error(err))
+		return nil, fmt.Errorf("read package %d: %w", id, err)
+	}
+	return &pkg, nil
 }
 
 func (r *packageRepository) InsertMissing(ctx context.Context, packages []entity.Package) (int64, error) {

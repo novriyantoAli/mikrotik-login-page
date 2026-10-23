@@ -5,6 +5,7 @@ package service
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"go.uber.org/zap"
@@ -14,11 +15,19 @@ import (
 	"github.com/novriyantoAli/mikrotik-login-page/backend/internal/application/packages/repository"
 )
 
+// ErrPackageNotFound is the catalog's own sentinel for an unknown Package, so a
+// caller in another domain never depends on the repository's error value.
+var ErrPackageNotFound = errors.New("package not found")
+
 // Service is the catalog's public surface. It is read-only for users; Seed is
 // the deployment path that fills the starter catalog (ADR 0012).
 type Service interface {
 	// ListPackages returns the catalog in the Login Page's contract shape.
 	ListPackages(ctx context.Context) ([]dto.PackageResponse, error)
+	// GetPackage returns the typed row another domain needs for a purchase:
+	// PriceIDR, DurationMinutes and RateLimit live here, not in the display
+	// contract. Entities may cross domain boundaries; they never cross HTTP.
+	GetPackage(ctx context.Context, id uint) (*entity.Package, error)
 	// Seed inserts every starter Package that is not in the catalog yet and
 	// reports how many rows it added. Running it twice adds nothing.
 	Seed(ctx context.Context) (int64, error)
@@ -45,6 +54,17 @@ func (s *service) ListPackages(ctx context.Context) ([]dto.PackageResponse, erro
 		responses = append(responses, entityToResponse(pkg))
 	}
 	return responses, nil
+}
+
+func (s *service) GetPackage(ctx context.Context, id uint) (*entity.Package, error) {
+	pkg, err := s.repo.GetByID(ctx, id)
+	if err != nil {
+		if errors.Is(err, repository.ErrPackageNotFound) {
+			return nil, ErrPackageNotFound
+		}
+		return nil, fmt.Errorf("read package %d: %w", id, err)
+	}
+	return pkg, nil
 }
 
 func (s *service) Seed(ctx context.Context) (int64, error) {

@@ -16,6 +16,8 @@ import (
 	"github.com/novriyantoAli/mikrotik-login-page/backend/internal/application/auth/service"
 	notificationdto "github.com/novriyantoAli/mikrotik-login-page/backend/internal/application/notification/service"
 	packagesdto "github.com/novriyantoAli/mikrotik-login-page/backend/internal/application/packages/dto"
+	packagesentity "github.com/novriyantoAli/mikrotik-login-page/backend/internal/application/packages/entity"
+	packageservice "github.com/novriyantoAli/mikrotik-login-page/backend/internal/application/packages/service"
 	"github.com/novriyantoAli/mikrotik-login-page/backend/internal/pkg/phone"
 	"github.com/novriyantoAli/mikrotik-login-page/backend/internal/pkg/securetoken"
 )
@@ -44,10 +46,22 @@ func (o *fakeOutbox) Enqueue(_ context.Context, message notificationdto.Message)
 	return nil
 }
 
-type fakeCatalog struct{ packages []packagesdto.PackageResponse }
+type fakeCatalog struct {
+	packages []packagesdto.PackageResponse
+	typed    []packagesentity.Package
+}
 
 func (c *fakeCatalog) ListPackages(context.Context) ([]packagesdto.PackageResponse, error) {
 	return c.packages, nil
+}
+
+func (c *fakeCatalog) GetPackage(_ context.Context, id uint) (*packagesentity.Package, error) {
+	for _, pkg := range c.typed {
+		if pkg.ID == id {
+			return &pkg, nil
+		}
+	}
+	return nil, packageservice.ErrPackageNotFound
 }
 
 func (c *fakeCatalog) Seed(context.Context) (int64, error) { return 0, nil }
