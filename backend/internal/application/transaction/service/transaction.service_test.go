@@ -133,6 +133,25 @@ func (r *fakeRepository) Transition(
 	return false, nil
 }
 
+func (r *fakeRepository) ExpirePending(
+	_ context.Context,
+	phoneNumber string,
+	packageID uint,
+	now time.Time,
+) (int64, error) {
+	var expired int64
+	for index := range r.rows {
+		row := &r.rows[index]
+		if row.PhoneNumber == phoneNumber && row.PackageID == packageID &&
+			row.State == entity.StatePending && !row.ExpiresAt.After(now) {
+			row.State = entity.StateExpired
+			row.UpdatedAt = now
+			expired++
+		}
+	}
+	return expired, nil
+}
+
 func (r *fakeRepository) ExpireOverdue(_ context.Context, now time.Time) (int64, error) {
 	var expired int64
 	for index := range r.rows {
@@ -530,6 +549,27 @@ func TestHandleCallback_UnknownReferenceIsAcknowledgedWithoutChangingAnything(t 
 }
 
 // --- expiry ----------------------------------------------------------------
+
+func TestCreate_AfterTheDeadlineOpensANewTransactionEvenBeforeTheSweep(t *testing.T) {
+	t.Parallel()
+
+	f := newFixture()
+	overdue := f.checkout(t, validRequest())
+
+	// The worker has not swept yet; checkout itself must treat the deadline as
+	// final, otherwise the one-pending index would block a fresh purchase.
+	f.clock.Advance(2 * time.Hour)
+	fresh := f.checkout(t, validRequest())
+
+	if fresh.ID == overdue.ID {
+		t.Fatal("an overdue pending Transaction was returned instead of being closed")
+	}
+	for _, row := range f.repo.rows {
+		if row.ID == overdue.ID && row.State != entity.StateExpired {
+			t.Fatalf("overdue Transaction state = %q, want expired", row.State)
+		}
+	}
+}
 
 func TestExpireDue_ClosesOnlyOverduePendingTransactions(t *testing.T) {
 	t.Parallel()
