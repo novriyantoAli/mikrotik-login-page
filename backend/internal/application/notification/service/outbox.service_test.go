@@ -60,6 +60,7 @@ func (r *fakeOutboxRepository) MarkFailed(
 	id uint,
 	nextAttemptAt *time.Time,
 	cause string,
+	now time.Time,
 ) error {
 	for i := range r.rows {
 		if r.rows[i].ID != id {
@@ -72,6 +73,7 @@ func (r *fakeOutboxRepository) MarkFailed(
 		}
 		r.rows[i].State = entity.StatePending
 		r.rows[i].NextAttemptAt = *nextAttemptAt
+		r.rows[i].UpdatedAt = now
 	}
 	return nil
 }

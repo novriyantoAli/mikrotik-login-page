@@ -78,7 +78,7 @@ func (d *deliverer) recordFailure(ctx context.Context, row *entity.SMS, sendErr 
 		nextAttemptAt = &next
 	}
 
-	if err := d.repo.MarkFailed(ctx, row.ID, nextAttemptAt, sendErr.Error()); err != nil {
+	if err := d.repo.MarkFailed(ctx, row.ID, nextAttemptAt, sendErr.Error(), d.clock.Now()); err != nil {
 		d.logger.Error("record sms failure", zap.Uint("sms_id", row.ID), zap.Error(err))
 	}
 

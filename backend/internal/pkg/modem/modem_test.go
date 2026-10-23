@@ -185,3 +185,19 @@ func TestMatchTokenReportsTheEarliestAnswer(t *testing.T) {
 		t.Fatal("matchToken found a token that is not there")
 	}
 }
+
+func TestDialogStartsFromACleanBuffer(t *testing.T) {
+	transport := &scriptedTransport{reply: okReply}
+
+	modem := newTestModem(transport)
+	// Bytes a previous dialog left behind must not answer this one: a stray
+	// ERROR would abort the send before the modem was even asked.
+	modem.pending = "\r\nERROR\r\n"
+
+	if err := modem.Send(context.Background(), "628123456789", "PIN: 123456"); err != nil {
+		t.Fatalf("leftover bytes from a previous dialog poisoned this one: %v", err)
+	}
+	if got := strings.Join(transport.written(), ""); !strings.Contains(got, "AT+CMGS=") {
+		t.Fatal("the modem was never asked to send the message")
+	}
+}
