@@ -30,7 +30,22 @@
     });
   });
 
-  const continueHref = $derived(mutation.data?.return_url ?? '/');
+  // A checkout link lands on the checkout with the Package it carried; anything
+  // else honours the Login Page the backend already validated into return_url.
+  const continueHref = $derived.by(() => {
+    const result = mutation.data;
+    if (!result) {
+      return '/';
+    }
+    if (result.purpose === 'checkout' && result.package_id) {
+      const query = [`package=${encodeURIComponent(String(result.package_id))}`];
+      if (result.return_url) {
+        query.push(`return=${encodeURIComponent(result.return_url)}`);
+      }
+      return `${resolve('/beli')}?${query.join('&')}`;
+    }
+    return result.return_url || '/';
+  });
   const canRetry = $derived(mutation.isError && isRetriableAuthError(mutation.error));
 </script>
 
