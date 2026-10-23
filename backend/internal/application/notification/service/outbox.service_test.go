@@ -263,3 +263,40 @@ func TestDeliverDueDoesNothingWhenNoRowIsDue(t *testing.T) {
 		t.Fatalf("delivered %d with %d sends, want none", delivered, len(sender.sent))
 	}
 }
+
+func TestDeliverDueSendsAfterTheModemRecovers(t *testing.T) {
+	repo := &fakeOutboxRepository{}
+	outbox, clock := newOutbox(repo, &recordingWaker{})
+	sender := &fakeSender{err: errors.New("no carrier")}
+	deliverer := newDeliverer(repo, sender, clock, 5)
+
+	if err := outbox.Enqueue(context.Background(), service.Message{
+		PhoneNumber: "6281234567890",
+		Text:        "PIN: 123456",
+	}); err != nil {
+		t.Fatalf("enqueue: %v", err)
+	}
+
+	// The modem is off for the first attempt: the message must stay pending.
+	if _, err := deliverer.DeliverDue(context.Background(), 10); err != nil {
+		t.Fatalf("deliver: %v", err)
+	}
+	if repo.rows[0].State != entity.StatePending {
+		t.Fatalf("row state = %q, want pending while the modem is unavailable", repo.rows[0].State)
+	}
+
+	// The modem comes back and the backoff window passes.
+	sender.err = nil
+	clock.now = repo.rows[0].NextAttemptAt.Add(time.Second)
+
+	delivered, err := deliverer.DeliverDue(context.Background(), 10)
+	if err != nil {
+		t.Fatalf("deliver after recovery: %v", err)
+	}
+	if delivered != 1 {
+		t.Fatalf("delivered %d messages after recovery, want 1", delivered)
+	}
+	if repo.rows[0].State != entity.StateSent {
+		t.Fatalf("row state = %q, want sent after recovery", repo.rows[0].State)
+	}
+}
