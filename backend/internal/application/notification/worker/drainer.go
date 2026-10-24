@@ -14,6 +14,7 @@ import (
 
 	"github.com/novriyantoAli/mikrotik-login-page/backend/internal/application/notification/service"
 	"github.com/novriyantoAli/mikrotik-login-page/backend/internal/application/notification/sms"
+	"github.com/novriyantoAli/mikrotik-login-page/backend/internal/pkg/sweep"
 )
 
 // batchSize bounds one drain pass. The drainer stops early on the first modem
@@ -34,17 +35,27 @@ type Drainer struct {
 	deliverer service.Deliverer
 	logger    *zap.Logger
 	sweep     time.Duration
+	// registry is where a completed pass is recorded, so the worker's /healthz can
+	// tell a working drainer from a wedged one (ADR 0018).
+	registry *sweep.Registry
 
 	wake chan struct{}
 	done sync.WaitGroup
 }
 
 // NewDrainer starts the drainer with the process lifecycle.
-func NewDrainer(lc fx.Lifecycle, deliverer service.Deliverer, settings Settings, logger *zap.Logger) *Drainer {
+func NewDrainer(
+	lc fx.Lifecycle,
+	deliverer service.Deliverer,
+	settings Settings,
+	registry *sweep.Registry,
+	logger *zap.Logger,
+) *Drainer {
 	drainer := &Drainer{
 		deliverer: deliverer,
 		logger:    logger,
 		sweep:     settings.SweepInterval,
+		registry:  registry,
 		wake:      make(chan struct{}, 1),
 	}
 
@@ -111,6 +122,7 @@ func (d *Drainer) run(ctx context.Context) {
 
 	for {
 		d.drain(ctx)
+		d.registry.Beat(sms.TaskDeliver, d.sweep, time.Now())
 
 		select {
 		case <-ctx.Done():

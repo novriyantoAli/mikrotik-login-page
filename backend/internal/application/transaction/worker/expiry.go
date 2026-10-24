@@ -11,6 +11,8 @@ import (
 	"go.uber.org/fx"
 	"go.uber.org/zap"
 
+	"github.com/novriyantoAli/mikrotik-login-page/backend/internal/pkg/sweep"
+
 	"github.com/novriyantoAli/mikrotik-login-page/backend/internal/application/transaction/service"
 )
 
@@ -32,8 +34,14 @@ type Expiry struct {
 }
 
 // NewExpiry starts the sweeper with the process lifecycle.
-func NewExpiry(lc fx.Lifecycle, expiry service.Expiry, settings Settings, logger *zap.Logger) *Expiry {
-	sweeper := newSweeper(settings.SweepInterval, func(ctx context.Context) {
+func NewExpiry(
+	lc fx.Lifecycle,
+	expiry service.Expiry,
+	settings Settings,
+	registry *sweep.Registry,
+	logger *zap.Logger,
+) *Expiry {
+	sweeper := newSweeper(settings.SweepInterval, TaskExpire, registry, func(ctx context.Context) {
 		if _, err := expiry.ExpireDue(ctx); err != nil {
 			logger.Error("expire pending transactions", zap.Error(err))
 		}

@@ -163,6 +163,42 @@ named in a query is only a cross-check against the session: a foreign one answer
 Fixtures: `../contracts/{account,account.extend-preview,transactions}.response.json`,
 decoded by both the Go integration tests and the app's strict zod schemas.
 
+## Reconciliation, observability and the worker's operator listener (#17, ADR 0018)
+
+A settlement whose callback never arrives is recovered by a third sweep:
+`transaction:reconcile` runs on `transaction.reconcile_sweep_interval` (default
+1 min) and asks `Gateway.GetStatus` about at most `transaction.reconcile_batch`
+(default 50) transactions per pass. The selector is the window — `pending` rows
+with `expires_at > now`, soonest deadline first — because `expired` is final, so
+a sweep slower than the debt would only produce warnings. The answer enters the
+same `settle`/`close` path a callback uses, so provisioning cannot happen twice.
+
+Every state change logs one structured line, `event=transaction.state_changed`,
+with `transaction_id`, `from`, `to`, `reference`, `phone` (masked) and `reason`
+(`gateway_callback`, `reconciliation`, `expiry_sweep`, `checkout_superseded`,
+`provisioning`). Every provisioning attempt logs `event=provisioning.attempt`
+with `attempt` (the row's `provision_attempts`) and `outcome` (`ok` or `retry` —
+a paid Transaction is never abandoned, so there is no `failed`). Neither the PIN
+nor an unmasked Phone Number ever reaches a log line.
+
+The worker serves an internal surface on `worker.health_addr` (default `:8081`,
+empty disables it). Compose publishes it on `127.0.0.1` only and healthchecks it;
+the proxy never routes it.
+
+| Path | Body |
+| --- | --- |
+| `GET /healthz` | the same `health/dto.Health` report as `/api/health` (200 when every check is up, 503 otherwise) |
+| `GET /metrics` | `{"outbox":{"pending","sending","sent","failed","oldest_pending_age_seconds"},"provisioning":{"paid_awaiting","attempts"}}` |
+
+`/healthz` carries the three dependency probes **plus** `sweeps`: each periodic
+job records a heartbeat when a pass completes, and the check fails when any of
+them is more than three intervals late — the one failure a dependency probe
+cannot see. `oldest_pending_age_seconds` is measured from the oldest undelivered
+row's `created_at` (how long a buyer has waited), and `provisioning.attempts`
+sums the attempts on rows **still paid**, so both are gauges that return to zero
+when the backlog clears. The numbers are read on demand with two aggregate
+queries; there is no metrics dependency and no scrape configuration yet.
+
 ## Test harness (`internal/pkg/testutil`)
 
 Integration tests assert HTTP behaviour, never internal calls.

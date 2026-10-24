@@ -65,6 +65,10 @@ type Repository interface {
 	// returns the new value, so the attempt log line can say which try this was
 	// (ADR 0018).
 	BumpProvisionAttempts(ctx context.Context, id uint, at time.Time) (int, error)
+	// ProvisionCounts returns how many paid Transactions are still owed and how
+	// many attempts they have cost, which is the operator's stuck-signal
+	// (ADR 0018).
+	ProvisionCounts(ctx context.Context) (ProvisionCounts, error)
 	// PaidIDs returns the ids of paid Transactions provisioning still owes, oldest
 	// first, so a sweep retries what a lost wake-up left behind.
 	PaidIDs(ctx context.Context, limit int) ([]uint, error)
@@ -89,6 +93,13 @@ type Repository interface {
 	// Transaction so a deadline the worker has not swept yet cannot block the
 	// partial unique index.
 	ExpirePending(ctx context.Context, phoneNumber string, packageID uint, now time.Time) ([]Expired, error)
+}
+
+// ProvisionCounts is the provisioning backlog at one instant. It belongs to
+// persistence rather than to a DTO: it is a query result, not an HTTP body.
+type ProvisionCounts struct {
+	PaidAwaiting int64 `gorm:"column:paid_awaiting"`
+	Attempts     int64 `gorm:"column:attempts"`
 }
 
 // Expired is the part of a Transaction an expiry sweep needs to log the change it
@@ -403,4 +414,23 @@ func (r *transactionRepository) BumpProvisionAttempts(
 		return 0, fmt.Errorf("count provisioning attempt for %d: %w", id, err)
 	}
 	return attempt, nil
+}
+
+// ProvisionCounts sums the provisioning backlog: rows still waiting, and the
+// attempts they have already cost. Both are zero once the backlog clears.
+func (r *transactionRepository) ProvisionCounts(ctx context.Context) (ProvisionCounts, error) {
+	var counts ProvisionCounts
+	err := r.db.WithContext(ctx).Raw(`
+		SELECT
+			COUNT(*) AS paid_awaiting,
+			COALESCE(SUM(provision_attempts), 0) AS attempts
+		FROM transactions
+		WHERE state = ? AND deleted_at IS NULL`,
+		entity.StatePaid,
+	).Scan(&counts).Error
+	if err != nil {
+		r.logger.Error("count paid transactions", zap.Error(err))
+		return ProvisionCounts{}, fmt.Errorf("count paid transactions: %w", err)
+	}
+	return counts, nil
 }

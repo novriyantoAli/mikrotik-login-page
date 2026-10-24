@@ -35,6 +35,19 @@ type Repository interface {
 	// in the service, including the timestamp, so the repository never reads the
 	// wall clock on its own.
 	MarkFailed(ctx context.Context, id uint, nextAttemptAt *time.Time, cause string, now time.Time) error
+	// Counts returns one row per state plus the age of the longest-waiting
+	// message, measured against the caller's clock (ADR 0018).
+	Counts(ctx context.Context, now time.Time) (Counts, error)
+}
+
+// Counts is the outbox's state at one instant. It belongs to persistence rather
+// than to a DTO: it is a query result, not an HTTP body.
+type Counts struct {
+	Pending                 int64 `gorm:"column:pending"`
+	Sending                 int64 `gorm:"column:sending"`
+	Sent                    int64 `gorm:"column:sent"`
+	Failed                  int64 `gorm:"column:failed"`
+	OldestPendingAgeSeconds int64 `gorm:"column:oldest_pending_age_seconds"`
 }
 
 type smsRepository struct {
@@ -162,4 +175,33 @@ func (r *smsRepository) MarkFailed(
 		return fmt.Errorf("mark sms %d failed: %w", id, err)
 	}
 	return nil
+}
+
+// Counts counts by state in one statement. The age is floored at zero so a row
+// written with a clock slightly ahead of the reader's never reports a negative
+// wait.
+func (r *smsRepository) Counts(ctx context.Context, now time.Time) (Counts, error) {
+	var counts Counts
+	err := r.db.WithContext(ctx).Raw(`
+		SELECT
+			COUNT(*) FILTER (WHERE state = ?) AS pending,
+			COUNT(*) FILTER (WHERE state = ?) AS sending,
+			COUNT(*) FILTER (WHERE state = ?) AS sent,
+			COUNT(*) FILTER (WHERE state = ?) AS failed,
+			GREATEST(
+				COALESCE(
+					MAX(EXTRACT(EPOCH FROM (? - created_at))::bigint) FILTER (WHERE state <> ?),
+					0
+				),
+				0
+			) AS oldest_pending_age_seconds
+		FROM sms_outbox`,
+		entity.StatePending, entity.StateSending, entity.StateSent, entity.StateFailed,
+		now, entity.StateSent,
+	).Scan(&counts).Error
+	if err != nil {
+		r.logger.Error("count sms outbox", zap.Error(err))
+		return Counts{}, fmt.Errorf("count sms outbox: %w", err)
+	}
+	return counts, nil
 }

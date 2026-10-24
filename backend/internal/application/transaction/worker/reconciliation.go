@@ -7,6 +7,8 @@ import (
 	"go.uber.org/fx"
 	"go.uber.org/zap"
 
+	"github.com/novriyantoAli/mikrotik-login-page/backend/internal/pkg/sweep"
+
 	"github.com/novriyantoAli/mikrotik-login-page/backend/internal/application/transaction/service"
 )
 
@@ -28,9 +30,10 @@ func NewReconciliation(
 	lc fx.Lifecycle,
 	reconciler service.Reconciler,
 	settings service.ReconciliationSettings,
+	registry *sweep.Registry,
 	logger *zap.Logger,
 ) *Reconciliation {
-	sweeper := newSweeper(settings.SweepInterval, func(ctx context.Context) {
+	sweeper := newSweeper(settings.SweepInterval, TaskReconcile, registry, func(ctx context.Context) {
 		reconciled, err := reconciler.ReconcileDue(ctx)
 		if err != nil {
 			logger.Error("reconcile pending transactions", zap.Error(err))

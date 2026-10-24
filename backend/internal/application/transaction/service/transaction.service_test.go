@@ -846,3 +846,17 @@ func TestExpireDue_ClosesOnlyOverduePendingTransactions(t *testing.T) {
 		t.Fatal("checkout after expiry reused the expired Transaction")
 	}
 }
+
+// ProvisionCounts mirrors the repository's two aggregate numbers, so the operator
+// counter can be tested without a database (ADR 0018).
+func (r *fakeRepository) ProvisionCounts(context.Context) (repository.ProvisionCounts, error) {
+	counts := repository.ProvisionCounts{}
+	for index := range r.rows {
+		if r.rows[index].State != entity.StatePaid {
+			continue
+		}
+		counts.PaidAwaiting++
+		counts.Attempts += int64(r.rows[index].ProvisionAttempts)
+	}
+	return counts, nil
+}

@@ -7,6 +7,8 @@ import (
 	"go.uber.org/fx"
 	"go.uber.org/zap"
 
+	"github.com/novriyantoAli/mikrotik-login-page/backend/internal/pkg/sweep"
+
 	"github.com/novriyantoAli/mikrotik-login-page/backend/internal/application/transaction/service"
 )
 
@@ -23,9 +25,10 @@ func NewProvisioning(
 	lc fx.Lifecycle,
 	provisioner service.Provisioner,
 	settings service.ProvisioningSettings,
+	registry *sweep.Registry,
 	logger *zap.Logger,
 ) *Provisioning {
-	sweeper := newSweeper(settings.SweepInterval, func(ctx context.Context) {
+	sweeper := newSweeper(settings.SweepInterval, service.TaskProvision, registry, func(ctx context.Context) {
 		done, err := provisioner.ProvisionDue(ctx)
 		if err != nil {
 			logger.Error("provision paid transactions", zap.Error(err))
