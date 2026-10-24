@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"database/sql"
+	"errors"
 	"net/http"
 	"strconv"
 	"testing"
@@ -376,5 +377,47 @@ func seedRadiusAccount(
 		`INSERT INTO radreply (username, attribute, op, value) VALUES (?, 'Mikrotik-Rate-Limit', '=', ?)`,
 		phoneNumber, rateLimit); err != nil {
 		t.Fatalf("seed radreply rate limit: %v", err)
+	}
+}
+
+// TestProvisioning_AttemptsAreCountedOnTheRow proves the counter behind the
+// attempt log line and the operator metric survives a failure and a retry, so a
+// stuck Transaction shows how often the worker tried (ADR 0018).
+func TestProvisioning_AttemptsAreCountedOnTheRow(t *testing.T) {
+	harness, _, created := paidCheckout(t, "081200000046", "198.51.100.46")
+	ctx := context.Background()
+
+	attempts := func() transactionentity.Transaction {
+		t.Helper()
+
+		var row transactionentity.Transaction
+		if err := harness.Postgres.First(&row, created.ID).Error; err != nil {
+			t.Fatalf("read Transaction: %v", err)
+		}
+		return row
+	}
+
+	if stored := attempts(); stored.ProvisionAttempts != 0 {
+		t.Fatalf("attempts before provisioning = %d, want 0", stored.ProvisionAttempts)
+	}
+
+	harness.Doubles.Radius.Err = errors.New("freeradius unreachable")
+	if err := harness.TransactionProvisioning.Provision(ctx, created.ID); err == nil {
+		t.Fatal("Provision reported success while the FreeRADIUS writer was down")
+	}
+	failed := attempts()
+	if failed.ProvisionAttempts != 1 || failed.State != transactionentity.StatePaid {
+		t.Fatalf("after a failed attempt: attempts = %d, state = %q; want 1, paid",
+			failed.ProvisionAttempts, failed.State)
+	}
+
+	harness.Doubles.Radius.Err = nil
+	if err := harness.TransactionProvisioning.Provision(ctx, created.ID); err != nil {
+		t.Fatalf("second Provision: %v", err)
+	}
+	succeeded := attempts()
+	if succeeded.ProvisionAttempts != 2 || succeeded.State != transactionentity.StateProvisioned {
+		t.Fatalf("after the retry: attempts = %d, state = %q; want 2, provisioned",
+			succeeded.ProvisionAttempts, succeeded.State)
 	}
 }

@@ -158,8 +158,19 @@ func (s *service) Create(
 
 	// A deadline that passed is final even before the worker sweeps it: closing
 	// it here frees the one-pending index instead of failing the new checkout.
-	if _, err := s.repo.ExpirePending(ctx, phoneNumber, request.PackageID, now); err != nil {
+	superseded, err := s.repo.ExpirePending(ctx, phoneNumber, request.PackageID, now)
+	if err != nil {
 		return nil, err
+	}
+	for _, row := range superseded {
+		stateChange{
+			TransactionID: row.ID,
+			Reference:     row.Reference,
+			PhoneNumber:   row.PhoneNumber,
+			From:          entity.StatePending,
+			To:            entity.StateExpired,
+			Reason:        ReasonCheckoutSuperseded,
+		}.log(s.logger)
 	}
 
 	existing, err := s.repo.Pending(ctx, phoneNumber, request.PackageID, now)

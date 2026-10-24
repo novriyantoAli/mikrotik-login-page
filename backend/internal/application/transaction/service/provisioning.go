@@ -16,7 +16,6 @@ import (
 	"github.com/novriyantoAli/mikrotik-login-page/backend/internal/application/transaction/repository"
 	"github.com/novriyantoAli/mikrotik-login-page/backend/internal/pkg/clock"
 	"github.com/novriyantoAli/mikrotik-login-page/backend/internal/pkg/database"
-	"github.com/novriyantoAli/mikrotik-login-page/backend/internal/pkg/phone"
 	"github.com/novriyantoAli/mikrotik-login-page/backend/internal/pkg/pin"
 )
 
@@ -100,6 +99,34 @@ func (p *provisioner) Provision(ctx context.Context, id uint) error {
 		return nil
 	}
 
+	attempt := p.beginAttempt(ctx, row.ID)
+	if err := p.provision(ctx, row); err != nil {
+		provisioningAttempt{TransactionID: row.ID, Attempt: attempt, Outcome: OutcomeRetry}.
+			log(p.logger, err)
+		return err
+	}
+	provisioningAttempt{TransactionID: row.ID, Attempt: attempt, Outcome: OutcomeOK}.
+		log(p.logger, nil)
+	return nil
+}
+
+// beginAttempt counts this attempt before any work, so a stuck Transaction shows
+// how often the worker tried. A counter that cannot be written is logged and
+// ignored: an observation that breaks the observed is worse than a number that is
+// missing (ADR 0018).
+func (p *provisioner) beginAttempt(ctx context.Context, id uint) int {
+	attempt, err := p.repo.BumpProvisionAttempts(ctx, id, p.clock.Now())
+	if err != nil {
+		p.logger.Warn("provisioning attempt counter unavailable",
+			zap.Uint("transaction_id", id), zap.Error(err))
+		return 0
+	}
+	return attempt
+}
+
+// provision does the work of one attempt: read the Package, persist the plan once,
+// write the account, then record the result and its SMS together.
+func (p *provisioner) provision(ctx context.Context, row *entity.Transaction) error {
 	pkg, err := p.catalog.GetPackage(ctx, row.PackageID)
 	if err != nil {
 		return fmt.Errorf("read Package %d: %w", row.PackageID, err)
@@ -221,11 +248,14 @@ func (p *provisioner) complete(ctx context.Context, row *entity.Transaction, pin
 		return nil
 	}
 
-	p.logger.Info("transaction provisioned",
-		zap.Uint("transaction_id", row.ID),
-		zap.String("reference", row.Reference),
-		zap.String("phone_number", phone.Mask(row.PhoneNumber)),
-	)
+	stateChange{
+		TransactionID: row.ID,
+		Reference:     row.Reference,
+		PhoneNumber:   row.PhoneNumber,
+		From:          entity.StatePaid,
+		To:            entity.StateProvisioned,
+		Reason:        ReasonProvisioning,
+	}.log(p.logger)
 	return nil
 }
 
@@ -239,9 +269,9 @@ func (p *provisioner) ProvisionDue(ctx context.Context) (int, error) {
 	for _, id := range ids {
 		if err := p.Provision(ctx, id); err != nil {
 			// One failure must not stop the sweep: the row stays paid and the next
-			// sweep retries it once MySQL is back.
-			p.logger.Error("provision paid transaction",
-				zap.Uint("transaction_id", id), zap.Error(err))
+			// sweep retries it once MySQL is back. The attempt is already logged
+			// with its transaction id and count, so logging it again here would
+			// only duplicate the same fact (ADR 0018).
 			continue
 		}
 		provisioned++

@@ -39,10 +39,10 @@ func (s *service) HandleCallback(ctx context.Context, raw []byte, signature stri
 
 	switch callback.Status {
 	case payment.StatusPaid:
-		_, err := s.transitions.settle(ctx, row, callback)
+		_, err := s.transitions.settle(ctx, row, callback, ReasonGatewayCallback)
 		return err
 	case payment.StatusFailed, payment.StatusExpired:
-		_, err := s.transitions.close(ctx, row, callback.Status)
+		_, err := s.transitions.close(ctx, row, callback.Status, ReasonGatewayCallback)
 		return err
 	default:
 		// "unpaid" is the normal state of a checkout nobody has paid yet.

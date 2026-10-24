@@ -61,6 +61,10 @@ type Repository interface {
 	// MarkProvisioned moves paid → provisioned inside the caller's transaction and
 	// reports whether this attempt won the guard.
 	MarkProvisioned(ctx context.Context, tx database.Tx, id uint, at time.Time) (bool, error)
+	// BumpProvisionAttempts increments this Transaction's attempt counter and
+	// returns the new value, so the attempt log line can say which try this was
+	// (ADR 0018).
+	BumpProvisionAttempts(ctx context.Context, id uint, at time.Time) (int, error)
 	// PaidIDs returns the ids of paid Transactions provisioning still owes, oldest
 	// first, so a sweep retries what a lost wake-up left behind.
 	PaidIDs(ctx context.Context, limit int) ([]uint, error)
@@ -76,14 +80,23 @@ type Repository interface {
 	// (ADR 0017).
 	ListByPhone(ctx context.Context, phoneNumber string, params ListParams) ([]entity.Transaction, int64, error)
 	// ExpireOverdue moves every pending Transaction whose deadline has passed to
-	// expired and reports how many it changed. The clock is the caller's, so the
-	// rule stays testable.
-	ExpireOverdue(ctx context.Context, now time.Time) (int64, error)
+	// expired and returns the rows it changed, so the caller can log one
+	// transition per Transaction without reading them again (ADR 0018). The clock
+	// is the caller's, so the rule stays testable.
+	ExpireOverdue(ctx context.Context, now time.Time) ([]Expired, error)
 	// ExpirePending closes the overdue pending Transaction for one Phone Number
 	// and Package, if there is one. Checkout calls it before opening a new
 	// Transaction so a deadline the worker has not swept yet cannot block the
 	// partial unique index.
-	ExpirePending(ctx context.Context, phoneNumber string, packageID uint, now time.Time) (int64, error)
+	ExpirePending(ctx context.Context, phoneNumber string, packageID uint, now time.Time) ([]Expired, error)
+}
+
+// Expired is the part of a Transaction an expiry sweep needs to log the change it
+// made: the identity, not the whole row. It belongs to persistence, not to HTTP.
+type Expired struct {
+	ID          uint
+	Reference   string
+	PhoneNumber string
 }
 
 type transactionRepository struct {
@@ -333,14 +346,14 @@ func (r *transactionRepository) ExpirePending(
 	phoneNumber string,
 	packageID uint,
 	now time.Time,
-) (int64, error) {
+) ([]Expired, error) {
 	return r.expire(ctx, now,
 		"phone_number = ? AND package_id = ? AND state = ? AND expires_at <= ?",
 		phoneNumber, packageID, entity.StatePending, now,
 	)
 }
 
-func (r *transactionRepository) ExpireOverdue(ctx context.Context, now time.Time) (int64, error) {
+func (r *transactionRepository) ExpireOverdue(ctx context.Context, now time.Time) ([]Expired, error) {
 	return r.expire(ctx, now,
 		"state = ? AND expires_at <= ?", entity.StatePending, now,
 	)
@@ -348,22 +361,46 @@ func (r *transactionRepository) ExpireOverdue(ctx context.Context, now time.Time
 
 // expire is the one guarded UPDATE both expiry paths use: closing a deadline is
 // the same operation whether it is scoped to one session or to the whole table.
+// RETURNING keeps that single statement while still naming every row it changed,
+// which is what the transition log needs (ADR 0018).
 func (r *transactionRepository) expire(
 	ctx context.Context,
 	now time.Time,
 	condition string,
 	args ...any,
-) (int64, error) {
-	result := r.db.WithContext(ctx).
-		Model(&entity.Transaction{}).
-		Where(condition, args...).
-		Updates(map[string]any{
-			"state":      entity.StateExpired,
-			"updated_at": now,
-		})
-	if result.Error != nil {
-		r.logger.Error("expire overdue transactions", zap.String("condition", condition), zap.Error(result.Error))
-		return 0, fmt.Errorf("expire overdue transactions: %w", result.Error)
+) ([]Expired, error) {
+	returning := make([]Expired, 0)
+
+	statement := `UPDATE transactions
+		SET state = ?, updated_at = ?
+		WHERE deleted_at IS NULL AND ` + condition + `
+		RETURNING id, reference, phone_number`
+	parameters := append([]any{entity.StateExpired, now}, args...)
+
+	err := r.db.WithContext(ctx).Raw(statement, parameters...).Scan(&returning).Error
+	if err != nil {
+		r.logger.Error("expire overdue transactions", zap.String("condition", condition), zap.Error(err))
+		return nil, fmt.Errorf("expire overdue transactions: %w", err)
 	}
-	return result.RowsAffected, nil
+	return returning, nil
+}
+
+func (r *transactionRepository) BumpProvisionAttempts(
+	ctx context.Context,
+	id uint,
+	at time.Time,
+) (int, error) {
+	var attempt int
+	err := r.db.WithContext(ctx).Raw(
+		`UPDATE transactions
+		SET provision_attempts = provision_attempts + 1, updated_at = ?
+		WHERE id = ? AND deleted_at IS NULL
+		RETURNING provision_attempts`,
+		at, id,
+	).Scan(&attempt).Error
+	if err != nil {
+		r.logger.Error("count provisioning attempt", zap.Uint("transaction_id", id), zap.Error(err))
+		return 0, fmt.Errorf("count provisioning attempt for %d: %w", id, err)
+	}
+	return attempt, nil
 }

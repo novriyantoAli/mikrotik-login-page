@@ -159,8 +159,14 @@ Decision: every Transaction state change emits one line with
 is one of `gateway_callback`, `reconciliation`, `expiry_sweep`,
 `checkout_superseded`, `provisioning`. Every provisioning attempt emits
 `provisioning.attempt` with `transaction_id`, `attempt` (from
-`provision_attempts`), `outcome` ∈ {`ok`, `retry`, `failed`} and `error` when the
-outcome is not `ok`.
+`provision_attempts`), `outcome` ∈ {`ok`, `retry`} and `error` when the outcome is
+`retry`. There is no `failed` outcome: a paid Transaction is never abandoned
+(ADR 0016), so every unsuccessful attempt is one the next sweep retries — a third
+value would name a state that cannot occur.
+
+The two bulk expiry paths stay one guarded `UPDATE` each (ADR 0015) and gain a
+`RETURNING id, reference, phone_number`, so the per-row claim above holds without
+a second read and without turning the sweep into a per-Transaction loop.
 
 The reason is supplied by the caller of `settle` / `close` rather than sniffed
 inside them, which is why threading it through reconciliation belongs to the
