@@ -58,6 +58,12 @@ worker:
 health:
   timeout: 2s
 
+account:
+  # Window before the Active Period end that counts as "almost over". The
+  # backend computes active_period.state from it (ADR 0017), so this value must
+  # equal expiryWarningHours in KOPINETGO-2024/config/data/voucher.js.
+  expiry_warning_hours: 24
+
 auth:
   magic_link_ttl: 15m
   session_ttl: 720h

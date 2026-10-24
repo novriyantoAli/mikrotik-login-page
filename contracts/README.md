@@ -28,6 +28,9 @@ silently.
 | `transaction.response.json` | `POST /api/transactions` and `GET /api/transactions/{id}` (200, pending) | same two test files |
 | `transaction.paid.response.json` | `GET /api/transactions/{id}` (200, paid) | same two test files |
 | `transaction.provisioned.response.json` | `GET /api/transactions/{id}` (200, provisioned, with the PIN) | same two test files |
+| `account.response.json` | `GET /api/account` (200, summary with the current PIN) | `backend/test/integration/account_contract_test.go`, `frontend/tests/unit/account.contract.test.ts` |
+| `account.extend-preview.response.json` | `GET /api/account/extend-preview?package_id=` (200) | same two test files |
+| `transactions.response.json` | `GET /api/transactions?page=&page_size=` (200, history without the PIN) | same two test files |
 
 Rules:
 
@@ -52,6 +55,10 @@ Rules:
 - The auth fixtures are the **session contract** (ADR 0011). The session token
   never appears in a body — only in the `Set-Cookie` header — so a fixture that
   grows a `token` field is a leak, not a feature.
+- The Account Status fixtures are the **Account Status contract** (ADR 0017).
+  `pin` appears only in `account.response.json`; a `pin` field in
+  `transactions.response.json` is a leak, not a feature, and `active_period.state`
+  is one of `active`, `expiring`, `expired` or `none` computed by the backend.
 - Values are examples, not assertions of live data (latency, timestamps).
 - Never edit a fixture to make one side's test pass without updating the other
   side's schema/DTO in the same change.

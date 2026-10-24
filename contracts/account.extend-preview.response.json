@@ -1,0 +1,8 @@
+{
+  "data": {
+    "package_id": 1,
+    "current_expiration": "2026-10-24T08:00:00Z",
+    "estimated_expiration": "2026-10-25T08:00:00Z",
+    "extends": true
+  }
+}

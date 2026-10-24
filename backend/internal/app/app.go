@@ -12,6 +12,7 @@ import (
 	"go.uber.org/fx/fxevent"
 	"go.uber.org/zap"
 
+	"github.com/novriyantoAli/mikrotik-login-page/backend/internal/application/account"
 	"github.com/novriyantoAli/mikrotik-login-page/backend/internal/application/activeperiod"
 	"github.com/novriyantoAli/mikrotik-login-page/backend/internal/application/auth"
 	"github.com/novriyantoAli/mikrotik-login-page/backend/internal/application/health"
@@ -85,6 +86,7 @@ func routerWithBase(base fx.Option, extra ...fx.Option) fx.Option {
 		database.Module(),
 		health.Module(),
 		packages.Module(),
+		account.Module(),
 		activeperiod.Module(),
 		notification.Module(),
 		auth.Module(),

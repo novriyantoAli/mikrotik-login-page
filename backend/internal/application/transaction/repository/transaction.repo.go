@@ -15,11 +15,20 @@ import (
 
 	"github.com/novriyantoAli/mikrotik-login-page/backend/internal/application/transaction/entity"
 	"github.com/novriyantoAli/mikrotik-login-page/backend/internal/pkg/database"
+	"github.com/novriyantoAli/mikrotik-login-page/backend/internal/pkg/phone"
 )
 
 // ErrNotFound means no Transaction matches the lookup (including one that
 // belongs to another Phone Number: the service reports both as not found).
 var ErrNotFound = errors.New("transaction not found")
+
+// ListParams is the pagination this repository understands. It is owned here
+// rather than reusing dto.TransactionFilter, so a change to the HTTP validation
+// tags can never change what persistence queries on (golden rule 14).
+type ListParams struct {
+	Page     int
+	PageSize int
+}
 
 // Repository persists Transactions.
 type Repository interface {
@@ -58,6 +67,10 @@ type Repository interface {
 	// LatestProvisioned returns the newest provisioned Transaction of one Phone
 	// Number, or nil when the buyer has none. It is where the current PIN lives.
 	LatestProvisioned(ctx context.Context, phoneNumber string) (*entity.Transaction, error)
+	// ListByPhone returns one page of a Phone Number's Transactions, newest first,
+	// plus the total number of rows, so Account Status can paginate its history
+	// (ADR 0017).
+	ListByPhone(ctx context.Context, phoneNumber string, params ListParams) ([]entity.Transaction, int64, error)
 	// ExpireOverdue moves every pending Transaction whose deadline has passed to
 	// expired and reports how many it changed. The clock is the caller's, so the
 	// rule stays testable.
@@ -261,6 +274,39 @@ func (r *transactionRepository) LatestProvisioned(
 		return nil, fmt.Errorf("read latest provisioned transaction: %w", err)
 	}
 	return &row, nil
+}
+
+func (r *transactionRepository) ListByPhone(
+	ctx context.Context,
+	phoneNumber string,
+	params ListParams,
+) ([]entity.Transaction, int64, error) {
+	// A fresh statement per query: reusing one *gorm.DB for count and page would
+	// let the second call inherit the first one's SELECT list.
+	query := func() *gorm.DB {
+		return r.db.WithContext(ctx).Model(&entity.Transaction{}).
+			Where("phone_number = ?", phoneNumber)
+	}
+
+	var total int64
+	if err := query().Count(&total).Error; err != nil {
+		r.logger.Error("count transaction history", zap.String("phone_number", phone.Mask(phoneNumber)),
+			zap.Error(err))
+		return nil, 0, fmt.Errorf("count transaction history: %w", err)
+	}
+
+	var rows []entity.Transaction
+	err := query().
+		Order("id DESC").
+		Offset((params.Page - 1) * params.PageSize).
+		Limit(params.PageSize).
+		Find(&rows).Error
+	if err != nil {
+		r.logger.Error("list transaction history", zap.String("phone_number", phone.Mask(phoneNumber)),
+			zap.Error(err))
+		return nil, 0, fmt.Errorf("list transaction history: %w", err)
+	}
+	return rows, total, nil
 }
 
 func (r *transactionRepository) ExpirePending(

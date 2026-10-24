@@ -69,3 +69,21 @@ func formatOptional(moment *time.Time) *string {
 	formatted := moment.UTC().Format(time.RFC3339)
 	return &formatted
 }
+
+// toSummary maps a row for the history list. There is no PIN argument on
+// purpose: the list is the one Transaction shape that never carries a
+// credential (ADR 0017).
+func toSummary(row *entity.Transaction) dto.TransactionSummaryResponse {
+	return dto.TransactionSummaryResponse{
+		ID:          row.ID,
+		Reference:   row.Reference,
+		PackageID:   row.PackageID,
+		PackageName: row.PackageName,
+		AmountIDR:   row.AmountIDR,
+		Channel:     row.Channel,
+		ChannelName: row.ChannelName,
+		State:       string(row.State),
+		CreatedAt:   row.CreatedAt.UTC().Format(time.RFC3339),
+		PaidAt:      formatOptional(row.PaidAt),
+	}
+}

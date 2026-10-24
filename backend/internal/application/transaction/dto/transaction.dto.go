@@ -74,3 +74,38 @@ type TransactionResponse struct {
 type CallbackAck struct {
 	Received bool `json:"received"`
 }
+
+// TransactionFilter is the query the history endpoint accepts. PhoneNumber is
+// only ever a cross-check against the session, never a row selector (PRD point
+// 13), and the page bounds keep one request from asking for the whole table.
+type TransactionFilter struct {
+	Page        int    `form:"page" binding:"omitempty,min=1"`
+	PageSize    int    `form:"page_size" binding:"omitempty,min=1,max=100"`
+	PhoneNumber string `form:"phone_number"`
+}
+
+// TransactionSummaryResponse is one row of the Transaction history: when it
+// happened, which Package, how much, and the state. It deliberately has no PIN
+// field — a list never carries a credential (ADR 0017).
+type TransactionSummaryResponse struct {
+	ID          uint    `json:"id"`
+	Reference   string  `json:"reference"`
+	PackageID   uint    `json:"package_id"`
+	PackageName string  `json:"package_name"`
+	AmountIDR   int64   `json:"amount_idr"`
+	Channel     string  `json:"channel"`
+	ChannelName string  `json:"channel_name"`
+	State       string  `json:"state"`
+	CreatedAt   string  `json:"created_at"`
+	PaidAt      *string `json:"paid_at"`
+}
+
+// TransactionPage is one page of history plus the numbers the app needs to
+// paginate. The handler renders it as the shared `{data, total_count, page,
+// page_size}` envelope.
+type TransactionPage struct {
+	Items      []TransactionSummaryResponse
+	TotalCount int64
+	Page       int
+	PageSize   int
+}
