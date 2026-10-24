@@ -130,6 +130,16 @@ type Transaction struct {
 	// redirects using an unchecked URL from its own address bar (PRD point 27).
 	ReturnURL string `gorm:"column:return_url;not null;default:''"`
 
+	// ProvisionTargetExpiration is the Active Period end provisioning computed
+	// once (PRD point 21). A retry reuses it instead of recomputing, so a repeated
+	// job can never add the Package duration twice (ADR 0016).
+	ProvisionTargetExpiration *time.Time `gorm:"column:provision_target_expiration"`
+	// PINCiphertext is this purchase's PIN sealed with the key named by
+	// PINKeyVersion. The plaintext exists only in memory during provisioning and
+	// in the SMS the buyer receives (ADR 0016).
+	PINCiphertext []byte `gorm:"column:pin_ciphertext"`
+	PINKeyVersion int    `gorm:"column:pin_key_version;not null;default:0"`
+
 	ExpiresAt time.Time  `gorm:"column:expires_at;not null"`
 	PaidAt    *time.Time `gorm:"column:paid_at"`
 

@@ -68,7 +68,6 @@ func (d *TestDoubles) FxOption(options ...DoublesOption) fx.Option {
 			func() *FakeSMSSender { return d.SMS },
 			func(f *FakeSMSSender) sms.Sender { return f },
 			func() *FakeRadiusWriter { return d.Radius },
-			func(f *FakeRadiusWriter) provisioning.Writer { return f },
 			func() *FakeRadiusReader { return d.RadiusReader },
 		),
 	}
@@ -76,6 +75,11 @@ func (d *TestDoubles) FxOption(options ...DoublesOption) fx.Option {
 	// the fake takes its place rather than competing with it.
 	provided = append(provided, fx.Decorate(
 		func(_ payment.Gateway, fake *FakeGateway) payment.Gateway { return fake },
+	))
+	// Provisioning has a production MySQL writer now, so the fake takes its place
+	// instead of competing with it (ADR 0016).
+	provided = append(provided, fx.Decorate(
+		func(_ provisioning.Writer, fake *FakeRadiusWriter) provisioning.Writer { return fake },
 	))
 	if !settings.realRadiusReader {
 		// Decorate rather than Provide: the production graph already offers the

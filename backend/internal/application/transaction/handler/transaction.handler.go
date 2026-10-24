@@ -113,10 +113,11 @@ func (h *Handler) Create(c *gin.Context) {
 }
 
 // Get returns one Transaction the session's Phone Number owns. It is what the
-// app polls; settlement itself still only arrives by callback.
+// app polls; settlement itself still only arrives by callback, and the PIN is
+// filled in once provisioning finished (ADR 0016).
 //
 //	@Summary		Read one Transaction
-//	@Description	Returns the current state and instructions. Another buyer's Transaction answers 404.
+//	@Description	Returns the current state, the instructions, and — once provisioned — the Phone Number and PIN.
 //	@Tags			transactions
 //	@Produce		json
 //	@Param			id	path		int	true	"Transaction id"

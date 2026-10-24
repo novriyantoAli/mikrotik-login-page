@@ -123,6 +123,10 @@ func WorkerWithBase(base fx.Option, extra ...fx.Option) fx.Option {
 		base,
 		database.RedisModule(),
 		database.PostgresModule(),
+		// Provisioning writes FreeRADIUS from this process, so the worker owns the
+		// MySQL connection and its adapters (ADR 0016).
+		database.FreeRADIUSModule(),
+		packages.Module(),
 		notification.WorkerModule(),
 		transaction.WorkerModule(),
 		modem.Module(),
@@ -143,6 +147,11 @@ func WorkerWithBase(base fx.Option, extra ...fx.Option) fx.Option {
 			),
 			fx.Annotate(
 				transactionworker.NewExpiry,
+				fx.As(new(serverworker.TaskRegistrar)),
+				fx.ResultTags(`group:"worker_tasks"`),
+			),
+			fx.Annotate(
+				transactionworker.NewProvisioning,
 				fx.As(new(serverworker.TaskRegistrar)),
 				fx.ResultTags(`group:"worker_tasks"`),
 			),

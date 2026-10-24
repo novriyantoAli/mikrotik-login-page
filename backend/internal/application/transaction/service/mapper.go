@@ -28,8 +28,9 @@ func newReference() (string, error) {
 
 // toResponse maps the row onto the only shape the app sees. Timestamps are RFC
 // 3339 so the app can render them in the buyer's locale, and money stays integer
-// rupiah (PRD point 19).
-func toResponse(row *entity.Transaction) *dto.TransactionResponse {
+// rupiah (PRD point 19). pinValue is non-nil only for a provisioned Transaction
+// the caller is allowed to see the PIN of (ADR 0016).
+func toResponse(row *entity.Transaction, pinValue *string) *dto.TransactionResponse {
 	instructions := make([]dto.InstructionResponse, 0, len(row.Instructions))
 	for _, instruction := range row.Instructions {
 		instructions = append(instructions, dto.InstructionResponse{
@@ -41,6 +42,7 @@ func toResponse(row *entity.Transaction) *dto.TransactionResponse {
 	return &dto.TransactionResponse{
 		ID:           row.ID,
 		Reference:    row.Reference,
+		PhoneNumber:  row.PhoneNumber,
 		PackageID:    row.PackageID,
 		PackageName:  row.PackageName,
 		AmountIDR:    row.AmountIDR,
@@ -56,6 +58,7 @@ func toResponse(row *entity.Transaction) *dto.TransactionResponse {
 		ExpiresAt:    row.ExpiresAt.UTC().Format(time.RFC3339),
 		PaidAt:       formatOptional(row.PaidAt),
 		CreatedAt:    row.CreatedAt.UTC().Format(time.RFC3339),
+		PIN:          pinValue,
 	}
 }
 

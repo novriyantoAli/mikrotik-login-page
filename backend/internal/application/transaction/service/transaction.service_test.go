@@ -1,7 +1,9 @@
 package service_test
 
 import (
+	"bytes"
 	"context"
+	"encoding/base64"
 	"errors"
 	"testing"
 	"time"
@@ -16,6 +18,8 @@ import (
 	"github.com/novriyantoAli/mikrotik-login-page/backend/internal/application/transaction/entity"
 	"github.com/novriyantoAli/mikrotik-login-page/backend/internal/application/transaction/repository"
 	"github.com/novriyantoAli/mikrotik-login-page/backend/internal/application/transaction/service"
+	"github.com/novriyantoAli/mikrotik-login-page/backend/internal/pkg/database"
+	"github.com/novriyantoAli/mikrotik-login-page/backend/internal/pkg/pin"
 )
 
 const (
@@ -163,6 +167,91 @@ func (r *fakeRepository) ExpireOverdue(_ context.Context, now time.Time) (int64,
 	return expired, nil
 }
 
+func (r *fakeRepository) SetProvisioningPlan(
+	_ context.Context,
+	id uint,
+	target time.Time,
+	ciphertext []byte,
+	keyVersion int,
+	at time.Time,
+) (bool, error) {
+	for index := range r.rows {
+		row := &r.rows[index]
+		if row.ID != id || row.ProvisionTargetExpiration != nil || len(row.PINCiphertext) > 0 {
+			continue
+		}
+		row.ProvisionTargetExpiration = &target
+		row.PINCiphertext = ciphertext
+		row.PINKeyVersion = keyVersion
+		row.UpdatedAt = at
+		return true, nil
+	}
+	return false, nil
+}
+
+func (r *fakeRepository) WithTx(
+	ctx context.Context,
+	fn func(context.Context, database.Tx) error,
+) error {
+	// Snapshot the rows so a failing callback leaves the fake in the state a real
+	// rollback would leave it in, which is what the atomicity test asserts.
+	snapshot := append([]entity.Transaction(nil), r.rows...)
+	if err := fn(ctx, database.Tx{}); err != nil {
+		r.rows = snapshot
+		return err
+	}
+	return nil
+}
+
+func (r *fakeRepository) MarkProvisioned(
+	_ context.Context,
+	_ database.Tx,
+	id uint,
+	at time.Time,
+) (bool, error) {
+	for index := range r.rows {
+		if r.rows[index].ID != id || r.rows[index].State != entity.StatePaid {
+			continue
+		}
+		r.rows[index].State = entity.StateProvisioned
+		r.rows[index].UpdatedAt = at
+		return true, nil
+	}
+	return false, nil
+}
+
+func (r *fakeRepository) PaidIDs(_ context.Context, limit int) ([]uint, error) {
+	var ids []uint
+	for index := range r.rows {
+		if r.rows[index].State != entity.StatePaid {
+			continue
+		}
+		ids = append(ids, r.rows[index].ID)
+		if len(ids) == limit {
+			break
+		}
+	}
+	return ids, nil
+}
+
+func (r *fakeRepository) LatestProvisioned(
+	_ context.Context,
+	phoneNumber string,
+) (*entity.Transaction, error) {
+	var latest *entity.Transaction
+	for index := range r.rows {
+		row := r.rows[index]
+		if row.PhoneNumber != phoneNumber || row.State != entity.StateProvisioned {
+			continue
+		}
+		if latest == nil || row.ID > latest.ID {
+			copied := row
+			latest = &copied
+		}
+	}
+	return latest, nil
+}
+
 type fakeCatalog struct {
 	packages map[uint]packagesentity.Package
 }
@@ -230,12 +319,39 @@ func (g *fakeGateway) Channels(context.Context) ([]payment.Channel, error) {
 	return g.channels, nil
 }
 
+// testPINCipher is a fixed development key: the tests care about the round-trip,
+// not about the secret (ADR 0016).
+var testPINCipher = mustCipher()
+
+func mustCipher() *pin.Cipher {
+	cipher, err := pin.NewCipher(pin.Settings{
+		Keys:          "1=" + base64.StdEncoding.EncodeToString(bytes.Repeat([]byte{0x2a}, pin.KeyBytes)),
+		ActiveVersion: 1,
+	})
+	if err != nil {
+		panic(err)
+	}
+	return cipher
+}
+
+type recordingWaker struct{ tasks []string }
+
+func (w *recordingWaker) Enqueue(_ context.Context, taskType string) error {
+	w.tasks = append(w.tasks, taskType)
+	return nil
+}
+
 type fixture struct {
-	repo    *fakeRepository
-	catalog *fakeCatalog
-	gateway *fakeGateway
-	clock   *fakeClock
-	service service.Service
+	repo        *fakeRepository
+	catalog     *fakeCatalog
+	gateway     *fakeGateway
+	waker       *recordingWaker
+	clock       *fakeClock
+	writer      *fakeRadiusWriter
+	reader      *fakeRadiusReader
+	outbox      *fakeSMSOutbox
+	service     service.Service
+	provisioner service.Provisioner
 }
 
 type fakeClock struct{ now time.Time }
@@ -257,12 +373,28 @@ func newFixture() *fixture {
 			},
 			callbacks: make(map[string]*payment.Callback),
 		},
+		waker: &recordingWaker{},
 		clock: &fakeClock{now: time.Date(2026, time.October, 23, 8, 0, 0, 0, time.UTC)},
 	}
+	f.writer = &fakeRadiusWriter{}
+	f.reader = &fakeRadiusReader{}
+	f.outbox = &fakeSMSOutbox{}
+	f.provisioner = service.NewProvisioner(
+		f.repo,
+		f.catalog,
+		f.writer,
+		f.reader,
+		f.outbox,
+		testPINCipher,
+		f.clock,
+		zap.NewNop(),
+	)
 	f.service = service.NewService(
 		f.repo,
 		f.catalog,
 		f.gateway,
+		testPINCipher,
+		f.waker,
 		f.clock,
 		service.Settings{
 			PaymentTTL:         time.Hour,
@@ -465,6 +597,11 @@ func TestHandleCallback_MarksPendingPaidOnce(t *testing.T) {
 	if f.repo.transitionCount != 1 {
 		t.Fatalf("transitions = %d, want exactly 1: a repeated callback must not transition twice",
 			f.repo.transitionCount)
+	}
+	// The worker is woken once, not twice: the repeated callback changes nothing and
+	// provisioning has one durable work item per paid Transaction (ADR 0016).
+	if len(f.waker.tasks) != 1 || f.waker.tasks[0] != service.TaskProvision {
+		t.Fatalf("wake-ups = %v, want exactly one %q", f.waker.tasks, service.TaskProvision)
 	}
 }
 

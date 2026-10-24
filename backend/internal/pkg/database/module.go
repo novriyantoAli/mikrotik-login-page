@@ -29,6 +29,26 @@ func PostgresModule() fx.Option {
 	)
 }
 
+// FreeRADIUSModule provides the FreeRADIUS connection and the adapters that live
+// beside it: the Active Period read (ADR 0014) and the account write (ADR 0016).
+// The worker builds it without serving HTTP; the API builds it for its health
+// check and for the provisioning surface integration tests drive.
+func FreeRADIUSModule() fx.Option {
+	return fx.Options(
+		fx.Provide(
+			NewFreeRADIUS,
+			fx.Annotate(
+				NewRadiusExpirationReader,
+				fx.As(new(provisioning.ExpirationReader)),
+			),
+			fx.Annotate(
+				NewRadiusWriter,
+				fx.As(new(provisioning.Writer)),
+			),
+		),
+	)
+}
+
 // Module connects to every server this system depends on, contributes one
 // health checker per connection, and provides the vendor adapters that live
 // beside those connections.
@@ -37,13 +57,9 @@ func Module() fx.Option {
 
 	return fx.Options(
 		PostgresModule(),
+		FreeRADIUSModule(),
 		fx.Provide(
-			NewFreeRADIUS,
 			NewRedis,
-			fx.Annotate(
-				NewRadiusExpirationReader,
-				fx.As(new(provisioning.ExpirationReader)),
-			),
 			// Rate limits live in Redis, which is already a hard dependency
 			// (Asynq), so Magic Link limits add no infrastructure (ADR 0011).
 			ratelimit.NewRedisLimiter,

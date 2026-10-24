@@ -115,10 +115,11 @@ from two write paths.
 
 ## 4. The PIN is returned by the completion read, not by a public endpoint
 
-`GET /transactions/{id}` grows one nullable field, `pin`, filled only when that
-**Transaction** is `provisioned`. The buyer's own session authorises the read
-(PRD 13/14), the same poll that already renders the completion screen delivers
-the **PIN**, and no list endpoint ever carries one.
+`GET /transactions/{id}` grows two fields: `phone_number` (always, it is the
+hotspot username the completion screen has to show) and a nullable `pin`, filled
+only when that **Transaction** is `provisioned`. The buyer's own session
+authorizes the read (PRD 13/14), the same poll that already renders the
+completion screen delivers the **PIN**, and no list endpoint ever carries one.
 
 The same service method (`CurrentPIN`, newest `provisioned` **Transaction** of a
 **Phone Number**) is what **Account Status** (#16) reuses for the show/hide

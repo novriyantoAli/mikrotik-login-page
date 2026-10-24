@@ -14,6 +14,7 @@ import (
 	"gorm.io/gorm"
 
 	"github.com/novriyantoAli/mikrotik-login-page/backend/internal/application/transaction/entity"
+	"github.com/novriyantoAli/mikrotik-login-page/backend/internal/pkg/database"
 )
 
 // ErrNotFound means no Transaction matches the lookup (including one that
@@ -39,6 +40,24 @@ type Repository interface {
 	// still in the expected state, and reports whether it did. A repeated
 	// callback loses the race here instead of transitioning twice.
 	Transition(ctx context.Context, id uint, from, to entity.State, at time.Time) (bool, error)
+	// SetProvisioningPlan stores the target Active Period end and the encrypted
+	// PIN exactly once, and reports whether this call wrote them. Losing the guard
+	// means another attempt already decided the plan (ADR 0016).
+	SetProvisioningPlan(
+		ctx context.Context, id uint, target time.Time, ciphertext []byte, keyVersion int, at time.Time,
+	) (bool, error)
+	// WithTx runs fn inside one Postgres transaction, so a caller can commit two
+	// domains' writes together without holding a database handle (ADR 0016).
+	WithTx(ctx context.Context, fn func(context.Context, database.Tx) error) error
+	// MarkProvisioned moves paid → provisioned inside the caller's transaction and
+	// reports whether this attempt won the guard.
+	MarkProvisioned(ctx context.Context, tx database.Tx, id uint, at time.Time) (bool, error)
+	// PaidIDs returns the ids of paid Transactions provisioning still owes, oldest
+	// first, so a sweep retries what a lost wake-up left behind.
+	PaidIDs(ctx context.Context, limit int) ([]uint, error)
+	// LatestProvisioned returns the newest provisioned Transaction of one Phone
+	// Number, or nil when the buyer has none. It is where the current PIN lives.
+	LatestProvisioned(ctx context.Context, phoneNumber string) (*entity.Transaction, error)
 	// ExpireOverdue moves every pending Transaction whose deadline has passed to
 	// expired and reports how many it changed. The clock is the caller's, so the
 	// rule stays testable.
@@ -147,6 +166,100 @@ func (r *transactionRepository) Transition(
 		return false, fmt.Errorf("transition transaction %d to %s: %w", id, to, result.Error)
 	}
 	return result.RowsAffected > 0, nil
+}
+
+func (r *transactionRepository) SetProvisioningPlan(
+	ctx context.Context,
+	id uint,
+	target time.Time,
+	ciphertext []byte,
+	keyVersion int,
+	at time.Time,
+) (bool, error) {
+	// One guard for both values: a half-written plan (expiration without a PIN)
+	// would let a retry generate a different PIN than the one already queued.
+	result := r.db.WithContext(ctx).
+		Model(&entity.Transaction{}).
+		Where("id = ? AND provision_target_expiration IS NULL AND pin_ciphertext IS NULL", id).
+		Updates(map[string]any{
+			"provision_target_expiration": target,
+			"pin_ciphertext":              ciphertext,
+			"pin_key_version":             keyVersion,
+			"updated_at":                  at,
+		})
+	if result.Error != nil {
+		r.logger.Error("store provisioning plan", zap.Uint("transaction_id", id), zap.Error(result.Error))
+		return false, fmt.Errorf("store provisioning plan for %d: %w", id, result.Error)
+	}
+	return result.RowsAffected > 0, nil
+}
+
+func (r *transactionRepository) WithTx(
+	ctx context.Context,
+	fn func(context.Context, database.Tx) error,
+) error {
+	err := r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		return fn(ctx, database.NewTx(tx))
+	})
+	if err != nil {
+		r.logger.Error("provisioning transaction", zap.Error(err))
+		return fmt.Errorf("provisioning transaction: %w", err)
+	}
+	return nil
+}
+
+func (r *transactionRepository) MarkProvisioned(
+	ctx context.Context,
+	tx database.Tx,
+	id uint,
+	at time.Time,
+) (bool, error) {
+	result := tx.DB().WithContext(ctx).
+		Model(&entity.Transaction{}).
+		Where("id = ? AND state = ?", id, entity.StatePaid).
+		Updates(map[string]any{
+			"state":      entity.StateProvisioned,
+			"updated_at": at,
+		})
+	if result.Error != nil {
+		r.logger.Error("mark transaction provisioned", zap.Uint("transaction_id", id), zap.Error(result.Error))
+		return false, fmt.Errorf("mark transaction %d provisioned: %w", id, result.Error)
+	}
+	return result.RowsAffected > 0, nil
+}
+
+func (r *transactionRepository) PaidIDs(ctx context.Context, limit int) ([]uint, error) {
+	var ids []uint
+	err := r.db.WithContext(ctx).
+		Model(&entity.Transaction{}).
+		Where("state = ?", entity.StatePaid).
+		Order("id ASC").
+		Limit(limit).
+		Pluck("id", &ids).Error
+	if err != nil {
+		r.logger.Error("read paid transactions", zap.Error(err))
+		return nil, fmt.Errorf("read paid transactions: %w", err)
+	}
+	return ids, nil
+}
+
+func (r *transactionRepository) LatestProvisioned(
+	ctx context.Context,
+	phoneNumber string,
+) (*entity.Transaction, error) {
+	var row entity.Transaction
+	err := r.db.WithContext(ctx).
+		Where("phone_number = ? AND state = ?", phoneNumber, entity.StateProvisioned).
+		Order("id DESC").
+		First(&row).Error
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, nil
+		}
+		r.logger.Error("read latest provisioned transaction", zap.Error(err))
+		return nil, fmt.Errorf("read latest provisioned transaction: %w", err)
+	}
+	return &row, nil
 }
 
 func (r *transactionRepository) ExpirePending(

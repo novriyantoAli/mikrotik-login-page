@@ -210,12 +210,15 @@ Checkout endpoints (session cookie required):
 | --- | --- |
 | `GET /api/transactions/channels` | `{"data":[{"code","name","group","fee_flat_idr","fee_percent"}]}` |
 | `POST /api/transactions` | `{"package_id","channel","return_url"?}` → the pending Transaction, or the same one that already exists |
-| `GET /api/transactions/{id}` | the Transaction the app polls until it settles |
+| `GET /api/transactions/{id}` | the Transaction the app polls; carries `pin` once it is `provisioned` |
 | `POST /api/payments/callback` | public; signed by the gateway, the only path to `paid` |
 
-Fees are shown separately from the Package price, and polling stops at a
-terminal state or while the tab is hidden; the gateway callback remains the
-authority (ADR 0008/0015).
+Fees are shown separately from the Package price, and polling stops at
+`provisioned`, `failed` or `expired` — or while the tab is hidden; `paid` is not
+the end of the flow, the worker still has to write the account (ADR 0008/0015/
+0016). That completion screen shows the **Phone Number**, the **PIN**, the next
+step, and the way back to the Login Page only when the checkout carried an
+allowed `return` target.
 
 The passwordless entry endpoints (session cookie per ADR 0009/0011):
 
