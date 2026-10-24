@@ -16,17 +16,21 @@ import (
 	"github.com/novriyantoAli/mikrotik-login-page/backend/internal/application/activeperiod"
 	"github.com/novriyantoAli/mikrotik-login-page/backend/internal/application/auth"
 	"github.com/novriyantoAli/mikrotik-login-page/backend/internal/application/health"
+	healthservice "github.com/novriyantoAli/mikrotik-login-page/backend/internal/application/health/service"
 	"github.com/novriyantoAli/mikrotik-login-page/backend/internal/application/notification"
+	notificationservice "github.com/novriyantoAli/mikrotik-login-page/backend/internal/application/notification/service"
 	notificationworker "github.com/novriyantoAli/mikrotik-login-page/backend/internal/application/notification/worker"
 	"github.com/novriyantoAli/mikrotik-login-page/backend/internal/application/packages"
 	"github.com/novriyantoAli/mikrotik-login-page/backend/internal/application/payment/tripay"
 	"github.com/novriyantoAli/mikrotik-login-page/backend/internal/application/transaction"
+	transactionservice "github.com/novriyantoAli/mikrotik-login-page/backend/internal/application/transaction/service"
 	transactionworker "github.com/novriyantoAli/mikrotik-login-page/backend/internal/application/transaction/worker"
 	"github.com/novriyantoAli/mikrotik-login-page/backend/internal/config"
 	"github.com/novriyantoAli/mikrotik-login-page/backend/internal/pkg/clock"
 	"github.com/novriyantoAli/mikrotik-login-page/backend/internal/pkg/database"
 	"github.com/novriyantoAli/mikrotik-login-page/backend/internal/pkg/logger"
 	"github.com/novriyantoAli/mikrotik-login-page/backend/internal/pkg/modem"
+	"github.com/novriyantoAli/mikrotik-login-page/backend/internal/pkg/sweep"
 	serverapi "github.com/novriyantoAli/mikrotik-login-page/backend/internal/server/api"
 	servermigration "github.com/novriyantoAli/mikrotik-login-page/backend/internal/server/migration"
 	serverworker "github.com/novriyantoAli/mikrotik-login-page/backend/internal/server/worker"
@@ -130,12 +134,29 @@ func WorkerWithBase(base fx.Option, extra ...fx.Option) fx.Option {
 		// payment gateway about a callback that never arrived, so the vendor adapter
 		// is built here too (ADR 0018).
 		database.FreeRADIUSModule(),
+		// The operator listener reports the same dependency probes as /api/health
+		// plus one check no probe can see: are the sweeps still running (ADR 0018).
+		database.CheckersModule(),
+		health.Module(),
 		packages.Module(),
 		notification.WorkerModule(),
 		transaction.WorkerModule(),
 		tripay.Module(),
 		modem.Module(),
 		serverworker.Module(),
+		fx.Provide(
+			sweep.NewRegistry,
+			fx.Annotate(
+				sweep.NewChecker,
+				fx.ResultTags(`group:"`+healthservice.CheckersGroup+`"`),
+			),
+			notificationservice.NewOutboxCounter,
+			transactionservice.NewProvisioningCounter,
+			serverworker.NewOperatorListener,
+		),
+		// The invoke forces construction: NewOperatorListener appends the lifecycle
+		// hooks that bind and close the listener.
+		fx.Invoke(func(*serverworker.OperatorListener) {}),
 		fx.Provide(
 			// Fx cannot inject a bare time.Duration, so the drainer gets the one
 			// knob it needs in a local settings struct.

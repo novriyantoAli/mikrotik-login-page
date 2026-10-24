@@ -321,3 +321,29 @@ func TestDeliverDueSendsAfterTheModemRecovers(t *testing.T) {
 		t.Fatalf("row state = %q, want sent after recovery", repo.rows[0].State)
 	}
 }
+
+// Counts mirrors the repository's one-statement count so a test can assert the
+// numbers the operator surface publishes (ADR 0018).
+func (r *fakeOutboxRepository) Counts(_ context.Context, now time.Time) (repository.Counts, error) {
+	counts := repository.Counts{}
+	for _, row := range r.rows {
+		switch row.State {
+		case entity.StatePending:
+			counts.Pending++
+		case entity.StateSending:
+			counts.Sending++
+		case entity.StateSent:
+			counts.Sent++
+		case entity.StateFailed:
+			counts.Failed++
+		}
+		if row.State == entity.StateSent {
+			continue
+		}
+		age := int64(now.Sub(row.CreatedAt).Seconds())
+		if age > counts.OldestPendingAgeSeconds {
+			counts.OldestPendingAgeSeconds = age
+		}
+	}
+	return counts, nil
+}

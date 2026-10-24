@@ -22,6 +22,12 @@ type composeService struct {
 	Environment map[string]string   `yaml:"environment"`
 	Ports       []string            `yaml:"ports"`
 	DependsOn   composeDependencies `yaml:"depends_on"`
+	Healthcheck composeHealthcheck  `yaml:"healthcheck"`
+}
+
+type composeHealthcheck struct {
+	Test        []string `yaml:"test"`
+	StartPeriod string   `yaml:"start_period"`
 }
 
 type composeDependency struct {
@@ -233,5 +239,36 @@ func TestFreeRADIUSSchemaIsLoadedOnFirstBoot(t *testing.T) {
 		if !strings.Contains(schema, "CREATE TABLE IF NOT EXISTS "+table) {
 			t.Fatalf("FreeRADIUS init script does not create %s", table)
 		}
+	}
+}
+
+// TestWorkerIsHealthcheckedThroughItsOwnListener pins ADR 0018's answer to "what
+// does a healthy worker mean": the container is polled on the worker's operator
+// listener, not on Redis and not by trusting that the process is running.
+func TestWorkerIsHealthcheckedThroughItsOwnListener(t *testing.T) {
+	compose := loadCompose(t)
+
+	worker, ok := compose.Services["worker"]
+	if !ok {
+		t.Fatal("docker-compose.yml has no worker service")
+	}
+
+	healthcheck := strings.Join(worker.Healthcheck.Test, " ")
+	if !strings.Contains(healthcheck, "/healthz") {
+		t.Fatalf("worker healthcheck %q does not poll /healthz", healthcheck)
+	}
+	if strings.Contains(healthcheck, "redis-cli") {
+		t.Fatal("the worker healthcheck proves Redis, not the worker")
+	}
+	if worker.Healthcheck.StartPeriod == "" {
+		t.Fatal("worker healthcheck has no start_period: the first sweep would fail it")
+	}
+
+	// Operator-only: one loopback binding, and the proxy never routes it.
+	if len(worker.Ports) != 1 || !strings.HasPrefix(worker.Ports[0], "127.0.0.1:") {
+		t.Fatalf("worker ports = %v, want exactly one loopback binding", worker.Ports)
+	}
+	if strings.Contains(readRepoFile(t, "docker/proxy/nginx.conf"), "8081") {
+		t.Fatal("the proxy routes the worker's operator listener onto the public origin")
 	}
 }

@@ -7,27 +7,41 @@ import (
 
 	"go.uber.org/fx"
 	"go.uber.org/zap"
+
+	"github.com/novriyantoAli/mikrotik-login-page/backend/internal/pkg/sweep"
 )
 
 // sweeper runs one idempotent background job on a ticker and whenever its
-// wake-up task arrives. Expiry and provisioning both need exactly this, so the
-// lifecycle handling — the part that is easier to get wrong than the job — exists
-// once.
+// wake-up task arrives. Expiry, provisioning and reconciliation all need exactly
+// this, so the lifecycle handling — the part that is easier to get wrong than the
+// job — exists once. Every completed pass beats the sweep registry, which is how
+// the worker can report "still working" instead of only "still running"
+// (ADR 0018).
 type sweeper struct {
-	every  time.Duration
-	task   func(context.Context)
-	logger *zap.Logger
+	every    time.Duration
+	name     string
+	registry *sweep.Registry
+	task     func(context.Context)
+	logger   *zap.Logger
 
 	wake chan struct{}
 	done sync.WaitGroup
 }
 
-func newSweeper(every time.Duration, task func(context.Context), logger *zap.Logger) *sweeper {
+func newSweeper(
+	every time.Duration,
+	name string,
+	registry *sweep.Registry,
+	task func(context.Context),
+	logger *zap.Logger,
+) *sweeper {
 	return &sweeper{
-		every:  every,
-		task:   task,
-		logger: logger,
-		wake:   make(chan struct{}, 1),
+		every:    every,
+		name:     name,
+		registry: registry,
+		task:     task,
+		logger:   logger,
+		wake:     make(chan struct{}, 1),
 	}
 }
 
@@ -83,6 +97,7 @@ func (s *sweeper) run(ctx context.Context) {
 
 	for {
 		s.task(ctx)
+		s.registry.Beat(s.name, s.every, time.Now())
 
 		select {
 		case <-ctx.Done():

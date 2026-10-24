@@ -54,6 +54,9 @@ redis:
 worker:
   concurrency: 10
   queues: [critical, default, low]
+  # Internal operator listener: /healthz and /metrics for whoever runs the host.
+  # It is never routed through the proxy; an empty value disables it (ADR 0018).
+  health_addr: ":8081"
 
 health:
   timeout: 2s

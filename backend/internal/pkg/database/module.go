@@ -49,12 +49,26 @@ func FreeRADIUSModule() fx.Option {
 	)
 }
 
+// CheckersModule contributes one health checker per connection. It is separate
+// from Module because the worker builds its servers one at a time yet must
+// report them in the same shape as the API: /healthz and /api/health have to
+// agree about what "the database is down" means (ADR 0018).
+func CheckersModule() fx.Option {
+	group := `group:"` + service.CheckersGroup + `"`
+
+	return fx.Options(
+		fx.Provide(
+			fx.Annotate(NewPostgresChecker, fx.ResultTags(group)),
+			fx.Annotate(NewFreeRADIUSChecker, fx.ResultTags(group)),
+			fx.Annotate(NewRedisChecker, fx.ResultTags(group)),
+		),
+	)
+}
+
 // Module connects to every server this system depends on, contributes one
 // health checker per connection, and provides the vendor adapters that live
 // beside those connections.
 func Module() fx.Option {
-	group := `group:"` + service.CheckersGroup + `"`
-
 	return fx.Options(
 		PostgresModule(),
 		FreeRADIUSModule(),
@@ -64,10 +78,6 @@ func Module() fx.Option {
 			// (Asynq), so Magic Link limits add no infrastructure (ADR 0011).
 			ratelimit.NewRedisLimiter,
 		),
-		fx.Provide(
-			fx.Annotate(NewPostgresChecker, fx.ResultTags(group)),
-			fx.Annotate(NewFreeRADIUSChecker, fx.ResultTags(group)),
-			fx.Annotate(NewRedisChecker, fx.ResultTags(group)),
-		),
+		CheckersModule(),
 	)
 }

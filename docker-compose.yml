@@ -45,6 +45,7 @@ x-backend-env: &backend-env
   REDIS_DIAL_TIMEOUT: ${REDIS_DIAL_TIMEOUT:-5s}
   WORKER_CONCURRENCY: ${WORKER_CONCURRENCY:-10}
   WORKER_QUEUES: ${WORKER_QUEUES:-critical,default,low}
+  WORKER_HEALTH_ADDR: ${WORKER_HEALTH_ADDR:-:8081}
   HEALTH_TIMEOUT: ${HEALTH_TIMEOUT:-2s}
   ACCOUNT_EXPIRY_WARNING_HOURS: ${ACCOUNT_EXPIRY_WARNING_HOURS:-24}
   AUTH_MAGIC_LINK_TTL: ${AUTH_MAGIC_LINK_TTL:-15m}
@@ -196,6 +197,17 @@ services:
         condition: service_completed_successfully
       redis:
         condition: service_healthy
+    # The operator listener is internal: loopback only, never through the proxy.
+    # Its healthcheck proves the process is still sweeping, not just running
+    # (ADR 0018); the start period leaves room for the first pass.
+    ports:
+      - "127.0.0.1:8081:8081"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:8081/healthz || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 60s
     restart: unless-stopped
     security_opt:
       - no-new-privileges:true

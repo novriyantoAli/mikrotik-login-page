@@ -157,10 +157,14 @@ type RedisConfig struct {
 	DialTimeout time.Duration `mapstructure:"dial_timeout"`
 }
 
-// WorkerConfig configures the Asynq worker server.
+// WorkerConfig configures the Asynq worker server and its operator listener.
 type WorkerConfig struct {
 	Concurrency int      `mapstructure:"concurrency"`
 	Queues      []string `mapstructure:"queues"`
+	// HealthAddr is where the worker serves /healthz and /metrics. It is an
+	// internal surface for whoever runs the host, never a proxied route, and an
+	// empty value disables it (ADR 0018).
+	HealthAddr string `mapstructure:"health_addr"`
 }
 
 // HealthConfig configures the dependency health check.
@@ -559,6 +563,13 @@ func (c *Config) validateWorker() []string {
 	}
 	if len(c.Worker.Queues) == 0 {
 		problems = append(problems, "worker.queues must list at least one queue")
+	}
+	// An empty address is a deliberate "no listener"; a malformed one is a typo that
+	// would only surface as a container that never becomes healthy.
+	if c.Worker.HealthAddr != "" {
+		if _, port, err := net.SplitHostPort(c.Worker.HealthAddr); err != nil || port == "" {
+			problems = append(problems, "worker.health_addr must be empty or host:port")
+		}
 	}
 	return problems
 }
