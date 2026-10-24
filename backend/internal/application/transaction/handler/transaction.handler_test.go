@@ -28,6 +28,7 @@ type stubService struct {
 	channels    []dto.ChannelResponse
 	err         error
 	transaction *dto.TransactionResponse
+	page        *dto.TransactionPage
 	heard       *dto.CreateTransactionRequest
 	signature   string
 }
@@ -56,6 +57,21 @@ func (s *stubService) HandleCallback(_ context.Context, _ []byte, signature stri
 
 func (s *stubService) CurrentPIN(context.Context, string) (string, bool, error) {
 	return "", false, s.err
+}
+
+func (s *stubService) CurrentAccount(context.Context, string) (*service.CurrentAccount, error) {
+	return nil, s.err
+}
+
+func (s *stubService) History(
+	_ context.Context,
+	_ string,
+	_ *dto.TransactionFilter,
+) (*dto.TransactionPage, error) {
+	if s.err != nil {
+		return nil, s.err
+	}
+	return s.page, nil
 }
 
 type stubAuthenticator struct{}
@@ -247,5 +263,74 @@ func TestCallback_AcceptsAVerifiedNotification(t *testing.T) {
 	}
 	if !bytes.Contains(recorder.Body.Bytes(), []byte(`"received":true`)) {
 		t.Fatalf("body = %s", recorder.Body.String())
+	}
+}
+
+func TestList_RequiresASession(t *testing.T) {
+	t.Parallel()
+
+	recorder := request(newEngine(&stubService{}), http.MethodGet, "/api/transactions", nil, "", nil)
+	if recorder.Code != http.StatusUnauthorized {
+		t.Fatalf("status = %d, want 401", recorder.Code)
+	}
+}
+
+func TestList_AnotherPhoneNumberInTheQueryIsNotFound(t *testing.T) {
+	t.Parallel()
+
+	transactions := &stubService{page: &dto.TransactionPage{Page: 1, PageSize: 20}}
+	recorder := request(newEngine(transactions), http.MethodGet,
+		"/api/transactions?phone_number=6281299999999", nil, "good", nil)
+
+	if recorder.Code != http.StatusNotFound {
+		t.Fatalf("status = %d, want 404 (never 403)", recorder.Code)
+	}
+	if transactions.page == nil {
+		t.Fatal("the service must not be asked for another Phone Number's history")
+	}
+}
+
+func TestList_WritesThePageEnvelopeWithoutAPIN(t *testing.T) {
+	t.Parallel()
+
+	transactions := &stubService{page: &dto.TransactionPage{
+		Items: []dto.TransactionSummaryResponse{{
+			ID: 12, Reference: "TRX-1", PackageName: "Paket Harian", AmountIDR: 5000,
+			State: "provisioned", CreatedAt: "2026-10-23T08:00:00Z",
+		}},
+		TotalCount: 3,
+		Page:       2,
+		PageSize:   1,
+	}}
+	recorder := request(newEngine(transactions), http.MethodGet,
+		"/api/transactions?page=2&page_size=1", nil, "good", nil)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", recorder.Code, recorder.Body.String())
+	}
+	for _, expected := range []string{
+		`"data":[`, `"total_count":3`, `"page":2`, `"page_size":1`, `"state":"provisioned"`,
+	} {
+		if !bytes.Contains(recorder.Body.Bytes(), []byte(expected)) {
+			t.Fatalf("body %s does not contain %s", recorder.Body.String(), expected)
+		}
+	}
+	if bytes.Contains(recorder.Body.Bytes(), []byte(`"pin"`)) {
+		t.Fatalf("the history must never carry a PIN: %s", recorder.Body.String())
+	}
+}
+
+func TestList_RejectsAnOutOfRangePage(t *testing.T) {
+	t.Parallel()
+
+	transactions := &stubService{page: &dto.TransactionPage{Page: 1, PageSize: 20}}
+	recorder := request(newEngine(transactions), http.MethodGet,
+		"/api/transactions?page_size=500", nil, "good", nil)
+
+	if recorder.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400", recorder.Code)
+	}
+	if code := errorCode(t, recorder); code != "invalid_request" {
+		t.Fatalf("code = %q", code)
 	}
 }

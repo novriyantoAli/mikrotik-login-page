@@ -15,6 +15,16 @@ type Envelope struct {
 	Data any `json:"data"`
 }
 
+// PagedEnvelope is the success body of a paginated read: the page under the same
+// `data` key every other endpoint uses, plus the numbers the app paginates with.
+// A list is therefore never nested twice.
+type PagedEnvelope struct {
+	Data       any   `json:"data"`
+	TotalCount int64 `json:"total_count"`
+	Page       int   `json:"page"`
+	PageSize   int   `json:"page_size"`
+}
+
 // ErrorBody is the failure payload.
 type ErrorBody struct {
 	Code    string `json:"code"`
@@ -44,6 +54,11 @@ const (
 // Data writes a success envelope.
 func Data(c *gin.Context, status int, data any) {
 	c.JSON(status, Envelope{Data: data})
+}
+
+// Paged writes a paginated success envelope.
+func Paged(c *gin.Context, status int, data any, totalCount int64, page, pageSize int) {
+	c.JSON(status, PagedEnvelope{Data: data, TotalCount: totalCount, Page: page, PageSize: pageSize})
 }
 
 // Error writes a failure envelope with a stable code the client can branch on.

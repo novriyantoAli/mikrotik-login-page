@@ -47,6 +47,7 @@ type Config struct {
 	Redis           RedisConfig       `mapstructure:"redis"`
 	Worker          WorkerConfig      `mapstructure:"worker"`
 	Health          HealthConfig      `mapstructure:"health"`
+	Account         AccountConfig     `mapstructure:"account"`
 	Auth            AuthConfig        `mapstructure:"auth"`
 	PIN             PINConfig         `mapstructure:"pin"`
 	SMS             SMSConfig         `mapstructure:"sms"`
@@ -165,6 +166,14 @@ type WorkerConfig struct {
 // HealthConfig configures the dependency health check.
 type HealthConfig struct {
 	Timeout time.Duration `mapstructure:"timeout"`
+}
+
+// AccountConfig configures the Account Status read surface. ExpiryWarningHours
+// is the window before the Active Period end that counts as "almost over"; the
+// backend computes the state from it, and the value must equal the Login Page's
+// expiryWarningHours so both surfaces agree (ADR 0017).
+type AccountConfig struct {
+	ExpiryWarningHours int `mapstructure:"expiry_warning_hours"`
 }
 
 // AuthConfig configures the passwordless entry path: Magic Link lifetime,
@@ -305,6 +314,7 @@ var defaults = map[string]any{
 	"worker.concurrency":                 10,
 	"worker.queues":                      []string{"critical", "default", "low"},
 	"health.timeout":                     "2s",
+	"account.expiry_warning_hours":       24,
 	"auth.magic_link_ttl":                "15m",
 	"auth.session_ttl":                   "720h",
 	"auth.cookie_secure":                 false,
@@ -433,6 +443,7 @@ func (c *Config) Validate() error {
 	problems = append(problems, c.validateRedis()...)
 	problems = append(problems, c.validateWorker()...)
 	problems = append(problems, c.validateHealth()...)
+	problems = append(problems, c.validateAccount()...)
 	problems = append(problems, c.validateAuth()...)
 	problems = append(problems, c.validatePIN()...)
 	problems = append(problems, c.validateSMS()...)
@@ -545,6 +556,15 @@ func (c *Config) validateWorker() []string {
 func (c *Config) validateHealth() []string {
 	if c.Health.Timeout <= 0 {
 		return []string{"health.timeout must be a positive duration"}
+	}
+	return nil
+}
+
+// validateAccount keeps the "almost over" window meaningful; its value is shared
+// with the Login Page's expiryWarningHours (ADR 0017).
+func (c *Config) validateAccount() []string {
+	if c.Account.ExpiryWarningHours <= 0 {
+		return []string{"account.expiry_warning_hours must be positive"}
 	}
 	return nil
 }

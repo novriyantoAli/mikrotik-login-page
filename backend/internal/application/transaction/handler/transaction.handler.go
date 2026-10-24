@@ -42,6 +42,7 @@ func (h *Handler) RegisterRoutes(api *gin.RouterGroup) {
 	{
 		protected.GET("/transactions/channels", h.Channels)
 		protected.POST("/transactions", h.Create)
+		protected.GET("/transactions", h.List)
 		protected.GET("/transactions/:id", h.Get)
 	}
 }
@@ -145,6 +146,49 @@ func (h *Handler) Get(c *gin.Context) {
 	}
 
 	httpx.Data(c, http.StatusOK, transaction)
+}
+
+// List returns one page of the session's Transaction history, newest first. The
+// payload never carries a PIN: a credential belongs on the single-Transaction
+// read and the Account Status summary, not in a list (ADR 0017).
+//
+//	@Summary		List the Transaction history
+//	@Description	Paginated history of the session's Phone Number, newest first, without the PIN.
+//	@Tags			transactions
+//	@Produce		json
+//	@Param			page			query		int		false	"Page, starting at 1"
+//	@Param			page_size		query		int		false	"Rows per page, at most 100"
+//	@Param			phone_number	query		string	false	"Optional cross-check; a foreign number answers 404"
+//	@Success		200	{object}	httpx.PagedEnvelope{data=[]dto.TransactionSummaryResponse}
+//	@Failure		400	{object}	httpx.ErrorResponse	"page or page_size out of range"
+//	@Failure		401	{object}	httpx.ErrorResponse	"no live session"
+//	@Failure		404	{object}	httpx.ErrorResponse	"the Phone Number in the query is not the session's"
+//	@Router			/transactions [get]
+func (h *Handler) List(c *gin.Context) {
+	session, ok := middleware.SessionFrom(c)
+	if !ok {
+		httpx.Error(c, http.StatusUnauthorized, httpx.CodeUnauthorized, "Sesi tidak ditemukan.")
+		return
+	}
+
+	if !middleware.RequireOwnPhoneNumber(c, c.Query("phone_number")) {
+		return
+	}
+
+	var filter dto.TransactionFilter
+	if err := c.ShouldBindQuery(&filter); err != nil {
+		httpx.Error(c, http.StatusBadRequest, httpx.CodeInvalidRequest,
+			"Nomor halaman atau jumlah baris tidak valid.")
+		return
+	}
+
+	page, err := h.service.History(c.Request.Context(), session.PhoneNumber, &filter)
+	if err != nil {
+		writeError(c, err)
+		return
+	}
+
+	httpx.Paged(c, http.StatusOK, page.Items, page.TotalCount, page.Page, page.PageSize)
 }
 
 // Callback accepts a settlement notification. It is public by necessity — the

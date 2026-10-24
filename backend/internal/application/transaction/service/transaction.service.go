@@ -72,6 +72,23 @@ type Service interface {
 	// a Phone Number, so the completion screen and Account Status read it the same
 	// way (ADR 0016). found is false before the first successful purchase.
 	CurrentPIN(ctx context.Context, phoneNumber string) (string, bool, error)
+	// CurrentAccount returns the newest provisioned purchase of a Phone Number —
+	// its PIN and the Package it bought — or nil when the buyer has none. Account
+	// Status composes its summary from this instead of reading this domain's
+	// repository (golden rule 5, ADR 0017).
+	CurrentAccount(ctx context.Context, phoneNumber string) (*CurrentAccount, error)
+	// History returns one page of a Phone Number's Transactions, newest first.
+	// The response never carries a PIN.
+	History(ctx context.Context, phoneNumber string, filter *dto.TransactionFilter) (*dto.TransactionPage, error)
+}
+
+// CurrentAccount is the newest provisioned purchase of one Phone Number: the
+// current PIN and the Package it bought. It is a value type, not an entity, so
+// another domain can read it without a database handle.
+type CurrentAccount struct {
+	TransactionID uint
+	PackageID     uint
+	PIN           string
 }
 
 type service struct {
@@ -239,21 +256,76 @@ func (s *service) response(ctx context.Context, row *entity.Transaction) *dto.Tr
 }
 
 func (s *service) CurrentPIN(ctx context.Context, phoneNumber string) (string, bool, error) {
-	row, err := s.repo.LatestProvisioned(ctx, phoneNumber)
+	account, err := s.CurrentAccount(ctx, phoneNumber)
 	if err != nil {
 		return "", false, err
 	}
-	if row == nil || len(row.PINCiphertext) == 0 {
+	if account == nil {
 		return "", false, nil
+	}
+	return account.PIN, true, nil
+}
+
+func (s *service) CurrentAccount(ctx context.Context, phoneNumber string) (*CurrentAccount, error) {
+	row, err := s.repo.LatestProvisioned(ctx, phoneNumber)
+	if err != nil {
+		return nil, err
+	}
+	if row == nil || len(row.PINCiphertext) == 0 {
+		return nil, nil
 	}
 
 	pinValue, err := s.cipher.Decrypt(row.PINCiphertext, row.PINKeyVersion)
 	if err != nil {
 		s.logger.Error("decrypt current PIN",
 			zap.String("phone_number", phone.Mask(phoneNumber)), zap.Error(err))
-		return "", false, fmt.Errorf("decrypt current PIN: %w", err)
+		return nil, fmt.Errorf("decrypt current PIN: %w", err)
 	}
-	return pinValue, true, nil
+	return &CurrentAccount{TransactionID: row.ID, PackageID: row.PackageID, PIN: pinValue}, nil
+}
+
+// history page bounds. The app asks for one page at a time; the service decides
+// what a missing or oversized request means so the repository never divides by
+// zero or loads the whole table (ADR 0017).
+const (
+	defaultHistoryPageSize = 20
+	maxHistoryPageSize     = 100
+)
+
+func (s *service) History(
+	ctx context.Context,
+	phoneNumber string,
+	filter *dto.TransactionFilter,
+) (*dto.TransactionPage, error) {
+	page, pageSize := 1, defaultHistoryPageSize
+	if filter != nil {
+		if filter.Page > 0 {
+			page = filter.Page
+		}
+		if filter.PageSize > 0 {
+			pageSize = filter.PageSize
+		}
+	}
+	if pageSize > maxHistoryPageSize {
+		pageSize = maxHistoryPageSize
+	}
+
+	rows, total, err := s.repo.ListByPhone(ctx, phoneNumber,
+		repository.ListParams{Page: page, PageSize: pageSize})
+	if err != nil {
+		return nil, err
+	}
+
+	items := make([]dto.TransactionSummaryResponse, 0, len(rows))
+	for index := range rows {
+		items = append(items, toSummary(&rows[index]))
+	}
+	return &dto.TransactionPage{
+		Items:      items,
+		TotalCount: total,
+		Page:       page,
+		PageSize:   pageSize,
+	}, nil
 }
 
 // channelList is the one place the gateway's channel list is read and its

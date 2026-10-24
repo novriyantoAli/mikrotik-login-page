@@ -234,6 +234,30 @@ func (r *fakeRepository) PaidIDs(_ context.Context, limit int) ([]uint, error) {
 	return ids, nil
 }
 
+func (r *fakeRepository) ListByPhone(
+	_ context.Context,
+	phoneNumber string,
+	params repository.ListParams,
+) ([]entity.Transaction, int64, error) {
+	matched := make([]entity.Transaction, 0, len(r.rows))
+	for index := len(r.rows) - 1; index >= 0; index-- {
+		if r.rows[index].PhoneNumber == phoneNumber {
+			matched = append(matched, r.rows[index])
+		}
+	}
+
+	total := int64(len(matched))
+	start := (params.Page - 1) * params.PageSize
+	if start >= len(matched) {
+		return []entity.Transaction{}, total, nil
+	}
+	end := start + params.PageSize
+	if end > len(matched) {
+		end = len(matched)
+	}
+	return matched[start:end], total, nil
+}
+
 func (r *fakeRepository) LatestProvisioned(
 	_ context.Context,
 	phoneNumber string,

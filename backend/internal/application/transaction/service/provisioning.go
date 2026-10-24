@@ -171,8 +171,9 @@ func (p *provisioner) ensurePlan(
 	return p.repo.GetByID(ctx, row.ID)
 }
 
-// targetExpiration applies PRD point 21: an Active Period still running is
-// extended, an absent or finished one starts at the settlement time.
+// targetExpiration applies PRD point 21 through the one shared rule (ADR 0017):
+// an Active Period still running is extended, an absent or finished one starts at
+// the settlement time.
 func (p *provisioner) targetExpiration(
 	ctx context.Context,
 	row *entity.Transaction,
@@ -185,15 +186,12 @@ func (p *provisioner) targetExpiration(
 	if err != nil {
 		return time.Time{}, fmt.Errorf("read current Active Period: %w", err)
 	}
-	if current.Found && current.ExpiresAt.After(now) {
-		return current.ExpiresAt.Add(duration), nil
-	}
 
 	start := now
 	if row.PaidAt != nil {
 		start = row.PaidAt.UTC()
 	}
-	return start.Add(duration), nil
+	return provisioning.Target(current, now, start, duration), nil
 }
 
 // complete records the state change and the PIN SMS in one Postgres transaction,
