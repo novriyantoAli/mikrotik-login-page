@@ -16,6 +16,8 @@ import (
 
 	"github.com/go-viper/mapstructure/v2"
 	"github.com/spf13/viper"
+
+	"github.com/novriyantoAli/mikrotik-login-page/backend/internal/pkg/pin"
 )
 
 // Environment values accepted by AppConfig.Environment.
@@ -46,6 +48,7 @@ type Config struct {
 	Worker          WorkerConfig      `mapstructure:"worker"`
 	Health          HealthConfig      `mapstructure:"health"`
 	Auth            AuthConfig        `mapstructure:"auth"`
+	PIN             PINConfig         `mapstructure:"pin"`
 	SMS             SMSConfig         `mapstructure:"sms"`
 	Transaction     TransactionConfig `mapstructure:"transaction"`
 	Tripay          TripayConfig      `mapstructure:"tripay"`
@@ -190,6 +193,20 @@ type AuthConfig struct {
 	RateLimit AuthRateLimitConfig `mapstructure:"rate_limit"`
 }
 
+// PINConfig configures how the stored PIN is encrypted and how often the worker
+// provisions the Transactions settlement left behind (ADR 0016).
+type PINConfig struct {
+	// EncryptionKeys lists key material as "version=base64(32 bytes)" entries,
+	// comma separated. Every row remembers the version it was written with, so a
+	// rotation keeps the old key configured until no ciphertext names it anymore.
+	EncryptionKeys string `mapstructure:"encryption_keys"`
+	// ActiveKeyVersion is the version written with every new ciphertext.
+	ActiveKeyVersion int `mapstructure:"active_key_version"`
+	// SweepInterval is how often the worker provisions paid Transactions that no
+	// wake-up task reached.
+	SweepInterval time.Duration `mapstructure:"sweep_interval"`
+}
+
 // AuthRateLimitConfig is one fixed window per dimension, both counted in Redis.
 type AuthRateLimitConfig struct {
 	PhoneWindow time.Duration `mapstructure:"phone_window"`
@@ -299,6 +316,9 @@ var defaults = map[string]any{
 	"auth.rate_limit.phone_limit":        1,
 	"auth.rate_limit.ip_window":          "5m",
 	"auth.rate_limit.ip_limit":           10,
+	"pin.encryption_keys":                "",
+	"pin.active_key_version":             1,
+	"pin.sweep_interval":                 "30s",
 	"sms.device":                         "/dev/ttyUSB0",
 	"sms.baud":                           115200,
 	"sms.command_timeout":                "10s",
@@ -414,6 +434,7 @@ func (c *Config) Validate() error {
 	problems = append(problems, c.validateWorker()...)
 	problems = append(problems, c.validateHealth()...)
 	problems = append(problems, c.validateAuth()...)
+	problems = append(problems, c.validatePIN()...)
 	problems = append(problems, c.validateSMS()...)
 	problems = append(problems, c.validateTransaction()...)
 	problems = append(problems, c.validateTripay()...)
@@ -555,6 +576,23 @@ func (c *Config) validateAuth() []string {
 			problems = append(problems,
 				fmt.Sprintf("auth.login_page_allowlist entry %q must be an absolute URL", allowed))
 		}
+	}
+	return problems
+}
+
+// validatePIN proves the deployment can encrypt and read a PIN, because a PIN
+// written with a key no process can load is a lost account (ADR 0016).
+func (c *Config) validatePIN() []string {
+	var problems []string
+
+	if _, err := pin.NewCipher(pin.Settings{
+		Keys:          c.PIN.EncryptionKeys,
+		ActiveVersion: c.PIN.ActiveKeyVersion,
+	}); err != nil {
+		problems = append(problems, fmt.Sprintf("pin.encryption_keys and pin.active_key_version: %v", err))
+	}
+	if c.PIN.SweepInterval <= 0 {
+		problems = append(problems, "pin.sweep_interval must be a positive duration")
 	}
 	return problems
 }

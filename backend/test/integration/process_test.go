@@ -61,6 +61,10 @@ func processEnv(t *testing.T, overrides map[string]string) []string {
 		"LOGGER_LEVEL=info",
 		"LOGGER_FORMAT=console",
 	}
+	// The PIN keys are a test fixture, never a real secret (ADR 0016).
+	for key, value := range testutil.PINEnv() {
+		env = append(env, key+"="+value)
+	}
 	for key, value := range overrides {
 		env = append(env, key+"="+value)
 	}
