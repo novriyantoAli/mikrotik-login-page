@@ -44,6 +44,11 @@
       }
       return `${resolve('/beli')}?${query.join('&')}`;
     }
+    if (result.purpose === 'account') {
+      // A Magic Link asked for from Account Status lands there, so a buyer who
+      // lost the SMS does not have to find the page again (ADR 0017).
+      return resolve('/akun');
+    }
     return result.return_url || '/';
   });
   const canRetry = $derived(mutation.isError && isRetriableAuthError(mutation.error));
