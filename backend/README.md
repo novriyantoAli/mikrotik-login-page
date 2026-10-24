@@ -172,6 +172,10 @@ Integration tests assert HTTP behaviour, never internal calls.
   clean machine needs no database container; CI passes the DSN of a service
   container instead.
 - **Real Redis** started from `redis-server` when `TEST_REDIS_ADDR` is unset.
+  The Magic Link rate-limit counters live in that shared Redis with no test
+  namespace, so a test that hits a rate limit must use its own Phone Number
+  **and** its own `RemoteAddr`: reusing either leaks a spent counter into the
+  next test.
 - **FreeRADIUS MySQL** is external only (`TEST_FREERADIUS_MYSQL_DSN`). Without
   it the health test asserts the `down` path, so the suite is still meaningful.
 - **Vendor fakes** behind the real ports: `FakeGateway`, `FakeSMSSender`,
