@@ -13,6 +13,7 @@ import (
 	"gorm.io/gorm/clause"
 
 	"github.com/novriyantoAli/mikrotik-login-page/backend/internal/application/notification/entity"
+	"github.com/novriyantoAli/mikrotik-login-page/backend/internal/pkg/database"
 )
 
 // Repository queues and claims SMS rows.
@@ -20,6 +21,9 @@ type Repository interface {
 	// Enqueue writes one pending row. The caller is expected to be inside no
 	// transaction of its own yet; the row is the durable record of the message.
 	Enqueue(ctx context.Context, message *entity.SMS) error
+	// EnqueueTx writes one pending row inside the caller's transaction, so a
+	// message and the change that produced it commit together (ADR 0010/0016).
+	EnqueueTx(ctx context.Context, tx database.Tx, message *entity.SMS) error
 	// ClaimDue returns the next row that is due, marks it sending and gives it a
 	// lease, or returns nil when nothing is due. Rows whose lease expired are
 	// returned to pending first, so a crashed drainer never strands a message.
@@ -46,6 +50,14 @@ func NewRepository(db *gorm.DB, logger *zap.Logger) Repository {
 func (r *smsRepository) Enqueue(ctx context.Context, message *entity.SMS) error {
 	if err := r.db.WithContext(ctx).Create(message).Error; err != nil {
 		r.logger.Error("enqueue sms", zap.Error(err))
+		return fmt.Errorf("enqueue sms: %w", err)
+	}
+	return nil
+}
+
+func (r *smsRepository) EnqueueTx(ctx context.Context, tx database.Tx, message *entity.SMS) error {
+	if err := tx.DB().WithContext(ctx).Create(message).Error; err != nil {
+		r.logger.Error("enqueue sms in the caller's transaction", zap.Error(err))
 		return fmt.Errorf("enqueue sms: %w", err)
 	}
 	return nil
