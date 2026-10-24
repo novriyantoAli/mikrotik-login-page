@@ -3,7 +3,9 @@ package integration
 import (
 	"bytes"
 	"context"
+	"database/sql"
 	"net/http"
+	"strconv"
 	"testing"
 	"time"
 
@@ -281,5 +283,98 @@ func assertPINIsNotStoredInClearText(
 	}
 	if bytes.Contains(row.PINCiphertext, []byte(pinValue)) {
 		t.Fatal("the PIN is stored in clear text inside the ciphertext column")
+	}
+}
+
+// TestProvisioning_RealFreeRADIUSExtendsTheActivePeriod is the one test that
+// drives the whole Extend path against real MySQL: the production reader supplies
+// the current Active Period and the production writer records the result, so the
+// arithmetic is proven on the tables FreeRADIUS actually reads (PRD Testing
+// Decisions).
+func TestProvisioning_RealFreeRADIUSExtendsTheActivePeriod(t *testing.T) {
+	db := freeRADIUSTestDatabase(t)
+	harness := testutil.NewAPIHarness(t, testutil.WithRealRadiusReader(), testutil.WithRealRadiusWriter())
+	ctx := context.Background()
+
+	cookie := newSessionCookie(t, harness, "081200000045", "198.51.100.45")
+	created := checkout(t, harness, cookie, firstPackageID(t, harness), "BRIVA")
+
+	const phoneNumber = "6281200000045"
+	activeUntil := harness.Doubles.Now().Add(48 * time.Hour).UTC().Truncate(time.Second)
+	seedRadiusAccount(t, db, phoneNumber, "111111", activeUntil, "1M/1M")
+
+	if code := postCallback(t, harness, created.Reference, payment.StatusPaid, created.AmountIDR,
+		testutil.ValidCallbackSignature); code != http.StatusOK {
+		t.Fatalf("settle status = %d", code)
+	}
+	if err := harness.TransactionProvisioning.Provision(ctx, created.ID); err != nil {
+		t.Fatalf("Provision: %v", err)
+	}
+
+	pkg, err := harness.Catalog.GetPackage(ctx, created.PackageID)
+	if err != nil {
+		t.Fatalf("read Package: %v", err)
+	}
+	wantExpiration := activeUntil.Add(time.Duration(pkg.DurationMinutes) * time.Minute)
+
+	check := radcheckValues(t, db, phoneNumber)
+	if want := ":=" + strconv.FormatInt(wantExpiration.Unix(), 10); check["Expiration"] != want {
+		t.Fatalf("FreeRADIUS Expiration = %q, want %q", check["Expiration"], want)
+	}
+	if check["Cleartext-Password"] == ":=111111" {
+		t.Fatal("the previous PIN survived the Extend")
+	}
+	if reply := radreplyValues(t, db, phoneNumber); reply["Mikrotik-Rate-Limit"] != "="+pkg.RateLimit {
+		t.Fatalf("Mikrotik-Rate-Limit = %q, want the Package's %q",
+			reply["Mikrotik-Rate-Limit"], "="+pkg.RateLimit)
+	}
+	for _, attribute := range []string{"Cleartext-Password", "Expiration"} {
+		assertSingleRow(t, db, "radcheck", phoneNumber, attribute)
+	}
+	assertSingleRow(t, db, "radreply", phoneNumber, "Mikrotik-Rate-Limit")
+
+	response := getTransaction(t, harness, cookie, created.ID)
+	if response.PIN == nil || check["Cleartext-Password"] != ":="+*response.PIN {
+		t.Fatalf("FreeRADIUS password %q does not match the API PIN %v",
+			check["Cleartext-Password"], response.PIN)
+	}
+}
+
+// seedRadiusAccount writes the account FreeRADIUS would already hold before an
+// Extend, so the test starts from a running Active Period.
+func seedRadiusAccount(
+	t *testing.T,
+	db *sql.DB,
+	phoneNumber, pinValue string,
+	expiration time.Time,
+	rateLimit string,
+) {
+	t.Helper()
+
+	ctx := context.Background()
+	deleteRows := []string{
+		`DELETE FROM radcheck WHERE username = ?`,
+		`DELETE FROM radreply WHERE username = ?`,
+	}
+	for _, statement := range deleteRows {
+		if _, err := db.ExecContext(ctx, statement, phoneNumber); err != nil {
+			t.Fatalf("clear freeradius rows: %v", err)
+		}
+	}
+
+	if _, err := db.ExecContext(ctx,
+		`INSERT INTO radcheck (username, attribute, op, value) VALUES (?, 'Cleartext-Password', ':=', ?)`,
+		phoneNumber, pinValue); err != nil {
+		t.Fatalf("seed radcheck password: %v", err)
+	}
+	if _, err := db.ExecContext(ctx,
+		`INSERT INTO radcheck (username, attribute, op, value) VALUES (?, 'Expiration', ':=', ?)`,
+		phoneNumber, strconv.FormatInt(expiration.Unix(), 10)); err != nil {
+		t.Fatalf("seed radcheck expiration: %v", err)
+	}
+	if _, err := db.ExecContext(ctx,
+		`INSERT INTO radreply (username, attribute, op, value) VALUES (?, 'Mikrotik-Rate-Limit', '=', ?)`,
+		phoneNumber, rateLimit); err != nil {
+		t.Fatalf("seed radreply rate limit: %v", err)
 	}
 }

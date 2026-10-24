@@ -43,12 +43,22 @@ carries its version anymore. **PIN** values never reach a log line — the maske
 **Phone Number** and the **Transaction** reference are the only identifiers a
 provisioning log entry carries.
 
-Rejected alternatives: storing the PIN in clear text (PRD 69 and one psql dump
-away from every account); storing only a hash (a hash cannot be shown again, and
-CHAP needs a reversible value anyway — ADR 0004); a `pin` table or `account`
-table (a second truth for a field that belongs to one **Transaction**);
-encrypting with a single unversioned key (rotation becomes a data migration
-instead of a config change).
+One clear-text copy is deliberate and bounded: the outbox row. The modem needs
+the digits, and delivery is at-least-once (ADR 0010), so `sms_outbox.message`
+carries the **PIN** — and the **Magic Link** token — until the row is finished.
+The body is blanked when the row reaches a terminal state (`sent`, or `failed`
+after the last attempt), so after delivery only the ciphertext on
+`transactions` holds the **PIN**. A pending row is the one window where a
+database dump would expose an undelivered credential, and it closes by itself.
+
+Rejected alternatives: storing the PIN in clear text on the Transaction (PRD 69
+and one psql dump away from every account); storing only a hash (a hash cannot
+be shown again, and CHAP needs a reversible value anyway — ADR 0004); a `pin`
+table or `account` table (a second truth for a field that belongs to one
+**Transaction**); encrypting with a single unversioned key (rotation becomes a
+data migration instead of a config change); encrypting the outbox body too
+(the modem is the only reader and the row is short-lived, so the extra key
+handling would buy nothing over blanking it).
 
 ## 2. Provisioning inputs are persisted once, before anything is written to RADIUS
 

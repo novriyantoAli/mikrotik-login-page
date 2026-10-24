@@ -202,7 +202,8 @@ func (r *transactionRepository) WithTx(
 		return fn(ctx, database.NewTx(tx))
 	})
 	if err != nil {
-		r.logger.Error("provisioning transaction", zap.Error(err))
+		// The caller that composed the transaction reports it: logging here would
+		// report the same failure twice (the statements inside already log theirs).
 		return fmt.Errorf("provisioning transaction: %w", err)
 	}
 	return nil

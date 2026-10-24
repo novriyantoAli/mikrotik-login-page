@@ -59,6 +59,7 @@ func (r *fakeOutboxRepository) MarkSent(_ context.Context, id uint, sentAt time.
 		if r.rows[i].ID == id {
 			r.rows[i].State = entity.StateSent
 			r.rows[i].SentAt = &sentAt
+			r.rows[i].Message = ""
 		}
 	}
 	return nil
@@ -78,6 +79,7 @@ func (r *fakeOutboxRepository) MarkFailed(
 		r.rows[i].LastError = cause
 		if nextAttemptAt == nil {
 			r.rows[i].State = entity.StateFailed
+			r.rows[i].Message = ""
 			continue
 		}
 		r.rows[i].State = entity.StatePending
@@ -202,6 +204,10 @@ func TestDeliverDueSendsAndClosesTheRow(t *testing.T) {
 	if repo.rows[0].State != entity.StateSent {
 		t.Fatalf("row state = %q, want sent", repo.rows[0].State)
 	}
+	if repo.rows[0].Message != "" {
+		t.Fatalf("a sent row kept its body %q; a delivered PIN must not stay in Postgres",
+			repo.rows[0].Message)
+	}
 }
 
 func TestDeliverDueSchedulesARetryWhenTheModemFails(t *testing.T) {
@@ -234,6 +240,9 @@ func TestDeliverDueSchedulesARetryWhenTheModemFails(t *testing.T) {
 	if got := row.NextAttemptAt.Sub(clock.now); got != time.Minute {
 		t.Fatalf("retry scheduled in %v, want 1m", got)
 	}
+	if row.Message != "PIN: 123456" {
+		t.Fatalf("a retry lost its body: %q", row.Message)
+	}
 }
 
 func TestDeliverDueGivesUpAfterTheLastAttempt(t *testing.T) {
@@ -256,6 +265,9 @@ func TestDeliverDueGivesUpAfterTheLastAttempt(t *testing.T) {
 	row := repo.rows[0]
 	if row.State != entity.StateFailed {
 		t.Fatalf("row state = %q, want failed after the last attempt", row.State)
+	}
+	if row.Message != "" {
+		t.Fatalf("a row that will never retry kept its body %q", row.Message)
 	}
 }
 

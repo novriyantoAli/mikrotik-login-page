@@ -118,8 +118,8 @@ func (p *provisioner) Provision(ctx context.Context, id uint) error {
 
 	pinValue, err := p.cipher.Decrypt(row.PINCiphertext, row.PINKeyVersion)
 	if err != nil {
-		// The PIN is never part of the log line, only the failure.
-		p.logger.Error("decrypt stored PIN", zap.Uint("transaction_id", row.ID), zap.Error(err))
+		// Logged once, by the sweep that reports which Transaction failed. The PIN is
+		// never part of the log line, only the failure.
 		return fmt.Errorf("decrypt stored PIN: %w", err)
 	}
 

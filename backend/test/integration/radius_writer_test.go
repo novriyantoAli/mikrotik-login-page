@@ -166,7 +166,7 @@ func freeRADIUSTestDatabase(t *testing.T) *sql.DB {
 	t.Cleanup(func() {
 		for _, table := range []string{"radcheck", "radreply"} {
 			_, _ = db.ExecContext(context.Background(),
-				`DELETE FROM `+table+` WHERE username LIKE '62812345%'`)
+				`DELETE FROM `+table+` WHERE username LIKE '62812%'`)
 		}
 	})
 	return db
