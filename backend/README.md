@@ -122,12 +122,14 @@ the FreeRADIUS connection and the modem (ADR 0016):
    Transaction `provisioned` with the SMS pending in the outbox.
 
 `GET /api/transactions/{id}` always carries `phone_number` and carries `pin`
-once the Transaction is `provisioned`. The PIN never appears in a list response,
-is never logged, and is stored only as AES-256-GCM ciphertext together with its
-key version. Configuration: `pin.encryption_keys` (`version=base64(32 bytes)`,
-comma separated), `pin.active_key_version`, `pin.sweep_interval`. Rotate by
-adding a key and bumping the active version; keep the old key until no row names
-its version.
+once the Transaction is `provisioned`. The PIN never appears in a list response
+and is never logged. On the Transaction it is stored only as AES-256-GCM
+ciphertext together with its key version; the outbox row is the one deliberate
+clear-text copy, because the modem needs the digits, and its body is blanked as
+soon as the row reaches `sent` or `failed`. Configuration: `pin.encryption_keys`
+(`version=base64(32 bytes)`, comma separated), `pin.active_key_version`,
+`pin.sweep_interval`. Rotate by adding a key and bumping the active version;
+keep the old key until no row names its version.
 
 ## Test harness (`internal/pkg/testutil`)
 

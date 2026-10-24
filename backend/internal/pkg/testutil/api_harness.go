@@ -86,6 +86,12 @@ func WithRealRadiusReader() HarnessOption {
 	return func(s *harnessSettings) { s.doubles = append(s.doubles, WithoutRadiusReaderFake()) }
 }
 
+// WithRealRadiusWriter keeps the production FreeRADIUS MySQL writer, so a test can
+// prove the written rows against a real database (ADR 0016).
+func WithRealRadiusWriter() HarnessOption {
+	return func(s *harnessSettings) { s.doubles = append(s.doubles, WithoutRadiusWriterFake()) }
+}
+
 // NewAPIHarness starts the API graph for one test and stops it afterwards.
 func NewAPIHarness(t *testing.T, options ...HarnessOption) *APIHarness {
 	t.Helper()

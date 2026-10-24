@@ -53,8 +53,9 @@ type Settings struct {
 	LoginPageAllowlist []string
 }
 
-// Service is the Transaction domain's public surface. #15 provisions from the
-// `paid` state this service produces; it is out of scope here.
+// Service is the Transaction domain's public surface. Provisioning (#15) starts
+// from the `paid` state this service produces and is a separate surface
+// (Provisioner), so checkout never waits for MySQL.
 type Service interface {
 	// Channels lists the closed-payment methods checkout may offer.
 	Channels(ctx context.Context) ([]dto.ChannelResponse, error)

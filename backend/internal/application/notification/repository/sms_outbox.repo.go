@@ -121,7 +121,11 @@ func (r *smsRepository) MarkSent(ctx context.Context, id uint, sentAt time.Time)
 		"lease_until": nil,
 		"sent_at":     sentAt,
 		"last_error":  "",
-		"updated_at":  sentAt,
+		// The body carries a PIN or a Magic Link token. While the row is pending the
+		// modem needs it; once the message is out there is no reason for Postgres to
+		// keep a clear-text credential (ADR 0016).
+		"message":    "",
+		"updated_at": sentAt,
 	}
 	if err := r.db.WithContext(ctx).Model(&entity.SMS{}).Where("id = ?", id).Updates(updates).Error; err != nil {
 		r.logger.Error("mark sms sent", zap.Uint("sms_id", id), zap.Error(err))
@@ -145,6 +149,10 @@ func (r *smsRepository) MarkFailed(
 	if nextAttemptAt != nil {
 		state = entity.StatePending
 		updates["next_attempt_at"] = *nextAttemptAt
+	} else {
+		// The last attempt failed, so there is no retry to feed: drop the clear-text
+		// credential instead of keeping it forever (ADR 0016).
+		updates["message"] = ""
 	}
 	updates["state"] = state
 	updates["updated_at"] = now

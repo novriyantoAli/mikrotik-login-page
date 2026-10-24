@@ -41,6 +41,7 @@ type DoublesOption func(*doublesSettings)
 
 type doublesSettings struct {
 	realRadiusReader bool
+	realRadiusWriter bool
 }
 
 // WithoutRadiusReaderFake keeps the production FreeRADIUS MySQL adapter instead
@@ -48,6 +49,12 @@ type doublesSettings struct {
 // end.
 func WithoutRadiusReaderFake() DoublesOption {
 	return func(settings *doublesSettings) { settings.realRadiusReader = true }
+}
+
+// WithoutRadiusWriterFake keeps the production FreeRADIUS MySQL writer, for the
+// one test that proves the Expand arithmetic against a real database (ADR 0016).
+func WithoutRadiusWriterFake() DoublesOption {
+	return func(settings *doublesSettings) { settings.realRadiusWriter = true }
 }
 
 // FxOption provides the fakes both as concrete types (so tests can inspect what
@@ -76,11 +83,13 @@ func (d *TestDoubles) FxOption(options ...DoublesOption) fx.Option {
 	provided = append(provided, fx.Decorate(
 		func(_ payment.Gateway, fake *FakeGateway) payment.Gateway { return fake },
 	))
-	// Provisioning has a production MySQL writer now, so the fake takes its place
-	// instead of competing with it (ADR 0016).
-	provided = append(provided, fx.Decorate(
-		func(_ provisioning.Writer, fake *FakeRadiusWriter) provisioning.Writer { return fake },
-	))
+	if !settings.realRadiusWriter {
+		// Provisioning has a production MySQL writer now, so the fake takes its place
+		// instead of competing with it (ADR 0016).
+		provided = append(provided, fx.Decorate(
+			func(_ provisioning.Writer, fake *FakeRadiusWriter) provisioning.Writer { return fake },
+		))
+	}
 	if !settings.realRadiusReader {
 		// Decorate rather than Provide: the production graph already offers the
 		// MySQL adapter, and the fake has to take its place, not compete with it.
