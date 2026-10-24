@@ -16,8 +16,12 @@ export const TransactionStateSchema = z.enum([
 ]);
 export type TransactionState = z.infer<typeof TransactionStateSchema>;
 
-/** States the app stops polling in: nothing will change them on its own. */
-const terminalStates: TransactionState[] = ['paid', 'provisioned', 'failed', 'expired'];
+/**
+ * States the app stops polling in. `paid` is deliberately absent: settlement is
+ * not the end of the flow, the worker still has to turn it into a hotspot account
+ * and the PIN only arrives with `provisioned` (ADR 0016).
+ */
+const terminalStates: TransactionState[] = ['provisioned', 'failed', 'expired'];
 
 export function isTerminalState(state: TransactionState | undefined): boolean {
   return state !== undefined && terminalStates.includes(state);
@@ -48,6 +52,7 @@ export const TransactionSchema = z
   .object({
     id: z.number().int().positive(),
     reference: z.string().min(1),
+    phone_number: z.string().min(1),
     package_id: z.number().int().positive(),
     package_name: z.string().min(1),
     amount_idr: z.number().int().positive(),
@@ -63,6 +68,9 @@ export const TransactionSchema = z
     expires_at: z.string().min(1),
     paid_at: z.string().nullable(),
     created_at: z.string().min(1),
+    // Present only once the Transaction is provisioned; the hotspot credential of
+    // this purchase (ADR 0016).
+    pin: z.string().length(6).nullable(),
   })
   .strict();
 export type Transaction = z.infer<typeof TransactionSchema>;
