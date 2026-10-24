@@ -1,4 +1,6 @@
 <script lang="ts">
+  import { resolve } from '$app/paths';
+
   import { Button } from '$lib/components/ui/button';
   import { Card, CardContent, CardFooter, CardHeader, CardTitle } from '$lib/components/ui/card';
 
@@ -47,6 +49,9 @@
         Langkah berikutnya: buka Login Page hotspot, masuk dengan Phone Number di atas, lalu
         masukkan PIN. PIN juga dikirim lewat SMS dan bisa dilihat lagi di Account Status.
       </p>
+      <a class="text-sm underline-offset-4 hover:underline" href={resolve('/akun')}>
+        Lihat Account Status
+      </a>
       <p class="flex items-baseline justify-between">
         <span class="text-muted-foreground">Package</span>
         <span class="font-medium">{transaction.package_name}</span>

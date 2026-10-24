@@ -4,6 +4,7 @@
  */
 export { default as CheckoutFlow } from './components/CheckoutFlow.svelte';
 export { default as PaymentInstructions } from './components/PaymentInstructions.svelte';
+export { default as TransactionDetail } from './components/TransactionDetail.svelte';
 export { createCheckoutState } from './state/checkout.state.svelte';
 export {
   checkoutKeys,
