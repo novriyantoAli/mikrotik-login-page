@@ -55,6 +55,9 @@ type APIHarness struct {
 	// TransactionProvisioning drives provisioning in tests for the same reason:
 	// the worker sweeps in production, and the test runs it where it can assert.
 	TransactionProvisioning transactionservice.Provisioner
+	// TransactionReconciliation drives the lost-callback sweep: the worker ticks in
+	// production, and the test runs one sweep where it can assert.
+	TransactionReconciliation transactionservice.Reconciler
 	// TransactionService is the buyer-facing surface, so a test can read the
 	// current PIN the way Account Status (#16) will.
 	TransactionService transactionservice.Service
@@ -129,29 +132,7 @@ func NewAPIHarness(t *testing.T, options ...HarnessOption) *APIHarness {
 		// The harness owns a throwaway schema, so it applies the same schema
 		// and seed step deployment runs before the API (ADR 0012).
 		servermigration.Module(),
-		fx.Invoke(func(
-			cfg *config.Config,
-			router *serverapi.Router,
-			gateway payment.Gateway,
-			sender sms.Sender,
-			writer provisioning.Writer,
-			catalog service.Service,
-			migrator *servermigration.Migrator,
-			expiry transactionservice.Expiry,
-			provisioning transactionservice.Provisioner,
-			transactionService transactionservice.Service,
-		) {
-			harness.Config = cfg
-			harness.Engine = router.Engine
-			harness.Gateway = gateway
-			harness.SMSSender = sender
-			harness.RadiusWriter = writer
-			harness.Catalog = catalog
-			harness.Migrator = migrator
-			harness.TransactionExpiry = expiry
-			harness.TransactionProvisioning = provisioning
-			harness.TransactionService = transactionService
-		}),
+		bindSurfaces(harness),
 	)
 
 	startCtx, cancelStart := context.WithTimeout(context.Background(), 30*time.Second)
@@ -177,6 +158,36 @@ func NewAPIHarness(t *testing.T, options ...HarnessOption) *APIHarness {
 	})
 
 	return harness
+}
+
+// bindSurfaces copies the graph's surfaces onto the harness, so a test drives the
+// production graph (sweeps included) without reaching into Fx.
+func bindSurfaces(harness *APIHarness) fx.Option {
+	return fx.Invoke(func(
+		cfg *config.Config,
+		router *serverapi.Router,
+		gateway payment.Gateway,
+		sender sms.Sender,
+		writer provisioning.Writer,
+		catalog service.Service,
+		migrator *servermigration.Migrator,
+		expiry transactionservice.Expiry,
+		provisioning transactionservice.Provisioner,
+		reconciliation transactionservice.Reconciler,
+		transactionService transactionservice.Service,
+	) {
+		harness.Config = cfg
+		harness.Engine = router.Engine
+		harness.Gateway = gateway
+		harness.SMSSender = sender
+		harness.RadiusWriter = writer
+		harness.Catalog = catalog
+		harness.Migrator = migrator
+		harness.TransactionExpiry = expiry
+		harness.TransactionProvisioning = provisioning
+		harness.TransactionReconciliation = reconciliation
+		harness.TransactionService = transactionService
+	})
 }
 
 // Migrate re-runs the deployment migration (schema plus Package seed) against

@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/base64"
 	"errors"
+	"sort"
 	"testing"
 	"time"
 
@@ -41,6 +42,7 @@ type fakeRepository struct {
 	pendingCalls    int
 	transitionErr   error
 	transitionCount int
+	reconcilableErr error
 }
 
 var _ repository.Repository = (*fakeRepository)(nil)
@@ -234,6 +236,37 @@ func (r *fakeRepository) PaidIDs(_ context.Context, limit int) ([]uint, error) {
 	return ids, nil
 }
 
+// ReconcilableIDs mirrors the repository's selector: pending rows whose deadline
+// is still ahead, soonest first (ADR 0018).
+func (r *fakeRepository) ReconcilableIDs(_ context.Context, now time.Time, limit int) ([]uint, error) {
+	if r.reconcilableErr != nil {
+		return nil, r.reconcilableErr
+	}
+
+	type candidate struct {
+		id        uint
+		expiresAt time.Time
+	}
+	matched := make([]candidate, 0, len(r.rows))
+	for index := range r.rows {
+		row := r.rows[index]
+		if row.State != entity.StatePending || !row.ExpiresAt.After(now) {
+			continue
+		}
+		matched = append(matched, candidate{id: row.ID, expiresAt: row.ExpiresAt})
+	}
+	sort.SliceStable(matched, func(i, j int) bool { return matched[i].expiresAt.Before(matched[j].expiresAt) })
+
+	ids := make([]uint, 0, len(matched))
+	for _, row := range matched {
+		ids = append(ids, row.id)
+		if len(ids) == limit {
+			break
+		}
+	}
+	return ids, nil
+}
+
 func (r *fakeRepository) ListByPhone(
 	_ context.Context,
 	phoneNumber string,
@@ -300,6 +333,11 @@ type fakeGateway struct {
 	createErr   error
 	callbacks   map[string]*payment.Callback
 	createCalls int
+	// statuses and statusErr drive the reconciliation sweep; an unlisted
+	// reference answers "unpaid" like the vendor does for a checkout nobody paid.
+	statuses      map[string]payment.PaymentStatus
+	statusErr     error
+	statusQueries []string
 }
 
 func (g *fakeGateway) CreateTransaction(
@@ -321,8 +359,15 @@ func (g *fakeGateway) CreateTransaction(
 	}, nil
 }
 
-func (g *fakeGateway) GetStatus(context.Context, string) (*payment.PaymentStatus, error) {
-	return &payment.PaymentStatus{Status: payment.StatusUnpaid}, nil
+func (g *fakeGateway) GetStatus(_ context.Context, reference string) (*payment.PaymentStatus, error) {
+	g.statusQueries = append(g.statusQueries, reference)
+	if g.statusErr != nil {
+		return nil, g.statusErr
+	}
+	if status, ok := g.statuses[reference]; ok {
+		return &status, nil
+	}
+	return &payment.PaymentStatus{Reference: reference, Status: payment.StatusUnpaid}, nil
 }
 
 func (g *fakeGateway) VerifyCallback(raw []byte, signature string) (*payment.Callback, error) {
@@ -376,6 +421,7 @@ type fixture struct {
 	outbox      *fakeSMSOutbox
 	service     service.Service
 	provisioner service.Provisioner
+	reconciler  service.Reconciler
 }
 
 type fakeClock struct{ now time.Time }
@@ -392,10 +438,13 @@ func newFixture() *fixture {
 		}},
 		gateway: &fakeGateway{
 			channels: []payment.Channel{
-				{Code: "BRIVA", Name: "BRIVA", Group: "Virtual Account",
-					FeeCustomer: payment.ChannelFee{FlatIDR: 2500}},
+				{
+					Code: "BRIVA", Name: "BRIVA", Group: "Virtual Account",
+					FeeCustomer: payment.ChannelFee{FlatIDR: 2500},
+				},
 			},
 			callbacks: make(map[string]*payment.Callback),
+			statuses:  make(map[string]payment.PaymentStatus),
 		},
 		waker: &recordingWaker{},
 		clock: &fakeClock{now: time.Date(2026, time.October, 23, 8, 0, 0, 0, time.UTC)},
@@ -424,6 +473,14 @@ func newFixture() *fixture {
 			PaymentTTL:         time.Hour,
 			LoginPageAllowlist: []string{"https://hotspot.local/login"},
 		},
+		zap.NewNop(),
+	)
+	f.reconciler = service.NewReconciler(
+		f.repo,
+		f.gateway,
+		f.waker,
+		f.clock,
+		service.ReconciliationSettings{SweepInterval: time.Minute, Batch: 50},
 		zap.NewNop(),
 	)
 	return f

@@ -126,11 +126,14 @@ func WorkerWithBase(base fx.Option, extra ...fx.Option) fx.Option {
 		database.RedisModule(),
 		database.PostgresModule(),
 		// Provisioning writes FreeRADIUS from this process, so the worker owns the
-		// MySQL connection and its adapters (ADR 0016).
+		// MySQL connection and its adapters (ADR 0016). Reconciliation asks the
+		// payment gateway about a callback that never arrived, so the vendor adapter
+		// is built here too (ADR 0018).
 		database.FreeRADIUSModule(),
 		packages.Module(),
 		notification.WorkerModule(),
 		transaction.WorkerModule(),
+		tripay.Module(),
 		modem.Module(),
 		serverworker.Module(),
 		fx.Provide(
@@ -154,6 +157,11 @@ func WorkerWithBase(base fx.Option, extra ...fx.Option) fx.Option {
 			),
 			fx.Annotate(
 				transactionworker.NewProvisioning,
+				fx.As(new(serverworker.TaskRegistrar)),
+				fx.ResultTags(`group:"worker_tasks"`),
+			),
+			fx.Annotate(
+				transactionworker.NewReconciliation,
 				fx.As(new(serverworker.TaskRegistrar)),
 				fx.ResultTags(`group:"worker_tasks"`),
 			),

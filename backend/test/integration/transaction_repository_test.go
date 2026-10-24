@@ -170,3 +170,53 @@ func TestTransactionRepositoryLookups(t *testing.T) {
 		t.Fatalf("an overdue Transaction was returned as pending: %+v", stale)
 	}
 }
+
+// TestTransactionRepositoryReconcilableIDsIsTheWindow is the ADR 0018 selector:
+// only pending rows still payable, soonest deadline first, and never more than
+// one batch.
+func TestTransactionRepositoryReconcilableIDsIsTheWindow(t *testing.T) {
+	harness := testutil.NewAPIHarness(t)
+	repo := repository.NewRepository(harness.Postgres, zap.NewNop())
+	ctx := context.Background()
+
+	now := time.Date(2026, time.October, 23, 9, 0, 0, 0, time.UTC)
+
+	// Later deadline, then the one the sweep must look at first.
+	later := newTransaction("TRX-LATER", "6281300000095", 1, entity.StatePending)
+	later.ExpiresAt = now.Add(30 * time.Minute)
+	sooner := newTransaction("TRX-SOONER", "6281300000095", 2, entity.StatePending)
+	sooner.ExpiresAt = now.Add(5 * time.Minute)
+	// Not reconcilable: the deadline passed, and the other two are not pending.
+	overdue := newTransaction("TRX-OVERDUE", "6281300000095", 3, entity.StatePending)
+	overdue.ExpiresAt = now.Add(-time.Minute)
+	paid := newTransaction("TRX-PAID", "6281300000095", 4, entity.StatePaid)
+	paid.ExpiresAt = now.Add(10 * time.Minute)
+	expired := newTransaction("TRX-EXPIRED", "6281300000095", 5, entity.StateExpired)
+	expired.ExpiresAt = now.Add(10 * time.Minute)
+
+	for _, row := range []*entity.Transaction{later, sooner, overdue, paid, expired} {
+		if err := repo.Create(ctx, row); err != nil {
+			t.Fatalf("create %s: %v", row.Reference, err)
+		}
+	}
+
+	ids, err := repo.ReconcilableIDs(ctx, now, 50)
+	if err != nil {
+		t.Fatalf("ReconcilableIDs: %v", err)
+	}
+	if len(ids) != 2 {
+		t.Fatalf("reconcilable ids = %v, want the two payable pending rows", ids)
+	}
+	if ids[0] != sooner.ID || ids[1] != later.ID {
+		t.Fatalf("reconcilable ids = %v, want soonest deadline first (%d, %d)",
+			ids, sooner.ID, later.ID)
+	}
+
+	batch, err := repo.ReconcilableIDs(ctx, now, 1)
+	if err != nil {
+		t.Fatalf("ReconcilableIDs with limit: %v", err)
+	}
+	if len(batch) != 1 || batch[0] != sooner.ID {
+		t.Fatalf("batched ids = %v, want only the soonest (%d)", batch, sooner.ID)
+	}
+}

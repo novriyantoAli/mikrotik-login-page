@@ -85,6 +85,11 @@ transaction:
   payment_ttl: 1h
   # How often the worker closes overdue pending Transactions.
   expiry_sweep_interval: 1m
+  # How often the worker asks the gateway about a pending Transaction whose
+  # callback never arrived, and how many it asks about per sweep. The interval
+  # must not exceed payment_ttl (ADR 0018).
+  reconcile_sweep_interval: 1m
+  reconcile_batch: 50
 
 pin:
   # "version=base64(32 bytes)", comma separated. The sample below is a local
