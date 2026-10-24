@@ -132,7 +132,7 @@ func (r *reconciler) reconcile(ctx context.Context, id uint, now time.Time) (boo
 			Amount:    status.Amount,
 			PaidAt:    status.PaidAt,
 		}
-		changed, err := r.transitions.settle(ctx, row, callback)
+		changed, err := r.transitions.settle(ctx, row, callback, ReasonReconciliation)
 		if err != nil {
 			if errors.Is(err, ErrAmountMismatch) {
 				// Already logged with both amounts by settle; the row stays pending
@@ -141,14 +141,9 @@ func (r *reconciler) reconcile(ctx context.Context, id uint, now time.Time) (boo
 			}
 			return false, fmt.Errorf("settle reconciled payment: %w", err)
 		}
-		if changed {
-			r.logger.Info("transaction settled by reconciliation",
-				zap.String("reference", row.Reference),
-			)
-		}
 		return changed, nil
 	case payment.StatusFailed, payment.StatusExpired:
-		return r.transitions.close(ctx, row, status.Status)
+		return r.transitions.close(ctx, row, status.Status, ReasonReconciliation)
 	default:
 		// "unpaid" is the expected answer for a checkout nobody has paid yet.
 		return false, nil

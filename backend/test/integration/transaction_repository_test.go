@@ -118,8 +118,13 @@ func TestTransactionRepositoryExpiresOnlyOverduePendingRows(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ExpireOverdue: %v", err)
 	}
-	if expired != 1 {
-		t.Fatalf("expired %d rows, want 1", expired)
+	if len(expired) != 1 {
+		t.Fatalf("expired %d rows, want 1", len(expired))
+	}
+	// The sweep names the row it changed, so the caller can log the transition
+	// without reading it back (ADR 0018).
+	if expired[0].Reference != "TRX-E" || expired[0].PhoneNumber == "" {
+		t.Fatalf("expired row = %+v, want the overdue Transaction's identity", expired[0])
 	}
 
 	storedOverdue, _ := repo.GetByReference(ctx, "TRX-E")

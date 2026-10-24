@@ -6,6 +6,7 @@ import (
 
 	"go.uber.org/zap"
 
+	"github.com/novriyantoAli/mikrotik-login-page/backend/internal/application/transaction/entity"
 	"github.com/novriyantoAli/mikrotik-login-page/backend/internal/application/transaction/repository"
 	"github.com/novriyantoAli/mikrotik-login-page/backend/internal/pkg/clock"
 )
@@ -36,8 +37,19 @@ func (e *expiry) ExpireDue(ctx context.Context) (int64, error) {
 	if err != nil {
 		return 0, fmt.Errorf("expire overdue transactions: %w", err)
 	}
-	if expired > 0 {
-		e.logger.Info("pending transactions expired", zap.Int64("count", expired))
+
+	// One line per Transaction, because a deadline closing is the same kind of
+	// event as a settlement: the operator query is one event name across both
+	// (ADR 0018).
+	for _, row := range expired {
+		stateChange{
+			TransactionID: row.ID,
+			Reference:     row.Reference,
+			PhoneNumber:   row.PhoneNumber,
+			From:          entity.StatePending,
+			To:            entity.StateExpired,
+			Reason:        ReasonExpirySweep,
+		}.log(e.logger)
 	}
-	return expired, nil
+	return int64(len(expired)), nil
 }

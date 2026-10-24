@@ -33,14 +33,19 @@ func newTransitions(
 	return &transitions{repo: repo, waker: waker, clock: clk, logger: logger}
 }
 
-// settle applies a verified settlement. changed reports whether this call moved
-// the row: a repeat, a lost race and a payment for a Transaction that already
-// reached a final state are all acknowledged without an error, because the
-// caller is a notification that must not be retried forever.
+// settle applies a verified settlement and reports whether this call moved the
+// row. A repeat, a lost race and a payment for a Transaction that already reached
+// a final state are all acknowledged without an error, because the caller is a
+// notification that must not be retried forever.
+//
+// reason says where the settlement came from — a signed callback or the
+// reconciliation sweep — so the transition log answers "how did this get paid?"
+// without being inferred from prose (ADR 0018).
 func (t *transitions) settle(
 	ctx context.Context,
 	row *entity.Transaction,
 	callback *payment.Callback,
+	reason string,
 ) (bool, error) {
 	if callback.Amount != row.AmountIDR {
 		t.logger.Error("settlement amount does not match the Transaction",
@@ -85,10 +90,14 @@ func (t *transitions) settle(
 		return false, nil
 	}
 
-	t.logger.Info("transaction paid",
-		zap.String("reference", row.Reference),
-		zap.Int64("amount_idr", row.AmountIDR),
-	)
+	stateChange{
+		TransactionID: row.ID,
+		Reference:     row.Reference,
+		PhoneNumber:   row.PhoneNumber,
+		From:          entity.StatePending,
+		To:            entity.StatePaid,
+		Reason:        reason,
+	}.log(t.logger, zap.Int64("amount_idr", row.AmountIDR))
 	// Ask the worker to provision now; the paid row is the durable work item, so a
 	// lost wake-up costs one sweep interval, not the account (ADR 0016).
 	if err := t.waker.Enqueue(ctx, TaskProvision); err != nil {
@@ -97,13 +106,14 @@ func (t *transitions) settle(
 	return true, nil
 }
 
-// close moves a pending Transaction to the state the gateway reported and
-// reports whether it changed. `failed` and `expired` are final, so a repeated
-// notification finds nothing to do (ADR 0015).
+// close moves a pending Transaction to the state the gateway reported and reports
+// whether it changed. `failed` and `expired` are final, so a repeated notification
+// finds nothing to do (ADR 0015).
 func (t *transitions) close(
 	ctx context.Context,
 	row *entity.Transaction,
 	status payment.Status,
+	reason string,
 ) (bool, error) {
 	next := entity.StateFailed
 	if status == payment.StatusExpired {
@@ -123,10 +133,14 @@ func (t *transitions) close(
 		return false, err
 	}
 	if changed {
-		t.logger.Info("transaction closed by the gateway",
-			zap.String("reference", row.Reference),
-			zap.String("state", string(next)),
-		)
+		stateChange{
+			TransactionID: row.ID,
+			Reference:     row.Reference,
+			PhoneNumber:   row.PhoneNumber,
+			From:          entity.StatePending,
+			To:            next,
+			Reason:        reason,
+		}.log(t.logger)
 	}
 	return changed, nil
 }

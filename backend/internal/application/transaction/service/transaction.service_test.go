@@ -43,6 +43,7 @@ type fakeRepository struct {
 	transitionErr   error
 	transitionCount int
 	reconcilableErr error
+	attemptErr      error
 }
 
 var _ repository.Repository = (*fakeRepository)(nil)
@@ -144,29 +145,52 @@ func (r *fakeRepository) ExpirePending(
 	phoneNumber string,
 	packageID uint,
 	now time.Time,
-) (int64, error) {
-	var expired int64
+) ([]repository.Expired, error) {
+	expired := make([]repository.Expired, 0, 1)
 	for index := range r.rows {
 		row := &r.rows[index]
 		if row.PhoneNumber == phoneNumber && row.PackageID == packageID &&
 			row.State == entity.StatePending && !row.ExpiresAt.After(now) {
 			row.State = entity.StateExpired
 			row.UpdatedAt = now
-			expired++
+			expired = append(expired, expiredRow(row))
 		}
 	}
 	return expired, nil
 }
 
-func (r *fakeRepository) ExpireOverdue(_ context.Context, now time.Time) (int64, error) {
-	var expired int64
+func (r *fakeRepository) ExpireOverdue(_ context.Context, now time.Time) ([]repository.Expired, error) {
+	expired := make([]repository.Expired, 0, len(r.rows))
 	for index := range r.rows {
-		if r.rows[index].State == entity.StatePending && !r.rows[index].ExpiresAt.After(now) {
-			r.rows[index].State = entity.StateExpired
-			expired++
+		row := &r.rows[index]
+		if row.State != entity.StatePending || row.ExpiresAt.After(now) {
+			continue
 		}
+		row.State = entity.StateExpired
+		row.UpdatedAt = now
+		expired = append(expired, expiredRow(row))
 	}
 	return expired, nil
+}
+
+func expiredRow(row *entity.Transaction) repository.Expired {
+	return repository.Expired{ID: row.ID, Reference: row.Reference, PhoneNumber: row.PhoneNumber}
+}
+
+// BumpProvisionAttempts mirrors the repository's counter: it increments and
+// returns the new value, which is what the attempt log line reports (ADR 0018).
+func (r *fakeRepository) BumpProvisionAttempts(_ context.Context, id uint, _ time.Time) (int, error) {
+	if r.attemptErr != nil {
+		return 0, r.attemptErr
+	}
+	for index := range r.rows {
+		if r.rows[index].ID != id {
+			continue
+		}
+		r.rows[index].ProvisionAttempts++
+		return r.rows[index].ProvisionAttempts, nil
+	}
+	return 0, repository.ErrNotFound
 }
 
 func (r *fakeRepository) SetProvisioningPlan(
@@ -422,6 +446,7 @@ type fixture struct {
 	service     service.Service
 	provisioner service.Provisioner
 	reconciler  service.Reconciler
+	logger      *zap.Logger
 }
 
 type fakeClock struct{ now time.Time }
@@ -431,8 +456,15 @@ func (c *fakeClock) Now() time.Time { return c.now }
 func (c *fakeClock) Advance(duration time.Duration) { c.now = c.now.Add(duration) }
 
 func newFixture() *fixture {
+	return newFixtureWithLogger(zap.NewNop())
+}
+
+// newFixtureWithLogger builds the same fixture with a caller-supplied logger, so a
+// test can assert the structured events a transition emits (ADR 0018).
+func newFixtureWithLogger(logger *zap.Logger) *fixture {
 	f := &fixture{
-		repo: &fakeRepository{},
+		logger: logger,
+		repo:   &fakeRepository{},
 		catalog: &fakeCatalog{packages: map[uint]packagesentity.Package{
 			7: {ID: 7, Name: "Paket Mingguan", PriceIDR: 25000, DurationMinutes: 10080, RateLimit: "10M/10M"},
 		}},
@@ -460,7 +492,7 @@ func newFixture() *fixture {
 		f.outbox,
 		testPINCipher,
 		f.clock,
-		zap.NewNop(),
+		logger,
 	)
 	f.service = service.NewService(
 		f.repo,
@@ -473,7 +505,7 @@ func newFixture() *fixture {
 			PaymentTTL:         time.Hour,
 			LoginPageAllowlist: []string{"https://hotspot.local/login"},
 		},
-		zap.NewNop(),
+		logger,
 	)
 	f.reconciler = service.NewReconciler(
 		f.repo,
@@ -481,7 +513,7 @@ func newFixture() *fixture {
 		f.waker,
 		f.clock,
 		service.ReconciliationSettings{SweepInterval: time.Minute, Batch: 50},
-		zap.NewNop(),
+		logger,
 	)
 	return f
 }

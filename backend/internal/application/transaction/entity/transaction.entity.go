@@ -139,6 +139,10 @@ type Transaction struct {
 	// in the SMS the buyer receives (ADR 0016).
 	PINCiphertext []byte `gorm:"column:pin_ciphertext"`
 	PINKeyVersion int    `gorm:"column:pin_key_version;not null;default:0"`
+	// ProvisionAttempts counts how often the worker tried to provision this
+	// Transaction. It is observation only — the retry policy is "every sweep until
+	// it works" — so a broken counter must never fail an attempt (ADR 0018).
+	ProvisionAttempts int `gorm:"column:provision_attempts;not null;default:0"`
 
 	ExpiresAt time.Time  `gorm:"column:expires_at;not null"`
 	PaidAt    *time.Time `gorm:"column:paid_at"`
