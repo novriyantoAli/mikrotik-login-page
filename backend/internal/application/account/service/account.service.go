@@ -123,7 +123,10 @@ func (s *service) ExtendPreview(
 	}
 
 	duration := time.Duration(pkg.DurationMinutes) * time.Minute
-	target := provisioning.Target(current, now, now, duration)
+	// Nothing is settled yet, so a fresh Active Period starts now; a running one
+	// ignores the base and is extended (ADR 0017).
+	base := now
+	target := provisioning.Target(current, now, base, duration)
 
 	response := &dto.ExtendPreviewResponse{
 		PackageID:           pkg.ID,

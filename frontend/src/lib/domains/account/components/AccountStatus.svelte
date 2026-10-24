@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { isAppError } from '$lib/api/client';
   import { Button } from '$lib/components/ui/button';
   import { Card, CardContent, CardHeader, CardTitle } from '$lib/components/ui/card';
   import { MagicLinkForm, createSessionQuery } from '$lib/domains/auth';
@@ -17,12 +18,16 @@
   const summary = createAccountSummaryQuery(() => session.data != null);
 
   const account = $derived(summary.data);
+  // An Active Period with no catalog row is still the buyer's: the summary keeps
+  // the expiration and the PIN, so the page must not fall back to the empty state
+  // (ADR 0017).
   const hasActivePeriod = $derived(
-    account !== null &&
-      account !== undefined &&
-      account.active_period.found &&
-      account.active_period.state !== 'none' &&
-      account.package !== null,
+    account !== null && account !== undefined && account.active_period.state !== 'none',
+  );
+  // A session revoked between the session read and the summary read answers 401;
+  // that is the lost-session state, not a generic failure.
+  const sessionLost = $derived(
+    summary.isError && isAppError(summary.error) && summary.error.status === 401,
   );
 </script>
 
@@ -80,6 +85,19 @@
       </div>
     </CardContent>
   </Card>
+{:else if sessionLost}
+  <div class="space-y-3">
+    <Card>
+      <CardHeader>
+        <CardTitle>Sesi tidak ditemukan atau sudah berakhir</CardTitle>
+        <p class="text-muted-foreground text-sm">
+          Account Status hanya bisa dibuka dengan sesi aktif. Minta Magic Link baru lewat SMS; Anda
+          tidak perlu PIN untuk masuk.
+        </p>
+      </CardHeader>
+    </Card>
+    <MagicLinkForm />
+  </div>
 {:else if summary.isError}
   <Card>
     <CardHeader>
