@@ -97,6 +97,11 @@ func (s *service) settle(ctx context.Context, row *entity.Transaction, callback 
 		zap.String("reference", row.Reference),
 		zap.Int64("amount_idr", row.AmountIDR),
 	)
+	// Ask the worker to provision now; the paid row is the durable work item, so a
+	// lost wake-up costs one sweep interval, not the account (ADR 0016).
+	if err := s.waker.Enqueue(ctx, TaskProvision); err != nil {
+		s.logger.Warn("settlement recorded without a provisioning wake-up", zap.Error(err))
+	}
 	return nil
 }
 

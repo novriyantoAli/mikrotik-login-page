@@ -52,6 +52,12 @@ type APIHarness struct {
 	// TransactionExpiry drives the payment deadline in tests: the worker sweeps
 	// in production, and the test advances the frozen clock and sweeps once.
 	TransactionExpiry transactionservice.Expiry
+	// TransactionProvisioning drives provisioning in tests for the same reason:
+	// the worker sweeps in production, and the test runs it where it can assert.
+	TransactionProvisioning transactionservice.Provisioner
+	// TransactionService is the buyer-facing surface, so a test can read the
+	// current PIN the way Account Status (#16) will.
+	TransactionService transactionservice.Service
 }
 
 // HarnessOption adjusts one harness before it starts.
@@ -126,6 +132,8 @@ func NewAPIHarness(t *testing.T, options ...HarnessOption) *APIHarness {
 			catalog service.Service,
 			migrator *servermigration.Migrator,
 			expiry transactionservice.Expiry,
+			provisioning transactionservice.Provisioner,
+			transactionService transactionservice.Service,
 		) {
 			harness.Config = cfg
 			harness.Engine = router.Engine
@@ -135,6 +143,8 @@ func NewAPIHarness(t *testing.T, options ...HarnessOption) *APIHarness {
 			harness.Catalog = catalog
 			harness.Migrator = migrator
 			harness.TransactionExpiry = expiry
+			harness.TransactionProvisioning = provisioning
+			harness.TransactionService = transactionService
 		}),
 	)
 

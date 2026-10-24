@@ -99,6 +99,36 @@ answers `502 dependency_unavailable` until they are set.
 Fixtures live in `../contracts/{channels,transaction*}.json` and are decoded by
 both the Go integration tests and the app's strict zod schemas.
 
+## Provisioning a paid Transaction (#15)
+
+Settlement only queues the work. The worker owns it, because that process holds
+the FreeRADIUS connection and the modem (ADR 0016):
+
+1. A verified settlement moves the Transaction to `paid` and enqueues the
+   payload-free task `transaction:provision`. The durable work item is the paid
+   row itself, so a lost task costs one sweep, never the account.
+2. The worker provisions every paid Transaction on `pin.sweep_interval`
+   (default 30 s), which is also how a failed attempt is retried.
+3. The first attempt computes the target Active Period **once** — an Active
+   Period still running is extended, an absent or finished one starts at the
+   settlement time (PRD 21) — and generates a fresh 6-digit PIN, storing both on
+   the Transaction with a set-once `UPDATE`. A retry reuses them: it cannot add
+   the duration twice and cannot rotate the PIN.
+4. `radcheck`/`radreply` are upserted in one MySQL transaction:
+   `Cleartext-Password := <PIN>`, `Expiration := <epoch seconds>`,
+   `Mikrotik-Rate-Limit = <Package rate limit>`.
+5. `paid → provisioned` and the PIN SMS row commit in one Postgres transaction,
+   so "provisioned but never queued" cannot happen. A dead modem leaves the
+   Transaction `provisioned` with the SMS pending in the outbox.
+
+`GET /api/transactions/{id}` always carries `phone_number` and carries `pin`
+once the Transaction is `provisioned`. The PIN never appears in a list response,
+is never logged, and is stored only as AES-256-GCM ciphertext together with its
+key version. Configuration: `pin.encryption_keys` (`version=base64(32 bytes)`,
+comma separated), `pin.active_key_version`, `pin.sweep_interval`. Rotate by
+adding a key and bumping the active version; keep the old key until no row names
+its version.
+
 ## Test harness (`internal/pkg/testutil`)
 
 Integration tests assert HTTP behaviour, never internal calls.
@@ -112,9 +142,11 @@ Integration tests assert HTTP behaviour, never internal calls.
   it the health test asserts the `down` path, so the suite is still meaningful.
 - **Vendor fakes** behind the real ports: `FakeGateway`, `FakeSMSSender`,
   `FakeRadiusWriter`, `FakeRadiusReader`, and a `FakeClock`. `NewAPIHarness`
-  wires the production router and dependencies and exposes the fakes for
-  assertions; `WithRealRadiusReader()` keeps the MySQL adapter for tests of the
-  degraded FreeRADIUS path.
+  wires the production router and dependencies, decorates the production
+  adapters with the fakes and exposes them for assertions;
+  `WithRealRadiusReader()` keeps the MySQL adapter for tests of the degraded
+  FreeRADIUS path. `harness.TransactionProvisioning` drives provisioning the way
+  the worker does, because the harness runs the API process.
 - **Migrations** run against the throwaway schema when the harness starts, the
   same step deployment runs, so tests see the seeded catalog.
 

@@ -21,6 +21,9 @@ import (
 	"github.com/novriyantoAli/mikrotik-login-page/backend/internal/application/transaction/repository"
 	"github.com/novriyantoAli/mikrotik-login-page/backend/internal/pkg/clock"
 	"github.com/novriyantoAli/mikrotik-login-page/backend/internal/pkg/loginpage"
+	"github.com/novriyantoAli/mikrotik-login-page/backend/internal/pkg/phone"
+	"github.com/novriyantoAli/mikrotik-login-page/backend/internal/pkg/pin"
+	"github.com/novriyantoAli/mikrotik-login-page/backend/internal/pkg/queue"
 )
 
 // Errors the handler maps onto HTTP statuses. They are sentinels, not strings,
@@ -64,12 +67,18 @@ type Service interface {
 	// HandleCallback verifies a gateway notification and applies the single
 	// allowed settlement transition. It is idempotent against repeats.
 	HandleCallback(ctx context.Context, raw []byte, signature string) error
+	// CurrentPIN returns the hotspot PIN of the newest provisioned Transaction of
+	// a Phone Number, so the completion screen and Account Status read it the same
+	// way (ADR 0016). found is false before the first successful purchase.
+	CurrentPIN(ctx context.Context, phoneNumber string) (string, bool, error)
 }
 
 type service struct {
 	repo     repository.Repository
 	catalog  packageservice.Service
 	gateway  payment.Gateway
+	cipher   *pin.Cipher
+	waker    queue.Enqueuer
 	clock    clock.Clock
 	settings Settings
 	logger   *zap.Logger
@@ -80,6 +89,8 @@ func NewService(
 	repo repository.Repository,
 	catalog packageservice.Service,
 	gateway payment.Gateway,
+	cipher *pin.Cipher,
+	waker queue.Enqueuer,
 	clock clock.Clock,
 	settings Settings,
 	logger *zap.Logger,
@@ -88,6 +99,8 @@ func NewService(
 		repo:     repo,
 		catalog:  catalog,
 		gateway:  gateway,
+		cipher:   cipher,
+		waker:    waker,
 		clock:    clock,
 		settings: settings,
 		logger:   logger,
@@ -131,7 +144,7 @@ func (s *service) Create(
 		return nil, err
 	}
 	if existing != nil {
-		return toResponse(existing), nil
+		return s.response(ctx, existing), nil
 	}
 
 	pkg, channel, err := s.resolve(ctx, request)
@@ -172,7 +185,7 @@ func (s *service) Create(
 				zap.String("orphan_reference", reference),
 				zap.Uint("transaction_id", alive.ID),
 			)
-			return toResponse(alive), nil
+			return s.response(ctx, alive), nil
 		}
 		return nil, fmt.Errorf("store transaction: %w", err)
 	}
@@ -182,7 +195,7 @@ func (s *service) Create(
 		zap.String("channel", row.Channel),
 		zap.Int64("amount_idr", row.AmountIDR),
 	)
-	return toResponse(row), nil
+	return s.response(ctx, row), nil
 }
 
 func (s *service) Get(
@@ -202,7 +215,44 @@ func (s *service) Get(
 		// buyer's Transaction (PRD point 13).
 		return nil, ErrNotFound
 	}
-	return toResponse(row), nil
+	return s.response(ctx, row), nil
+}
+
+// response maps a row for the buyer. The PIN is attached only once the account
+// exists, so an unsettled checkout can never show a credential that FreeRADIUS
+// does not hold yet (ADR 0016).
+func (s *service) response(ctx context.Context, row *entity.Transaction) *dto.TransactionResponse {
+	if row.State != entity.StateProvisioned || len(row.PINCiphertext) == 0 {
+		return toResponse(row, nil)
+	}
+
+	pinValue, _, err := s.CurrentPIN(ctx, row.PhoneNumber)
+	if err != nil {
+		// The page still renders; the buyer keeps the SMS and can reload. The error
+		// is logged without the ciphertext or the plaintext.
+		s.logger.Error("read PIN for the checkout response",
+			zap.Uint("transaction_id", row.ID), zap.Error(err))
+		return toResponse(row, nil)
+	}
+	return toResponse(row, &pinValue)
+}
+
+func (s *service) CurrentPIN(ctx context.Context, phoneNumber string) (string, bool, error) {
+	row, err := s.repo.LatestProvisioned(ctx, phoneNumber)
+	if err != nil {
+		return "", false, err
+	}
+	if row == nil || len(row.PINCiphertext) == 0 {
+		return "", false, nil
+	}
+
+	pinValue, err := s.cipher.Decrypt(row.PINCiphertext, row.PINKeyVersion)
+	if err != nil {
+		s.logger.Error("decrypt current PIN",
+			zap.String("phone_number", phone.Mask(phoneNumber)), zap.Error(err))
+		return "", false, fmt.Errorf("decrypt current PIN: %w", err)
+	}
+	return pinValue, true, nil
 }
 
 // channelList is the one place the gateway's channel list is read and its

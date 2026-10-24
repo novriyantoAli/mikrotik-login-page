@@ -17,7 +17,8 @@ import (
 // CHAP needs the password recoverable, so it is stored as Cleartext-Password in
 // FreeRADIUS; Postgres keeps only the encrypted copy (ADR 0016).
 const (
-	attributePassword   = "Cleartext-Password"
+	// The attribute *name* FreeRADIUS stores the password under, not a credential.
+	attributePassword   = "Cleartext-Password" //nolint:gosec // FreeRADIUS attribute name
 	attributeExpiration = "Expiration"
 	attributeRateLimit  = "Mikrotik-Rate-Limit"
 

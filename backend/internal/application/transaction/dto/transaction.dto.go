@@ -37,8 +37,11 @@ type InstructionResponse struct {
 // amount, the channel, the instructions, the deadline and the state the app
 // polls.
 type TransactionResponse struct {
-	ID          uint   `json:"id"`
-	Reference   string `json:"reference"`
+	ID        uint   `json:"id"`
+	Reference string `json:"reference"`
+	// PhoneNumber is the buyer's canonical identity and the hotspot username,
+	// echoed so the completion screen can show exactly what to type (PRD point 55).
+	PhoneNumber string `json:"phone_number"`
 	PackageID   uint   `json:"package_id"`
 	PackageName string `json:"package_name"`
 	AmountIDR   int64  `json:"amount_idr"`
@@ -57,6 +60,12 @@ type TransactionResponse struct {
 	ExpiresAt string  `json:"expires_at"`
 	PaidAt    *string `json:"paid_at"`
 	CreatedAt string  `json:"created_at"`
+
+	// PIN is the Phone Number's current hotspot credential, which is the newest
+	// provisioned purchase's. It is filled only when this Transaction is
+	// provisioned, and only on the single-Transaction read the buyer's own
+	// session authorizes; no list response ever carries one (ADR 0016).
+	PIN *string `json:"pin"`
 }
 
 // CallbackAck tells the gateway the notification was accepted. It carries no

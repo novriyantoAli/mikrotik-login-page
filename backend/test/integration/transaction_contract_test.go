@@ -2,6 +2,7 @@ package integration
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"net/http"
 	"testing"
@@ -80,7 +81,11 @@ func TestTransactionContract_RequestFixtureMatchesDTO(t *testing.T) {
 }
 
 func TestTransactionContract_ResponseFixturesMatchDTO(t *testing.T) {
-	for _, name := range []string{"transaction.response.json", "transaction.paid.response.json"} {
+	for _, name := range []string{
+		"transaction.response.json",
+		"transaction.paid.response.json",
+		"transaction.provisioned.response.json",
+	} {
 		raw := loadContract(t, name)
 
 		var envelope transactionEnvelope
@@ -102,8 +107,9 @@ func TestTransactionContract_ResponseFixturesMatchDTO(t *testing.T) {
 }
 
 // TestTransactionContract_LiveResponsesMatchFixtures walks one real checkout
-// through settlement and compares both states with the shared fixtures, so a DTO
-// field the app does not know about (or a fixture the DTO forgets) fails here.
+// through settlement and provisioning and compares every state with the shared
+// fixtures, so a DTO field the app does not know about (or a fixture the DTO
+// forgets) fails here.
 func TestTransactionContract_LiveResponsesMatchFixtures(t *testing.T) {
 	harness := testutil.NewAPIHarness(t)
 	cookie := newSessionCookie(t, harness, "081200000032", "198.51.100.32")
@@ -131,6 +137,18 @@ func TestTransactionContract_LiveResponsesMatchFixtures(t *testing.T) {
 	}
 	paidFixture := decodeJSON(t, loadContract(t, "transaction.paid.response.json"))
 	assertSameJSONShape(t, paidFixture, decodeJSON(t, paidRecorder.Body.Bytes()), "$")
+
+	if err := harness.TransactionProvisioning.Provision(context.Background(), created.ID); err != nil {
+		t.Fatalf("provision: %v", err)
+	}
+
+	provisionedRecorder := harness.DoRequest(t, http.MethodGet, "/api/transactions/"+uintString(created.ID), nil,
+		withCookie(cookie, "198.51.100.132"))
+	if provisionedRecorder.Code != http.StatusOK {
+		t.Fatalf("provisioned read = %d (%s)", provisionedRecorder.Code, provisionedRecorder.Body.String())
+	}
+	provisionedFixture := decodeJSON(t, loadContract(t, "transaction.provisioned.response.json"))
+	assertSameJSONShape(t, provisionedFixture, decodeJSON(t, provisionedRecorder.Body.Bytes()), "$")
 }
 
 // TestTransactionCallbackContract_AckShape pins the public callback answer: it

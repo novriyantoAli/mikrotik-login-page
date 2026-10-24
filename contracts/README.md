@@ -27,6 +27,7 @@ silently.
 | `transaction.create.request.json` | `POST /api/transactions` (request body) | same two test files |
 | `transaction.response.json` | `POST /api/transactions` and `GET /api/transactions/{id}` (200, pending) | same two test files |
 | `transaction.paid.response.json` | `GET /api/transactions/{id}` (200, paid) | same two test files |
+| `transaction.provisioned.response.json` | `GET /api/transactions/{id}` (200, provisioned, with the PIN) | same two test files |
 
 Rules:
 
@@ -41,10 +42,13 @@ Rules:
   change here is a breaking change to a shipped page, not a refactor. An
   unknown Phone Number answers `{"data":{"expiry":null}}`, which the seam
   renders as "no Active Period" rather than as a failure.
-- The checkout fixtures are the **transaction contract** (ADR 0015). The amount
+- The checkout fixtures are the **transaction contract** (ADR 0015/0016). The amount
   is integer rupiah, the channel fee is separate from it, and `paid_at` is
   `null` until settlement; the payload never carries a vendor field such as
-  Tripay's own `reference`.
+  Tripay's own `reference`. `phone_number` is the buyer's own identity (the
+  hotspot username) and `pin` is `null` until the **Transaction** is
+  `provisioned`; the PIN never appears in any list response, and no fixture may
+  grow a field that could carry a session token or a ciphertext.
 - The auth fixtures are the **session contract** (ADR 0011). The session token
   never appears in a body — only in the `Set-Cookie` header — so a fixture that
   grows a `token` field is a leak, not a feature.

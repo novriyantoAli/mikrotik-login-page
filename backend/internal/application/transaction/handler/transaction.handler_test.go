@@ -54,6 +54,10 @@ func (s *stubService) HandleCallback(_ context.Context, _ []byte, signature stri
 	return s.err
 }
 
+func (s *stubService) CurrentPIN(context.Context, string) (string, bool, error) {
+	return "", false, s.err
+}
+
 type stubAuthenticator struct{}
 
 func (stubAuthenticator) Authenticate(
