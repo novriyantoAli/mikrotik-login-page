@@ -3,6 +3,7 @@
 
   import { Button } from '$lib/components/ui/button';
   import { Card, CardContent, CardFooter, CardHeader, CardTitle } from '$lib/components/ui/card';
+  import { ExtendConfirmation } from '$lib/domains/account';
   import { MagicLinkForm, createSessionQuery } from '$lib/domains/auth';
   import { PackageSummary, createPackageListQuery, findPackage } from '$lib/domains/packages';
 
@@ -156,6 +157,10 @@
           </CardFooter>
         </Card>
       {:else}
+        <!-- Buying while the Active Period still runs is an Extend: the buyer sees
+             the estimated new expiration before paying (ADR 0017). -->
+        <ExtendConfirmation {packageId} />
+
         <Card>
           <CardContent class="space-y-4 pt-6">
             <ChannelList
