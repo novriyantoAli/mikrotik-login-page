@@ -15,8 +15,9 @@ import (
 
 // Module provides the repository and the service for the API process. The HTTP
 // handler is registered with the API transport, like every other domain. The
-// expiry and provisioning surfaces are offered here too, so an integration test
-// can drive them through the production graph instead of waiting for a tick.
+// expiry, provisioning and reconciliation surfaces are offered here too, so an
+// integration test can drive them through the production graph instead of
+// waiting for a tick.
 func Module() fx.Option {
 	return fx.Options(
 		fx.Provide(
@@ -28,24 +29,29 @@ func Module() fx.Option {
 				}
 			},
 			provisioningSettings,
+			reconciliationSettings,
 			newPINCipher,
 			service.NewService,
 			service.NewExpiry,
 			service.NewProvisioner,
+			service.NewReconciler,
 		),
 	)
 }
 
-// WorkerModule provides only what the background process needs: the deadline
-// sweep and provisioning, never a payment gateway or the catalog handler.
+// WorkerModule provides what the background process needs: the deadline sweep,
+// provisioning and the lost-callback reconciliation. It never builds the
+// catalog handler or the HTTP transport.
 func WorkerModule() fx.Option {
 	return fx.Options(
 		fx.Provide(
 			repository.NewRepository,
 			provisioningSettings,
+			reconciliationSettings,
 			newPINCipher,
 			service.NewExpiry,
 			service.NewProvisioner,
+			service.NewReconciler,
 		),
 	)
 }
@@ -57,6 +63,13 @@ func Migrations() []any {
 
 func provisioningSettings(cfg *config.Config) service.ProvisioningSettings {
 	return service.ProvisioningSettings{SweepInterval: cfg.PIN.SweepInterval}
+}
+
+func reconciliationSettings(cfg *config.Config) service.ReconciliationSettings {
+	return service.ReconciliationSettings{
+		SweepInterval: cfg.Transaction.ReconcileSweepInterval,
+		Batch:         cfg.Transaction.ReconcileBatch,
+	}
 }
 
 // newPINCipher is the one place the deployment's key material is parsed; every

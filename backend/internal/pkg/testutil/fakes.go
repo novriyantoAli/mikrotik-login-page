@@ -109,7 +109,10 @@ type FakeGateway struct {
 	CreateRequests []payment.CreateTransactionRequest
 	Callbacks      []payment.Callback
 	Statuses       map[string]payment.PaymentStatus
-	ChannelList    []payment.Channel
+	// StatusReferences records every reference the reconciliation sweep asked
+	// about, in order, so a test can prove a settled row is not polled again.
+	StatusReferences []string
+	ChannelList      []payment.Channel
 
 	CreateErr   error
 	StatusErr   error
@@ -123,10 +126,14 @@ func NewFakeGateway() *FakeGateway {
 	return &FakeGateway{
 		Statuses: make(map[string]payment.PaymentStatus),
 		ChannelList: []payment.Channel{
-			{Code: "BRIVA", Name: "BRIVA", Group: "Virtual Account",
-				FeeCustomer: payment.ChannelFee{FlatIDR: 2500}},
-			{Code: "QRIS", Name: "QRIS", Group: "QRIS",
-				FeeCustomer: payment.ChannelFee{Percent: 0.7}},
+			{
+				Code: "BRIVA", Name: "BRIVA", Group: "Virtual Account",
+				FeeCustomer: payment.ChannelFee{FlatIDR: 2500},
+			},
+			{
+				Code: "QRIS", Name: "QRIS", Group: "QRIS",
+				FeeCustomer: payment.ChannelFee{Percent: 0.7},
+			},
 		},
 	}
 }
@@ -192,6 +199,7 @@ func (g *FakeGateway) GetStatus(_ context.Context, reference string) (*payment.P
 	g.mu.Lock()
 	defer g.mu.Unlock()
 
+	g.StatusReferences = append(g.StatusReferences, reference)
 	if g.StatusErr != nil {
 		return nil, g.StatusErr
 	}
@@ -200,6 +208,13 @@ func (g *FakeGateway) GetStatus(_ context.Context, reference string) (*payment.P
 		return &payment.PaymentStatus{Reference: reference, Status: payment.StatusUnpaid}, nil
 	}
 	return &status, nil
+}
+
+// StatusQueries returns the references the reconciliation sweep asked about.
+func (g *FakeGateway) StatusQueries() []string {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	return append([]string(nil), g.StatusReferences...)
 }
 
 // ValidCallbackSignature is the signature the fake gateway accepts. It stands in

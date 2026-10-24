@@ -243,7 +243,8 @@ type SMSConfig struct {
 	RetryBackoff time.Duration `mapstructure:"retry_backoff"`
 }
 
-// TransactionConfig configures checkout and the expiry sweep (PRD point 20).
+// TransactionConfig configures checkout, the expiry sweep and the lost-callback
+// reconciliation (PRD point 20, ADR 0018).
 type TransactionConfig struct {
 	// PaymentTTL is how long a pending Transaction may be paid before the
 	// background sweep moves it to expired.
@@ -251,6 +252,13 @@ type TransactionConfig struct {
 	// ExpirySweepInterval is how often the worker looks for overdue pending
 	// Transactions, with or without a wake-up task.
 	ExpirySweepInterval time.Duration `mapstructure:"expiry_sweep_interval"`
+	// ReconcileSweepInterval is how often the worker asks the gateway about a
+	// pending Transaction whose callback never arrived. It must not exceed
+	// PaymentTTL, otherwise a whole deadline could pass unswept.
+	ReconcileSweepInterval time.Duration `mapstructure:"reconcile_sweep_interval"`
+	// ReconcileBatch bounds one reconciliation sweep, so a backlog is chipped away
+	// instead of holding one gateway round trip per pending row at once.
+	ReconcileBatch int `mapstructure:"reconcile_batch"`
 }
 
 // TripayConfig configures the Tripay adapter (ADR 0008). The secrets are empty
@@ -277,74 +285,76 @@ type TripayConfig struct {
 // is also bound to its environment variable so that viper.Unmarshal sees env
 // overrides (AutomaticEnv alone does not populate nested unmarshalled keys).
 var defaults = map[string]any{
-	"app.name":                           "mikrotik-login-page",
-	"app.environment":                    EnvironmentDevelopment,
-	"server.host":                        "0.0.0.0",
-	"server.port":                        8080,
-	"server.read_timeout":                "10s",
-	"server.write_timeout":               "15s",
-	"server.idle_timeout":                "60s",
-	"server.shutdown_timeout":            "15s",
-	"server.trusted_proxies":             "",
-	"logger.level":                       "info",
-	"logger.format":                      LogFormatConsole,
-	"logger.output_path":                 "stdout",
-	"postgres.host":                      "localhost",
-	"postgres.port":                      5432,
-	"postgres.user":                      "hotspot",
-	"postgres.password":                  "",
-	"postgres.database":                  "hotspot",
-	"postgres.ssl_mode":                  "disable",
-	"postgres.search_path":               "",
-	"postgres.max_open_conns":            20,
-	"postgres.max_idle_conns":            10,
-	"postgres.conn_max_lifetime":         "30m",
-	"freeradius_mysql.host":              "localhost",
-	"freeradius_mysql.port":              3306,
-	"freeradius_mysql.user":              "radius",
-	"freeradius_mysql.password":          "",
-	"freeradius_mysql.database":          "radius",
-	"freeradius_mysql.max_open_conns":    10,
-	"freeradius_mysql.max_idle_conns":    5,
-	"freeradius_mysql.conn_max_lifetime": "30m",
-	"redis.addr":                         "localhost:6379",
-	"redis.password":                     "",
-	"redis.db":                           0,
-	"redis.dial_timeout":                 "5s",
-	"worker.concurrency":                 10,
-	"worker.queues":                      []string{"critical", "default", "low"},
-	"health.timeout":                     "2s",
-	"account.expiry_warning_hours":       24,
-	"auth.magic_link_ttl":                "15m",
-	"auth.session_ttl":                   "720h",
-	"auth.cookie_secure":                 false,
-	"auth.cookie_name":                   "session",
-	"auth.app_base_url":                  "http://localhost:5173",
-	"auth.magic_link_path":               "/masuk/tautan",
-	"auth.login_page_allowlist":          []string{},
-	"auth.rate_limit.phone_window":       "5m",
-	"auth.rate_limit.phone_limit":        1,
-	"auth.rate_limit.ip_window":          "5m",
-	"auth.rate_limit.ip_limit":           10,
-	"pin.encryption_keys":                "",
-	"pin.active_key_version":             1,
-	"pin.sweep_interval":                 "30s",
-	"sms.device":                         "/dev/ttyUSB0",
-	"sms.baud":                           115200,
-	"sms.command_timeout":                "10s",
-	"sms.lease":                          "2m",
-	"sms.sweep_interval":                 "30s",
-	"sms.max_attempts":                   5,
-	"sms.retry_backoff":                  "1m",
-	"transaction.payment_ttl":            "1h",
-	"transaction.expiry_sweep_interval":  "1m",
-	"tripay.api_key":                     "",
-	"tripay.private_key":                 "",
-	"tripay.merchant_code":               "",
-	"tripay.base_url":                    "https://tripay.co.id/api-sandbox",
-	"tripay.callback_url":                "http://localhost:8080/api/payments/callback",
-	"tripay.return_url":                  "http://localhost:8080/",
-	"tripay.request_timeout":             "20s",
+	"app.name":                             "mikrotik-login-page",
+	"app.environment":                      EnvironmentDevelopment,
+	"server.host":                          "0.0.0.0",
+	"server.port":                          8080,
+	"server.read_timeout":                  "10s",
+	"server.write_timeout":                 "15s",
+	"server.idle_timeout":                  "60s",
+	"server.shutdown_timeout":              "15s",
+	"server.trusted_proxies":               "",
+	"logger.level":                         "info",
+	"logger.format":                        LogFormatConsole,
+	"logger.output_path":                   "stdout",
+	"postgres.host":                        "localhost",
+	"postgres.port":                        5432,
+	"postgres.user":                        "hotspot",
+	"postgres.password":                    "",
+	"postgres.database":                    "hotspot",
+	"postgres.ssl_mode":                    "disable",
+	"postgres.search_path":                 "",
+	"postgres.max_open_conns":              20,
+	"postgres.max_idle_conns":              10,
+	"postgres.conn_max_lifetime":           "30m",
+	"freeradius_mysql.host":                "localhost",
+	"freeradius_mysql.port":                3306,
+	"freeradius_mysql.user":                "radius",
+	"freeradius_mysql.password":            "",
+	"freeradius_mysql.database":            "radius",
+	"freeradius_mysql.max_open_conns":      10,
+	"freeradius_mysql.max_idle_conns":      5,
+	"freeradius_mysql.conn_max_lifetime":   "30m",
+	"redis.addr":                           "localhost:6379",
+	"redis.password":                       "",
+	"redis.db":                             0,
+	"redis.dial_timeout":                   "5s",
+	"worker.concurrency":                   10,
+	"worker.queues":                        []string{"critical", "default", "low"},
+	"health.timeout":                       "2s",
+	"account.expiry_warning_hours":         24,
+	"auth.magic_link_ttl":                  "15m",
+	"auth.session_ttl":                     "720h",
+	"auth.cookie_secure":                   false,
+	"auth.cookie_name":                     "session",
+	"auth.app_base_url":                    "http://localhost:5173",
+	"auth.magic_link_path":                 "/masuk/tautan",
+	"auth.login_page_allowlist":            []string{},
+	"auth.rate_limit.phone_window":         "5m",
+	"auth.rate_limit.phone_limit":          1,
+	"auth.rate_limit.ip_window":            "5m",
+	"auth.rate_limit.ip_limit":             10,
+	"pin.encryption_keys":                  "",
+	"pin.active_key_version":               1,
+	"pin.sweep_interval":                   "30s",
+	"sms.device":                           "/dev/ttyUSB0",
+	"sms.baud":                             115200,
+	"sms.command_timeout":                  "10s",
+	"sms.lease":                            "2m",
+	"sms.sweep_interval":                   "30s",
+	"sms.max_attempts":                     5,
+	"sms.retry_backoff":                    "1m",
+	"transaction.payment_ttl":              "1h",
+	"transaction.expiry_sweep_interval":    "1m",
+	"transaction.reconcile_sweep_interval": "1m",
+	"transaction.reconcile_batch":          50,
+	"tripay.api_key":                       "",
+	"tripay.private_key":                   "",
+	"tripay.merchant_code":                 "",
+	"tripay.base_url":                      "https://tripay.co.id/api-sandbox",
+	"tripay.callback_url":                  "http://localhost:8080/api/payments/callback",
+	"tripay.return_url":                    "http://localhost:8080/",
+	"tripay.request_timeout":               "20s",
 }
 
 // Keys returns every configuration key this package understands. Tests and
@@ -646,6 +656,20 @@ func (c *Config) validateTransaction() []string {
 	}
 	if c.Transaction.ExpirySweepInterval <= 0 {
 		problems = append(problems, "transaction.expiry_sweep_interval must be a positive duration")
+	}
+	if c.Transaction.ReconcileSweepInterval <= 0 {
+		problems = append(problems, "transaction.reconcile_sweep_interval must be a positive duration")
+	}
+	if c.Transaction.ReconcileBatch <= 0 {
+		problems = append(problems, "transaction.reconcile_batch must be positive")
+	}
+	// A sweep slower than the deadline would let a Transaction expire before the
+	// gateway was ever asked about it, which is the one thing reconciliation
+	// exists to prevent (ADR 0018).
+	if c.Transaction.PaymentTTL > 0 &&
+		c.Transaction.ReconcileSweepInterval > c.Transaction.PaymentTTL {
+		problems = append(problems,
+			"transaction.reconcile_sweep_interval must not exceed transaction.payment_ttl")
 	}
 	return problems
 }

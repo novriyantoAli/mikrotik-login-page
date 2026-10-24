@@ -64,6 +64,10 @@ type Repository interface {
 	// PaidIDs returns the ids of paid Transactions provisioning still owes, oldest
 	// first, so a sweep retries what a lost wake-up left behind.
 	PaidIDs(ctx context.Context, limit int) ([]uint, error)
+	// ReconcilableIDs returns the ids of pending Transactions still payable at
+	// `now`, soonest deadline first, so the reconciliation sweep asks the gateway
+	// only about payments whose deadline can still be met (ADR 0018).
+	ReconcilableIDs(ctx context.Context, now time.Time, limit int) ([]uint, error)
 	// LatestProvisioned returns the newest provisioned Transaction of one Phone
 	// Number, or nil when the buyer has none. It is where the current PIN lives.
 	LatestProvisioned(ctx context.Context, phoneNumber string) (*entity.Transaction, error)
@@ -253,6 +257,21 @@ func (r *transactionRepository) PaidIDs(ctx context.Context, limit int) ([]uint,
 	if err != nil {
 		r.logger.Error("read paid transactions", zap.Error(err))
 		return nil, fmt.Errorf("read paid transactions: %w", err)
+	}
+	return ids, nil
+}
+
+func (r *transactionRepository) ReconcilableIDs(ctx context.Context, now time.Time, limit int) ([]uint, error) {
+	var ids []uint
+	err := r.db.WithContext(ctx).
+		Model(&entity.Transaction{}).
+		Where("state = ? AND expires_at > ?", entity.StatePending, now).
+		Order("expires_at ASC").
+		Limit(limit).
+		Pluck("id", &ids).Error
+	if err != nil {
+		r.logger.Error("read reconcilable transactions", zap.Error(err))
+		return nil, fmt.Errorf("read reconcilable transactions: %w", err)
 	}
 	return ids, nil
 }

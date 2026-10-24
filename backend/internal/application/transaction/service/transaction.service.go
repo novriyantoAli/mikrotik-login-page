@@ -1,7 +1,8 @@
 // Package service holds the Transaction rules: checkout is idempotent per session
-// and Package, only a verified gateway callback may mark a payment paid, the state
-// machine refuses every other transition, and the deadline is the clock's, not
-// the wall's (PRD points 15–20). No gin, no vendor type.
+// and Package, only a verified settlement may mark a payment paid — from the
+// gateway callback or from reconciliation of a lost one — the state machine
+// refuses every other transition, and the deadline is the clock's, not the
+// wall's (PRD points 15–20, ADR 0018). No gin, no vendor type.
 package service
 
 import (
@@ -100,6 +101,9 @@ type service struct {
 	clock    clock.Clock
 	settings Settings
 	logger   *zap.Logger
+	// transitions is the same settle/close pair the reconciliation sweep builds,
+	// so both settlement paths share one implementation (ADR 0018).
+	transitions *transitions
 }
 
 // NewService builds the Transaction service; Fx injects every port.
@@ -114,14 +118,15 @@ func NewService(
 	logger *zap.Logger,
 ) Service {
 	return &service{
-		repo:     repo,
-		catalog:  catalog,
-		gateway:  gateway,
-		cipher:   cipher,
-		waker:    waker,
-		clock:    clock,
-		settings: settings,
-		logger:   logger,
+		repo:        repo,
+		catalog:     catalog,
+		gateway:     gateway,
+		cipher:      cipher,
+		waker:       waker,
+		clock:       clock,
+		settings:    settings,
+		logger:      logger,
+		transitions: newTransitions(repo, waker, clock, logger),
 	}
 }
 
