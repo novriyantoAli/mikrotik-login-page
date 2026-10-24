@@ -59,6 +59,10 @@ x-backend-env: &backend-env
   AUTH_RATE_LIMIT_PHONE_LIMIT: ${AUTH_RATE_LIMIT_PHONE_LIMIT:-1}
   AUTH_RATE_LIMIT_IP_WINDOW: ${AUTH_RATE_LIMIT_IP_WINDOW:-5m}
   AUTH_RATE_LIMIT_IP_LIMIT: ${AUTH_RATE_LIMIT_IP_LIMIT:-10}
+  # PIN encryption keys (ADR 0016): "version=base64(32 bytes)", comma separated.
+  PIN_ENCRYPTION_KEYS: ${PIN_ENCRYPTION_KEYS:?PIN_ENCRYPTION_KEYS is required}
+  PIN_ACTIVE_KEY_VERSION: ${PIN_ACTIVE_KEY_VERSION:-1}
+  PIN_SWEEP_INTERVAL: ${PIN_SWEEP_INTERVAL:-30s}
   # The worker is the only process with the modem attached (ADR 0010); mount
   # the device into that container when the host actually has one.
   SMS_DEVICE: ${SMS_DEVICE:-/dev/ttyUSB0}

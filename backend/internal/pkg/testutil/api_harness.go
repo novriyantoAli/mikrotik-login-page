@@ -98,6 +98,7 @@ func NewAPIHarness(t *testing.T, options ...HarnessOption) *APIHarness {
 	ApplyPostgresEnv(t, deps.PostgresDSN, schema)
 	ApplyRedisEnv(t, *settings.redisAddr)
 	ApplyMySQLEnv(t, *settings.freeRADIUSMySQLDSN)
+	ApplyPINEnv(t)
 
 	// Production keeps the graph and Gin mode identical to the deployed process.
 	t.Setenv("APP_ENVIRONMENT", config.EnvironmentProduction)

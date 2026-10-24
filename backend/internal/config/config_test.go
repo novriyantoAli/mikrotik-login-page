@@ -1,6 +1,7 @@
 package config_test
 
 import (
+	"encoding/base64"
 	"strings"
 	"testing"
 	"time"
@@ -107,6 +108,7 @@ func TestValidateRejectsAnEmptyConfiguration(t *testing.T) {
 		"redis.addr",
 		"worker.queues",
 		"health.timeout",
+		"pin.encryption_keys",
 	} {
 		if !strings.Contains(err.Error(), expected) {
 			t.Fatalf("error %q does not mention %q", err, expected)
@@ -128,12 +130,32 @@ func TestEveryKeyHasAnEnvironmentName(t *testing.T) {
 	}
 }
 
+func TestLoadRejectsAnUnusablePINKey(t *testing.T) {
+	loadableEnv(t)
+	// Valid base64, wrong length: a deployment that cannot encrypt a PIN must not
+	// boot (ADR 0016).
+	t.Setenv("PIN_ENCRYPTION_KEYS", "1="+base64.StdEncoding.EncodeToString([]byte("too-short")))
+
+	_, err := config.Load()
+	if err == nil {
+		t.Fatal("expected validation error")
+	}
+	if !strings.Contains(err.Error(), "pin.encryption_keys") {
+		t.Fatalf("error %q does not mention pin.encryption_keys", err)
+	}
+}
+
+// testPINKey is the 32-byte key these tests load.
+const testPINKey = "MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY="
+
 // loadableEnv neutralizes anything the developer's shell may export, so the
-// test suite is not affected by an ambient deployment environment.
+// test suite is not affected by an ambient deployment environment. The PIN keys
+// have no usable default, so they are set to a test key (ADR 0016).
 func loadableEnv(t *testing.T) {
 	t.Helper()
 
 	for _, key := range config.Keys() {
 		t.Setenv(config.EnvName(key), "")
 	}
+	t.Setenv("PIN_ENCRYPTION_KEYS", "1="+testPINKey)
 }

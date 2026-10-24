@@ -80,6 +80,15 @@ transaction:
   # How often the worker closes overdue pending Transactions.
   expiry_sweep_interval: 1m
 
+pin:
+  # "version=base64(32 bytes)", comma separated. The sample below is a local
+  # development key; generate your own (`openssl rand -base64 32`) and bump the
+  # active version to rotate, keeping the old key until no row names it.
+  encryption_keys: "1=MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY="
+  active_key_version: 1
+  # How often the worker provisions paid Transactions whose wake-up was lost.
+  sweep_interval: 30s
+
 tripay:
   # Empty credentials let the stack boot; checkout reports 502 until they are set.
   api_key: ""
