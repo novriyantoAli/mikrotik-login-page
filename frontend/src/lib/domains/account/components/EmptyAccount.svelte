@@ -14,8 +14,8 @@
   <CardHeader>
     <CardTitle>Belum ada Active Period</CardTitle>
     <p class="text-muted-foreground text-sm">
-      Anda belum pernah membeli Package, jadi belum ada masa aktif yang bisa ditampilkan. Pilih
-      salah satu Package berikut untuk mulai.
+      Belum ada Active Period yang bisa ditampilkan. Bila Anda baru saja membayar, akun hotspot
+      masih disiapkan. Bila belum pernah membeli, pilih salah satu Package berikut untuk mulai.
     </p>
   </CardHeader>
   <CardContent class="space-y-3">

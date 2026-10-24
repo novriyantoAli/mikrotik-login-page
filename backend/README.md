@@ -17,7 +17,8 @@ Documentation: [`../docs/adr/`](../docs/adr), [`../CONTEXT.md`](../CONTEXT.md),
 | `internal/application/<domain>` | Vertical slice: `dto/`, `entity/`, `repository/`, `service/`, `handler/`, `worker/`, `module.go` |
 | `internal/application/packages` | Package catalog: seed data, public `GET /packages` |
 | `internal/application/activeperiod` | Public `GET /active-period`, read through the provisioning port |
-| `internal/application/transaction` | Transaction state machine, idempotent checkout, gateway callback, expiry sweep (ADR 0015) |
+| `internal/application/transaction` | Transaction state machine, idempotent checkout, gateway callback, expiry sweep, Transaction history (ADR 0015) |
+| `internal/application/account` | Account Status read composition: summary, current PIN, active Package and Extend preview (ADR 0017); no entity, no table |
 | `internal/application/payment` | The `Gateway` port and its Tripay adapter (`payment/tripay`), the only code that knows the vendor |
 | `internal/application/{notification,provisioning}` | Vendor ports (SMS sender, FreeRADIUS writer and expiration reader) |
 | `internal/pkg` | Infrastructure: `database`, `logger`, `clock`, `httpx`, `testutil` |
@@ -82,6 +83,7 @@ authenticates its raw body with the shared secret instead.
 | `GET /api/transactions/channels` | `{"data":[{"code","name","group","fee_flat_idr","fee_percent"}]}` from the gateway, fees separate from the Package price |
 | `POST /api/transactions` | `{"package_id","channel","return_url"?}` → `200 {"data":{…Transaction}}`; a second call for the same Package returns the same live pending Transaction |
 | `GET /api/transactions/{id}` | `200 {"data":{…Transaction}}`; another buyer's Transaction is `404`, never `403` |
+| `GET /api/transactions?page=&page_size=` | `200 {"data":[…],"total_count","page","page_size"}`, newest first, **without** `pin` |
 | `POST /api/payments/callback` | public; `X-Callback-Signature` over the raw body. The only path into `paid` (ADR 0008/0015) |
 
 A Transaction is `pending`, `paid`, `provisioned`, `failed` or `expired`; the
@@ -130,6 +132,36 @@ soon as the row reaches `sent` or `failed`. Configuration: `pin.encryption_keys`
 (`version=base64(32 bytes)`, comma separated), `pin.active_key_version`,
 `pin.sweep_interval`. Rotate by adding a key and bumping the active version;
 keep the old key until no row names its version.
+
+## Account Status and Extend (#16, ADR 0017)
+
+`account` is a read composition, not a stored record: PRD point 6 keeps **Phone
+Number** as the only identity and FreeRADIUS as the truth for credentials and
+expiry, so there is no `accounts` table. Every endpoint needs the session cookie.
+
+| Endpoint | Body |
+| --- | --- |
+| `GET /api/account` | `{"data":{"phone_number","active_period":{"expires_at","found","state"},"package":{"id","name","rate_limit"}\|null,"pin"}}` |
+| `GET /api/transactions?page=&page_size=` | `{"data":[…History],"total_count","page","page_size"}`, no `pin` |
+| `GET /api/account/extend-preview?package_id=` | `{"data":{"package_id","current_expiration","estimated_expiration","extends"}}` |
+
+`active_period.state` is one of `active`, `expiring`, `expired`, `none` and is
+computed **here**, from the injected clock and `account.expiry_warning_hours`
+(default 24, which must equal `expiryWarningHours` in
+`../KOPINETGO-2024/config/data/voucher.js`), so the app only renders it and the
+two pages cannot disagree about "almost over". `none` separates "never bought"
+from "bought and it ran out".
+
+`GET /account/extend-preview` calls the same `provisioning.Target` rule the
+provisioner uses (an Active Period still running is extended, otherwise the new
+one starts now), so the number the buyer confirms is the number provisioning
+applies. The PIN is returned only by the summary and by the single-Transaction
+read of a `provisioned` Transaction; no list ever carries one. A Phone Number
+named in a query is only a cross-check against the session: a foreign one answers
+`404`, never `403`.
+
+Fixtures: `../contracts/{account,account.extend-preview,transactions}.response.json`,
+decoded by both the Go integration tests and the app's strict zod schemas.
 
 ## Test harness (`internal/pkg/testutil`)
 

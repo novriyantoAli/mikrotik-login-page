@@ -143,6 +143,30 @@ describe('AccountStatus', () => {
     expect(screen.getByRole('link', { name: 'Beli Package baru' })).toBeInTheDocument();
   });
 
+  it('offers a new Magic Link when the summary answers 401 for a revoked session', async () => {
+    stubApiRoutes([
+      { method: 'get', path: '/auth/session', respond: () => ({ data: session }) },
+      { method: 'get', path: '/account', respond: unauthorized },
+      { method: 'get', path: '/transactions', respond: emptyHistory },
+    ]);
+
+    render(AccountStatusFixture);
+
+    expect(await screen.findByText('Sesi tidak ditemukan atau sudah berakhir')).toBeInTheDocument();
+    expect(screen.getByText('Masuk dengan Phone Number')).toBeInTheDocument();
+  });
+
+  it('keeps the Active Period and PIN when the catalog lost the Package row', async () => {
+    stubApiRoutes(stubsFor(() => accountSummary({ package: null })));
+
+    render(AccountStatusFixture);
+
+    // The expiration is still the buyer's, so this is not the empty state.
+    expect(await screen.findByText('Sisa Active Period')).toBeInTheDocument();
+    expect(screen.queryByText('Belum ada Active Period')).not.toBeInTheDocument();
+    expect(screen.getByTestId('account-pin')).toHaveTextContent('••••••');
+  });
+
   it('points a buyer who never bought anything at the Package catalog', async () => {
     stubApiRoutes(
       stubsFor(() => ({

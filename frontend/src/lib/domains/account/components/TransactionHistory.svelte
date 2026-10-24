@@ -7,16 +7,17 @@
 
   import { formatDateTime, formatIDR, historyStateLabel } from '../format';
   import { createTransactionHistoryQuery } from '../queries/account.queries';
-  import { createAccountState } from '../state/account.state.svelte';
 
   // The history has its own component so its query only runs once there is a
   // session to authorize it (AccountStatus renders it behind the session branch).
-  const state = createAccountState();
-  const history = createTransactionHistoryQuery(() => state.page, state.pageSize);
+  // The open page is this component's own UI state, not the screen's.
+  const pageSize = 5;
+  let page = $state(1);
+  const history = createTransactionHistoryQuery(() => page, pageSize);
 
   const totalCount = $derived(history.data?.total_count ?? 0);
-  const hasPrevious = $derived(state.page > 1);
-  const hasNext = $derived(state.page * state.pageSize < totalCount);
+  const hasPrevious = $derived(page > 1);
+  const hasNext = $derived(page * pageSize < totalCount);
 </script>
 
 <Card>
@@ -72,18 +73,22 @@
             variant="outline"
             type="button"
             disabled={!hasPrevious}
-            onclick={() => state.previousPage()}
+            onclick={() => (page = Math.max(1, page - 1))}
           >
             Sebelumnya
           </Button>
           <span class="text-muted-foreground text-xs">
-            Halaman {state.page} dari {Math.max(1, Math.ceil(totalCount / state.pageSize))}
+            Halaman {page} dari {Math.max(1, Math.ceil(totalCount / pageSize))}
           </span>
           <Button
             variant="outline"
             type="button"
             disabled={!hasNext}
-            onclick={() => state.nextPage(totalCount)}
+            onclick={() => {
+              if (page * pageSize < totalCount) {
+                page += 1;
+              }
+            }}
           >
             Berikutnya
           </Button>
