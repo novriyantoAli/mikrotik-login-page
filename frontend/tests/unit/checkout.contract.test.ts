@@ -37,6 +37,8 @@ describe('checkout contract fixtures', () => {
     expect(envelope.data.pay_code).not.toBe('');
     expect(envelope.data.instructions[0].steps.length).toBeGreaterThan(1);
     expect(envelope.data.paid_at).toBeNull();
+    expect(envelope.data.phone_number).toBe('6281234567890');
+    expect(envelope.data.pin).toBeNull();
   });
 
   it('decodes the paid state of the same Transaction', () => {
@@ -46,6 +48,18 @@ describe('checkout contract fixtures', () => {
 
     expect(envelope.data.state).toBe('paid');
     expect(envelope.data.paid_at).not.toBeNull();
+    // Settlement is not the end of the flow: no credential exists yet (ADR 0016).
+    expect(envelope.data.pin).toBeNull();
+  });
+
+  it('decodes the provisioned state with its PIN', () => {
+    const envelope = TransactionEnvelopeSchema.parse(
+      loadContract('transaction.provisioned.response.json'),
+    );
+
+    expect(envelope.data.state).toBe('provisioned');
+    expect(envelope.data.phone_number).toBe('6281234567890');
+    expect(envelope.data.pin).toBe('123456');
   });
 
   it('rejects a Transaction payload that grows an unknown field', () => {
@@ -64,8 +78,13 @@ describe('polling rules', () => {
     expect(pollingInterval('pending', false)).toBe(4000);
   });
 
+  it('keeps polling after settlement until the account exists', () => {
+    expect(isTerminalState('paid')).toBe(false);
+    expect(pollingInterval('paid', false)).toBe(4000);
+  });
+
   it('stops at every terminal state', () => {
-    for (const state of ['paid', 'provisioned', 'failed', 'expired'] as const) {
+    for (const state of ['provisioned', 'failed', 'expired'] as const) {
       expect(isTerminalState(state)).toBe(true);
       expect(pollingInterval(state, false)).toBe(false);
     }

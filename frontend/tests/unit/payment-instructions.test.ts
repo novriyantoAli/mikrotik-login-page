@@ -7,6 +7,9 @@ import { loadContract } from '../support/contracts';
 
 const pending = TransactionEnvelopeSchema.parse(loadContract('transaction.response.json')).data;
 const paid = TransactionEnvelopeSchema.parse(loadContract('transaction.paid.response.json')).data;
+const provisioned = TransactionEnvelopeSchema.parse(
+  loadContract('transaction.provisioned.response.json'),
+).data;
 const briva = ChannelListEnvelopeSchema.parse(loadContract('channels.response.json')).data[0];
 
 describe('PaymentInstructions', () => {
@@ -42,11 +45,33 @@ describe('PaymentInstructions', () => {
     expect(onNewTransaction).toHaveBeenCalledOnce();
   });
 
-  it('confirms a settled payment instead of showing a pay code', () => {
+  it('confirms a settled payment and keeps waiting for the account', () => {
     render(PaymentInstructionsFixture, { transaction: paid });
 
     expect(screen.getByText('Pembayaran diterima')).toBeInTheDocument();
     expect(screen.queryByText('Kode bayar')).not.toBeInTheDocument();
+    // The PIN does not exist yet, so there is no completion screen and no link
+    // back to the hotspot (ADR 0016).
+    expect(screen.getByRole('status')).toHaveTextContent('Menyiapkan akun hotspot');
+    expect(screen.queryByRole('button', { name: 'Kembali ke Login Page' })).not.toBeInTheDocument();
+  });
+
+  it('shows the Phone Number, the PIN and the next step once provisioned', () => {
+    render(PaymentInstructionsFixture, { transaction: provisioned });
+
+    expect(screen.getByText('Akun hotspot siap dipakai')).toBeInTheDocument();
+    expect(screen.getByText('6281234567890')).toBeInTheDocument();
+    expect(screen.getByText('123456')).toBeInTheDocument();
+    expect(screen.getByText(/masuk dengan Phone Number/i)).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Kembali ke Login Page' })).toBeInTheDocument();
+  });
+
+  it('omits the way back when the checkout had no allowed Login Page', () => {
+    render(PaymentInstructionsFixture, {
+      transaction: { ...provisioned, return_url: '' },
+    });
+
+    expect(screen.getByText('123456')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Kembali ke Login Page' })).not.toBeInTheDocument();
   });
 });

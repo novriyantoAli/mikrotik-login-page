@@ -17,22 +17,36 @@
 
   // Everything the buyer must see is derived from the Transaction, never from a
   // client-side calculation: the amount and the deadline are the backend's.
-  const settled = $derived(transaction.state === 'paid' || transaction.state === 'provisioned');
+  // `paid` is not the end of the flow: the account is still being provisioned and
+  // the PIN arrives with `provisioned` (ADR 0016).
+  const provisioned = $derived(transaction.state === 'provisioned');
+  const preparing = $derived(transaction.state === 'paid');
   const closed = $derived(transaction.state === 'expired' || transaction.state === 'failed');
   const watching = $derived(!isTerminalState(transaction.state));
 </script>
 
 <Card>
-  {#if settled}
+  {#if provisioned}
     <CardHeader>
-      <CardTitle>Pembayaran diterima</CardTitle>
+      <CardTitle>Akun hotspot siap dipakai</CardTitle>
       <p class="text-muted-foreground text-sm">
-        Transaction {transaction.reference} sudah lunas
-        {transaction.paid_at ? ` pada ${formatDeadline(transaction.paid_at)}` : ''}. Kredensial
-        hotspot disiapkan otomatis; PIN dikirim lewat SMS dan bisa dilihat di Account Status.
+        Pembayaran diterima dan akun hotspot Anda sudah aktif. Masuk ke Login Page dengan nomor dan
+        PIN berikut.
       </p>
     </CardHeader>
-    <CardContent class="space-y-2 text-sm">
+    <CardContent class="space-y-3 text-sm">
+      <div class="bg-muted/60 rounded-lg p-3 text-center">
+        <p class="text-muted-foreground text-xs">Phone Number</p>
+        <p class="font-mono text-base font-semibold">{transaction.phone_number}</p>
+      </div>
+      <div class="bg-muted/60 rounded-lg p-3 text-center">
+        <p class="text-muted-foreground text-xs">PIN</p>
+        <p class="font-mono text-xl font-semibold tracking-[0.3em]">{transaction.pin ?? '—'}</p>
+      </div>
+      <p class="text-muted-foreground text-xs">
+        Langkah berikutnya: buka Login Page hotspot, masuk dengan Phone Number di atas, lalu
+        masukkan PIN. PIN juga dikirim lewat SMS dan bisa dilihat lagi di Account Status.
+      </p>
       <p class="flex items-baseline justify-between">
         <span class="text-muted-foreground">Package</span>
         <span class="font-medium">{transaction.package_name}</span>
@@ -53,6 +67,30 @@
         </Button>
       </CardFooter>
     {/if}
+  {:else if preparing}
+    <CardHeader>
+      <CardTitle>Pembayaran diterima</CardTitle>
+      <p class="text-muted-foreground text-sm">
+        Transaction {transaction.reference} sudah lunas
+        {transaction.paid_at ? ` pada ${formatDeadline(transaction.paid_at)}` : ''}. Akun hotspot
+        dan PIN sedang disiapkan; halaman ini diperbarui otomatis.
+      </p>
+    </CardHeader>
+    <CardContent class="space-y-2 text-sm">
+      <p class="flex items-baseline justify-between">
+        <span class="text-muted-foreground">Package</span>
+        <span class="font-medium">{transaction.package_name}</span>
+      </p>
+      <p class="flex items-baseline justify-between">
+        <span class="text-muted-foreground">Jumlah dibayar</span>
+        <span class="font-semibold">{formatIDR(transaction.amount_idr)}</span>
+      </p>
+      {#if watching}
+        <p class="text-muted-foreground text-xs" role="status" aria-live="polite">
+          Menyiapkan akun hotspot… PIN akan muncul di sini dan dikirim lewat SMS.
+        </p>
+      {/if}
+    </CardContent>
   {:else if closed}
     <CardHeader>
       <CardTitle>
