@@ -25,13 +25,17 @@ func Module() fx.Option {
 	)
 }
 
-// WorkerModule provides the delivery path. The drainer that consumes it is
-// registered by the worker process, because that process is the only one allowed
-// to hold the device (ADR 0010).
+// WorkerModule provides both worker surfaces: the delivery path the drainer
+// consumes, and the enqueue path, because provisioning records its PIN SMS in the
+// same transaction and the same process (ADR 0016). The drainer that consumes it
+// is registered by the worker process, the only one allowed to hold the device
+// (ADR 0010).
 func WorkerModule() fx.Option {
 	return fx.Options(
+		queue.Module(),
 		fx.Provide(
 			repository.NewRepository,
+			service.NewOutbox,
 			func(cfg *config.Config) service.Settings {
 				return service.Settings{
 					Lease:        cfg.SMS.Lease,

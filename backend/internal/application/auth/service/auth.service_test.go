@@ -18,6 +18,7 @@ import (
 	packagesdto "github.com/novriyantoAli/mikrotik-login-page/backend/internal/application/packages/dto"
 	packagesentity "github.com/novriyantoAli/mikrotik-login-page/backend/internal/application/packages/entity"
 	packageservice "github.com/novriyantoAli/mikrotik-login-page/backend/internal/application/packages/service"
+	"github.com/novriyantoAli/mikrotik-login-page/backend/internal/pkg/database"
 	"github.com/novriyantoAli/mikrotik-login-page/backend/internal/pkg/phone"
 	"github.com/novriyantoAli/mikrotik-login-page/backend/internal/pkg/securetoken"
 )
@@ -44,6 +45,14 @@ type fakeOutbox struct{ messages []notificationdto.Message }
 func (o *fakeOutbox) Enqueue(_ context.Context, message notificationdto.Message) error {
 	o.messages = append(o.messages, message)
 	return nil
+}
+
+func (o *fakeOutbox) EnqueueTx(
+	ctx context.Context,
+	_ database.Tx,
+	message notificationdto.Message,
+) error {
+	return o.Enqueue(ctx, message)
 }
 
 type fakeCatalog struct {

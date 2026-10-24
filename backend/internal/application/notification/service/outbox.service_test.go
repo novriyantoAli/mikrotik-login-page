@@ -11,6 +11,7 @@ import (
 	"github.com/novriyantoAli/mikrotik-login-page/backend/internal/application/notification/entity"
 	"github.com/novriyantoAli/mikrotik-login-page/backend/internal/application/notification/repository"
 	"github.com/novriyantoAli/mikrotik-login-page/backend/internal/application/notification/service"
+	"github.com/novriyantoAli/mikrotik-login-page/backend/internal/pkg/database"
 )
 
 // --- fakes -----------------------------------------------------------------
@@ -29,6 +30,14 @@ func (r *fakeOutboxRepository) Enqueue(_ context.Context, message *entity.SMS) e
 	message.ID = r.nextID
 	r.rows = append(r.rows, *message)
 	return nil
+}
+
+func (r *fakeOutboxRepository) EnqueueTx(
+	ctx context.Context,
+	_ database.Tx,
+	message *entity.SMS,
+) error {
+	return r.Enqueue(ctx, message)
 }
 
 func (r *fakeOutboxRepository) ClaimDue(_ context.Context, now time.Time, _ time.Duration) (*entity.SMS, error) {
