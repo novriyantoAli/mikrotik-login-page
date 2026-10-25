@@ -69,37 +69,71 @@ export function renderedText(source: string): string {
   return parts.join('\n');
 }
 
-function collectComponents(directory: string): string[] {
+/**
+ * scriptText keeps the string literals of a `.ts` module. Copy that reaches the
+ * screen from a label map or a message (`labels.ts` next to a component, a
+ * `Record<FailureCategory, string>`) is interface text exactly like markup, and
+ * reading markup alone would let it pass unseen (ADR 0018). Comments are dropped
+ * because prose about the interface is not the interface, and so are import and
+ * re-export statements: a module specifier is a file path, not copy.
+ */
+export function scriptText(source: string): string {
+  const withoutComments = source
+    .replace(/\/\*[\s\S]*?\*\//g, ' ')
+    // `(^|[^:])` keeps `https://…` from being read as the start of a comment.
+    .replace(/(^|[^:])\/\/.*$/gm, '$1')
+    .replace(/^\s*(?:import|export)[\s\S]*?from\s*(['"])[^'"]*\1;?/gm, ' ');
+
+  const parts: string[] = [];
+  for (const match of withoutComments.matchAll(/(['"`])((?:\\.|(?!\1)[^\\\n])*)\1/g)) {
+    parts.push(match[2]);
+  }
+  return parts.join('\n');
+}
+
+function collectSources(directory: string, extension: string): string[] {
   const found: string[] = [];
 
   for (const entry of readdirSync(directory)) {
     const full = path.join(directory, entry);
     if (statSync(full).isDirectory()) {
-      found.push(...collectComponents(full));
+      found.push(...collectSources(full, extension));
       continue;
     }
-    if (entry.endsWith('.svelte')) {
+    if (entry.endsWith(extension)) {
       found.push(full);
     }
   }
   return found;
 }
 
-const components = collectComponents(sourceDir);
+const components = collectSources(sourceDir, '.svelte');
+const scripts = collectSources(sourceDir, '.ts');
+
+/** Every file whose copy the glossary check reads, with the text a buyer can see. */
+const interfaceCopy = [
+  ...components.map((file) => ({ file, text: renderedText(readFileSync(file, 'utf8')) })),
+  ...scripts.map((file) => ({ file, text: scriptText(readFileSync(file, 'utf8')) })),
+];
 
 describe('interface language (PRD point 30)', () => {
   it('scans the whole app, not an empty list', () => {
     // A scanner that finds nothing passes for the wrong reason.
     expect(components.length).toBeGreaterThan(20);
     expect(components.some((file) => file.includes('domains/account'))).toBe(true);
+    // Copy held in a `.ts` label map is interface text too, so the scan reaches it.
+    expect(scripts.length).toBeGreaterThan(20);
+    expect(scripts.some((file) => file.endsWith('domains/health/components/labels.ts'))).toBe(
+      true,
+    );
   });
 
   it.each(forbiddenTerms)('never shows "$term" in rendered copy', ({ term, use }) => {
     const pattern = new RegExp(`\\b${term.replace('-', '[- ]?')}\\b`, 'i');
 
-    const offenders = components
-      .filter((file) => pattern.test(renderedText(readFileSync(file, 'utf8'))))
-      .map((file) => path.relative(sourceDir, file));
+    const offenders = interfaceCopy
+      .filter(({ text }) => pattern.test(text))
+      .map(({ file }) => path.relative(sourceDir, file));
 
     expect(offenders, `use "${use}" instead of "${term}"`).toEqual([]);
   });
@@ -134,5 +168,27 @@ describe('interface language (PRD point 30)', () => {
     // fail the scan, or the list would need an allowlist to survive.
     expect(text).not.toContain('voucher');
     expect(text).not.toContain('member');
+  });
+
+  it('reads string literals in .ts, not identifiers, imports or comments', () => {
+    const source = `
+      // a comment about a dashboard is prose, not interface text
+      import { voucher } from './renew-order';
+      const failureLabels: Record<string, string> = {
+        timeout: 'Tidak merespons tepat waktu.',
+        token: 'Voucher tidak berlaku.',
+      };
+      export const order = 1;
+    `;
+
+    const text = scriptText(source);
+
+    expect(text).toContain('Voucher tidak berlaku.');
+    expect(text).toContain('Tidak merespons tepat waktu.');
+    expect(text).not.toContain('dashboard');
+    // An import specifier is a path, not copy.
+    expect(text).not.toContain('renew-order');
+    expect(text).not.toContain('order');
+    expect(text).not.toContain('renew');
   });
 });

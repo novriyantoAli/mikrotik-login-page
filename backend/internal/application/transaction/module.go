@@ -28,8 +28,7 @@ func Module() fx.Option {
 					LoginPageAllowlist: cfg.Auth.LoginPageAllowlist,
 				}
 			},
-			provisioningSettings,
-			reconciliationSettings,
+			sweepSettings,
 			newPINCipher,
 			service.NewService,
 			service.NewExpiry,
@@ -46,8 +45,7 @@ func WorkerModule() fx.Option {
 	return fx.Options(
 		fx.Provide(
 			repository.NewRepository,
-			provisioningSettings,
-			reconciliationSettings,
+			sweepSettings,
 			newPINCipher,
 			service.NewExpiry,
 			service.NewProvisioner,
@@ -61,14 +59,16 @@ func Migrations() []any {
 	return []any{&entity.Transaction{}}
 }
 
-func provisioningSettings(cfg *config.Config) service.ProvisioningSettings {
-	return service.ProvisioningSettings{SweepInterval: cfg.PIN.SweepInterval}
-}
-
-func reconciliationSettings(cfg *config.Config) service.ReconciliationSettings {
-	return service.ReconciliationSettings{
-		SweepInterval: cfg.Transaction.ReconcileSweepInterval,
-		Batch:         cfg.Transaction.ReconcileBatch,
+// sweepSettings is the one place the three worker cadences are read from config:
+// they are one concept, so the domain receives them as one value.
+func sweepSettings(cfg *config.Config) service.SweepSettings {
+	return service.SweepSettings{
+		Expire:    service.SweepCadence{Interval: cfg.Transaction.ExpirySweepInterval},
+		Provision: service.SweepCadence{Interval: cfg.PIN.SweepInterval},
+		Reconcile: service.SweepCadence{
+			Interval: cfg.Transaction.ReconcileSweepInterval,
+			Batch:    cfg.Transaction.ReconcileBatch,
+		},
 	}
 }
 

@@ -11,8 +11,10 @@ Decision: a third sweeper, `transaction:reconcile`, built on the same
 `newSweeper` helper the expiry and provisioning sweeps use, so start/stop and
 wake-up handling are not reimplemented. Its knobs are
 `transaction.reconcile_sweep_interval` (default `1m`) and
-`transaction.reconcile_batch` (default `50`), delivered through a local
-`service.ReconciliationSettings` like every other domain setting.
+`transaction.reconcile_batch` (default `50`), delivered in the one
+`service.SweepSettings` value all three sweeps read their cadence from, so the
+domain keeps its hands off the deployment configuration while the three
+near-identical settings structs stay out of the tree.
 
 The selector is the whole design:
 
@@ -159,9 +161,10 @@ Decision: every Transaction state change emits one line with
 `reference`, `phone` (already through `phone.Mask`) and `reason`, where `reason`
 is one of `gateway_callback`, `reconciliation`, `expiry_sweep`,
 `checkout_superseded`, `provisioning`. Every provisioning attempt emits
-`provisioning.attempt` with `transaction_id`, `attempt` (from
-`provision_attempts`), `outcome` ∈ {`ok`, `retry`} and `error` when the outcome is
-`retry`. There is no `failed` outcome: a paid Transaction is never abandoned
+`provisioning.attempt` with `transaction_id`, `phone` (through `phone.Mask`, so an
+attempt pairs with its buyer without a join on an unmasked identifier),
+`attempt` (from `provision_attempts`), `outcome` ∈ {`ok`, `retry`} and `error` when
+the outcome is `retry`. There is no `failed` outcome: a paid Transaction is never abandoned
 (ADR 0016), so every unsuccessful attempt is one the next sweep retries — a third
 value would name a state that cannot occur.
 
@@ -239,12 +242,35 @@ Decision: two checks instead of a manual sweep.
   user-facing attributes (`label`, `title`, `placeholder`, `aria-label`, `alt`).
   Matching rendered text is what keeps CSS such as `order:` and ordinary
   identifiers out of the failure list, so the test needs no growing allowlist.
+  The same terms are matched against the string literals of every
+  `frontend/src/**/*.ts` module, because copy a label map or a message table holds
+  reaches the screen without passing through markup: interface text belongs next
+  to the component that renders it (`domains/health/components/labels.ts`), not in
+  a schema, and stripping comments and import specifiers keeps identifiers and
+  file paths out of the failure list.
 - 360px: `document.documentElement.scrollWidth <= clientWidth` is asserted at a
-  360×740 viewport on every screen of the app. jsdom cannot measure layout, so
-  this belongs in a real browser: today that is `tests/app/layout.spec.mjs`,
-  which builds the SPA, serves it with `vite preview` and answers `/api/**` from
-  the contract fixtures, so it needs no backend. When §5 lands, the same
-  assertion folds into the journey spec and the stand-alone project goes away.
+  360×740 viewport on every screen. jsdom cannot measure layout, so this belongs
+  in a real browser: `tests/app/layout.spec.mjs` builds the SPA, serves it with
+  `vite preview` and answers `/api/**` from the contract fixtures, so it needs no
+  backend; `tests/smoke/layout-360.spec.js` does the same for the **Login Page**
+  itself against the existing static server, with the Package list stubbed through
+  `backendBaseUrl`. When §5 lands, the app-side assertion folds into the journey
+  spec and the stand-alone project goes away.
+
+Boundary, stated so nobody over-reads the result: the glossary scan covers the
+purchase app, which this repo writes. The **Login Page** is the frozen
+`KOPINETGO-2024/` asset the router serves, so its own copy — a retired FAQ line
+that still says "voucher", English `MEMBER`/`Login` labels in the legacy
+`config/data/login.js` — is out of its reach by design, not by oversight. The
+layout criterion has no such boundary: it is measurable on the served page, so
+it is asserted there.
+
+Rejected alternatives: a one-off manual sweep (an acceptance criterion only a
+human can check rots by the next commit); scanning the raw source (false
+positives on CSS and identifiers force a skip list that grows until the test
+means nothing); waiting for the E2E to exist before any 360px check runs at all
+(the layout criterion is decidable today, and a browser boot is cheaper than an
+unverified claim).
 
 Rejected alternatives: a one-off manual sweep (an acceptance criterion only a
 human can check rots by the next commit); scanning the raw source (false

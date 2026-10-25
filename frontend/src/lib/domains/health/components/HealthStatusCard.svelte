@@ -12,12 +12,8 @@
 
   import { createHealthQuery } from '../queries/health.queries';
   import DependencyRow from './DependencyRow.svelte';
-  import {
-    dependencyLabels,
-    failureLabels,
-    type DependencyName,
-    type HealthCheck,
-  } from '../schemas/health.schema';
+  import type { DependencyName, HealthCheck } from '../schemas/health.schema';
+  import { dependencyLabels, failureLabels } from './labels';
 
   const dependencyOrder: DependencyName[] = ['postgres', 'freeradius_mysql', 'redis'];
 

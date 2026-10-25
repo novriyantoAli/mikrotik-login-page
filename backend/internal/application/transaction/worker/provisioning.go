@@ -25,12 +25,12 @@ type Provisioning struct {
 func NewProvisioning(
 	lc fx.Lifecycle,
 	provisioner service.Provisioner,
-	settings service.ProvisioningSettings,
+	settings service.SweepSettings,
 	registry *sweep.Registry,
 	clk clock.Clock,
 	logger *zap.Logger,
 ) *Provisioning {
-	sweeper := newSweeper(settings.SweepInterval, service.TaskProvision, registry, clk, func(ctx context.Context) {
+	sweeper := newSweeper(settings.Provision.Interval, service.TaskProvision, registry, clk, func(ctx context.Context) {
 		done, err := provisioner.ProvisionDue(ctx)
 		if err != nil {
 			logger.Error("provision paid transactions", zap.Error(err))

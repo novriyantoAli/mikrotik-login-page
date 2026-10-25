@@ -6,7 +6,6 @@ import (
 
 	"go.uber.org/zap"
 
-	"github.com/novriyantoAli/mikrotik-login-page/backend/internal/application/transaction/entity"
 	"github.com/novriyantoAli/mikrotik-login-page/backend/internal/application/transaction/repository"
 	"github.com/novriyantoAli/mikrotik-login-page/backend/internal/pkg/clock"
 )
@@ -41,10 +40,6 @@ func (e *expiry) ExpireDue(ctx context.Context) (int64, error) {
 	// One line per Transaction, because a deadline closing is the same kind of
 	// event as a settlement: the operator query is one event name across both
 	// (ADR 0018).
-	for _, row := range expired {
-		logStateChange(e.logger,
-			changeSubject{ID: row.ID, Reference: row.Reference, PhoneNumber: row.PhoneNumber},
-			entity.StatePending, entity.StateExpired, ReasonExpirySweep)
-	}
+	logDeadlinesClosed(e.logger, expired, ReasonExpirySweep)
 	return int64(len(expired)), nil
 }

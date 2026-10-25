@@ -214,7 +214,7 @@ func TestReconcile_BoundsOneSweep(t *testing.T) {
 		f.gateway,
 		f.waker,
 		f.clock,
-		service.ReconciliationSettings{SweepInterval: time.Minute, Batch: 2},
+		service.SweepSettings{Reconcile: service.SweepCadence{Interval: time.Minute, Batch: 2}},
 		zap.NewNop(),
 	)
 
