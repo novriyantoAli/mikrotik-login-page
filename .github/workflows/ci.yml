@@ -47,6 +47,22 @@ jobs:
       - run: npm test
       - run: npm run build
 
+  app-layout:
+    name: Purchase app (360px layout)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Install the app's dependencies
+        run: npm ci
+        working-directory: frontend
+      - run: npx playwright install --with-deps chromium
+      - run: npm run test:app
+
   backend:
     name: Backend (lint, unit, integration)
     runs-on: ubuntu-latest
