@@ -5,9 +5,11 @@ import (
 	"sync"
 	"time"
 
+	"github.com/hibiken/asynq"
 	"go.uber.org/fx"
 	"go.uber.org/zap"
 
+	"github.com/novriyantoAli/mikrotik-login-page/backend/internal/pkg/clock"
 	"github.com/novriyantoAli/mikrotik-login-page/backend/internal/pkg/sweep"
 )
 
@@ -21,6 +23,7 @@ type sweeper struct {
 	every    time.Duration
 	name     string
 	registry *sweep.Registry
+	clock    clock.Clock
 	task     func(context.Context)
 	logger   *zap.Logger
 
@@ -32,6 +35,7 @@ func newSweeper(
 	every time.Duration,
 	name string,
 	registry *sweep.Registry,
+	clk clock.Clock,
 	task func(context.Context),
 	logger *zap.Logger,
 ) *sweeper {
@@ -39,10 +43,21 @@ func newSweeper(
 		every:    every,
 		name:     name,
 		registry: registry,
+		clock:    clk,
 		task:     task,
 		logger:   logger,
 		wake:     make(chan struct{}, 1),
 	}
+}
+
+// register wires a payload-free wake-up task: the handler only nudges the loop,
+// the durable work item is the data the sweep reads. All three sweeps would
+// otherwise carry the same four lines (ADR 0018).
+func (s *sweeper) register(mux *asynq.ServeMux, taskType string) {
+	mux.HandleFunc(taskType, func(context.Context, *asynq.Task) error {
+		s.wakeUp()
+		return nil
+	})
 }
 
 // attach starts the sweep with the process lifecycle and stops it on shutdown.
@@ -81,6 +96,14 @@ func (s *sweeper) attach(lc fx.Lifecycle) {
 	})
 }
 
+// pass runs the job once and records the heartbeat. It is a method of its own so a
+// test can drive one pass without starting the loop, and so the clock used for the
+// beat is the one the checker reads.
+func (s *sweeper) pass(ctx context.Context) {
+	s.task(ctx)
+	s.registry.Beat(s.name, s.every, s.clock.Now())
+}
+
 // wakeUp asks for an immediate sweep; one pending request is enough.
 func (s *sweeper) wakeUp() {
 	select {
@@ -96,8 +119,7 @@ func (s *sweeper) run(ctx context.Context) {
 	defer ticker.Stop()
 
 	for {
-		s.task(ctx)
-		s.registry.Beat(s.name, s.every, time.Now())
+		s.pass(ctx)
 
 		select {
 		case <-ctx.Done():

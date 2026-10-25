@@ -129,6 +129,6 @@ for (const screen of screens) {
     expect(
       overflow.scrollWidth,
       `${screen.path} lebih lebar dari viewport 360px (${overflow.scrollWidth} > ${overflow.clientWidth})`,
-    ).toBeLessThanOrEqual(overflow.clientWidth + 1);
+    ).toBeLessThanOrEqual(overflow.clientWidth);
   });
 }

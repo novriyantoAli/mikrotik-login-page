@@ -15,15 +15,26 @@ import { describe, expect, it } from 'vitest';
  */
 const sourceDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../src');
 
-/** Words the interface must never show, with the term CONTEXT.md asks for instead. */
+/**
+ * The words CONTEXT.md asks the interface to avoid, with the term it asks for
+ * instead. `top-up` also matches "topup" and "top up", so no duplicate entries.
+ */
 const forbiddenTerms: readonly { term: string; use: string }[] = [
   { term: 'voucher', use: 'Package / Access Code' },
   { term: 'order', use: 'Transaction' },
   { term: 'renew', use: 'Extend' },
   { term: 'top-up', use: 'Extend' },
-  { term: 'topup', use: 'Extend' },
   { term: 'dashboard', use: 'Account Status' },
   { term: 'backoffice', use: 'Admin Panel' },
+  { term: 'password', use: 'PIN' },
+  { term: 'secret', use: 'PIN' },
+  { term: 'purchase', use: 'Transaction' },
+  { term: 'portal', use: 'Login Page' },
+  { term: 'landing page', use: 'Login Page' },
+  { term: 'member', use: 'User' },
+  { term: 'username', use: 'Phone Number' },
+  { term: 'otp', use: 'Magic Link' },
+  { term: 'token', use: 'Magic Link' },
 ];
 
 /** Attributes whose value a buyer reads on screen or through a screen reader. */
@@ -32,13 +43,17 @@ const userFacingAttributes = ['label', 'title', 'placeholder', 'aria-label', 'al
 /**
  * renderedText keeps only what a buyer can actually read in a `.svelte` file:
  * the text between tags plus the user-facing attribute values. Scripts, styles
- * and comments are dropped first, so their vocabulary is never a false positive.
+ * and comments are dropped first, and so are Svelte blocks (`{#if token === ''}`,
+ * `{:else}`, `{/if}`, `{@html …}`) and interpolations (`{pkg.nama}`) — those are
+ * template logic, not copy, and reading them would flag ordinary identifiers.
  */
 export function renderedText(source: string): string {
   const withoutCode = source
     .replace(/<script[\s\S]*?<\/script>/gi, ' ')
     .replace(/<style[\s\S]*?<\/style>/gi, ' ')
-    .replace(/<!--[\s\S]*?-->/g, ' ');
+    .replace(/<!--[\s\S]*?-->/g, ' ')
+    .replace(/\{[#:/@][^{}]*\}/g, ' ')
+    .replace(/\{[^{}]*\}/g, ' ');
 
   const parts: string[] = [];
 
@@ -89,7 +104,7 @@ describe('interface language (PRD point 30)', () => {
     expect(offenders, `use "${use}" instead of "${term}"`).toEqual([]);
   });
 
-  it('reads rendered copy only, not CSS or identifiers', () => {
+  it('reads rendered copy only, not CSS, identifiers or template logic', () => {
     const source = `
       <script lang="ts">
         const order = { renew: 'topup' };
@@ -99,7 +114,11 @@ describe('interface language (PRD point 30)', () => {
       </style>
       <!-- dashboard is a word in a comment -->
       <div class="order-first" aria-label="Nomor Transaction">
-        <h1>Voucher</h1>
+        {#if voucher === null}
+          <p>{member}</p>
+        {:else}
+          <h1>Voucher</h1>
+        {/if}
       </div>
     `;
 
@@ -109,7 +128,11 @@ describe('interface language (PRD point 30)', () => {
     expect(text).toContain('Nomor Transaction');
     expect(text).not.toContain('order');
     expect(text).not.toContain('renew');
-    expect(text).not.toContain('dashboard');
     expect(text).not.toContain('topup');
+    expect(text).not.toContain('dashboard');
+    // Template logic is not copy: an identifier named after a banned word must not
+    // fail the scan, or the list would need an allowlist to survive.
+    expect(text).not.toContain('voucher');
+    expect(text).not.toContain('member');
   });
 });

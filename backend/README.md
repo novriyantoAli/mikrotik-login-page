@@ -170,7 +170,7 @@ A settlement whose callback never arrives is recovered by a third sweep:
 1 min) and asks `Gateway.GetStatus` about at most `transaction.reconcile_batch`
 (default 50) transactions per pass. The selector is the window — `pending` rows
 with `expires_at > now`, soonest deadline first — because `expired` is final, so
-a sweep slower than the debt would only produce warnings. The answer enters the
+a sweep slower than the deadline would only produce warnings. The answer enters the
 same `settle`/`close` path a callback uses, so provisioning cannot happen twice.
 
 Every state change logs one structured line, `event=transaction.state_changed`,
@@ -193,8 +193,9 @@ the proxy never routes it.
 `/healthz` carries the three dependency probes **plus** `sweeps`: each periodic
 job records a heartbeat when a pass completes, and the check fails when any of
 them is more than three intervals late — the one failure a dependency probe
-cannot see. `oldest_pending_age_seconds` is measured from the oldest undelivered
-row's `created_at` (how long a buyer has waited), and `provisioning.attempts`
+cannot see. `oldest_pending_age_seconds` is measured from the `created_at` of the oldest row
+still owed (`pending` or `sending`) — how long a buyer has been waiting; a
+terminal `sent` or `failed` row is not a wait — and `provisioning.attempts`
 sums the attempts on rows **still paid**, so both are gauges that return to zero
 when the backlog clears. The numbers are read on demand with two aggregate
 queries; there is no metrics dependency and no scrape configuration yet.

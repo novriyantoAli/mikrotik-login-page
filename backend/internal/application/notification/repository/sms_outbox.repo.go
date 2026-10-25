@@ -177,9 +177,10 @@ func (r *smsRepository) MarkFailed(
 	return nil
 }
 
-// Counts counts by state in one statement. The age is floored at zero so a row
-// written with a clock slightly ahead of the reader's never reports a negative
-// wait.
+// Counts counts by state in one statement. The age covers the rows still owed to
+// a buyer — pending or sending — never a terminal `sent`/`failed` row, so it
+// returns to zero when the backlog clears. It is floored at zero so a row written
+// with a clock slightly ahead of the reader's never reports a negative wait.
 func (r *smsRepository) Counts(ctx context.Context, now time.Time) (Counts, error) {
 	var counts Counts
 	err := r.db.WithContext(ctx).Raw(`
@@ -190,14 +191,15 @@ func (r *smsRepository) Counts(ctx context.Context, now time.Time) (Counts, erro
 			COUNT(*) FILTER (WHERE state = ?) AS failed,
 			GREATEST(
 				COALESCE(
-					MAX(EXTRACT(EPOCH FROM (? - created_at))::bigint) FILTER (WHERE state <> ?),
+					MAX(EXTRACT(EPOCH FROM (? - created_at))::bigint)
+						FILTER (WHERE state IN (?, ?)),
 					0
 				),
 				0
 			) AS oldest_pending_age_seconds
 		FROM sms_outbox`,
 		entity.StatePending, entity.StateSending, entity.StateSent, entity.StateFailed,
-		now, entity.StateSent,
+		now, entity.StatePending, entity.StateSending,
 	).Scan(&counts).Error
 	if err != nil {
 		r.logger.Error("count sms outbox", zap.Error(err))

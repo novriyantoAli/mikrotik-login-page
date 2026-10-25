@@ -337,7 +337,9 @@ func (r *fakeOutboxRepository) Counts(_ context.Context, now time.Time) (reposit
 		case entity.StateFailed:
 			counts.Failed++
 		}
-		if row.State == entity.StateSent {
+		// Only rows still owed to a buyer count: a terminal sent/failed row is not a
+		// wait, so the gauge can return to zero (ADR 0018).
+		if row.State != entity.StatePending && row.State != entity.StateSending {
 			continue
 		}
 		age := int64(now.Sub(row.CreatedAt).Seconds())
