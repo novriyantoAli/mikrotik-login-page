@@ -54,18 +54,3 @@ export type Health = z.infer<typeof HealthSchema>;
 export const HealthEnvelopeSchema = z.object({ data: HealthSchema }).strict();
 
 export type HealthEnvelope = z.infer<typeof HealthEnvelopeSchema>;
-
-/** Indonesian explanation for each failure category. */
-export const failureLabels: Record<FailureCategory, string> = {
-  timeout: 'Tidak merespons tepat waktu.',
-  unreachable: 'Tidak dapat dihubungi.',
-  auth_failed: 'Kredensial ditolak server.',
-  unavailable: 'Tidak tersedia.',
-};
-
-/** Indonesian label for each dependency, used by the status screen. */
-export const dependencyLabels: Record<DependencyName, string> = {
-  postgres: 'Postgres',
-  freeradius_mysql: 'MySQL FreeRADIUS',
-  redis: 'Redis',
-};

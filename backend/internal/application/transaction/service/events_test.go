@@ -163,6 +163,14 @@ func TestProvisioningAttempt_IsLoggedWithItsCountAndOutcome(t *testing.T) {
 	if attempt["outcome"] != service.OutcomeOK {
 		t.Fatalf("outcome = %v, want %q", attempt["outcome"], service.OutcomeOK)
 	}
+	// The attempt names the buyer itself, masked, so an operator never has to join
+	// it to the state-change line by an unmasked identifier (ADR 0018 §4).
+	if attempt["phone"] != phone.Mask(testPhone) {
+		t.Fatalf("phone = %v, want the masked %q", attempt["phone"], phone.Mask(testPhone))
+	}
+	if attempt["phone"] == testPhone {
+		t.Fatal("the raw Phone Number reached the provisioning attempt log")
+	}
 
 	changed := onlyEntry(t, logs, service.EventStateChanged)
 	if changed["reason"] != service.ReasonProvisioning {
@@ -192,6 +200,9 @@ func TestProvisioningAttempt_FailureIsLoggedAsARetry(t *testing.T) {
 	first := onlyEntry(t, logs, service.EventProvisioningAttempt)
 	if first["outcome"] != service.OutcomeRetry || first["attempt"] != int64(1) {
 		t.Fatalf("first attempt = %v/%v, want retry/1", first["outcome"], first["attempt"])
+	}
+	if first["phone"] != phone.Mask(testPhone) {
+		t.Fatalf("phone = %v, want the masked %q", first["phone"], phone.Mask(testPhone))
 	}
 	if f.repo.rows[0].State != entity.StatePaid {
 		t.Fatalf("state = %q, want the row still paid for the next sweep", f.repo.rows[0].State)

@@ -512,7 +512,7 @@ func newFixtureWithLogger(logger *zap.Logger) *fixture {
 		f.gateway,
 		f.waker,
 		f.clock,
-		service.ReconciliationSettings{SweepInterval: time.Minute, Batch: 50},
+		service.SweepSettings{Reconcile: service.SweepCadence{Interval: time.Minute, Batch: 50}},
 		logger,
 	)
 	return f

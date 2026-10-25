@@ -29,14 +29,6 @@ const (
 	provisionBatch = 20
 )
 
-// ProvisioningSettings are the provisioning knobs, kept in a local struct so the
-// domain never depends on the deployment configuration.
-type ProvisioningSettings struct {
-	// SweepInterval is how often the worker provisions paid Transactions that no
-	// wake-up task reached.
-	SweepInterval time.Duration
-}
-
 // Provisioner turns a paid Transaction into a working hotspot account: it writes
 // the PIN, the Active Period end and the rate limit to FreeRADIUS, then records
 // the SMS in the outbox and the state change in one Postgres transaction
@@ -100,13 +92,18 @@ func (p *provisioner) Provision(ctx context.Context, id uint) error {
 	}
 
 	attempt := p.beginAttempt(ctx, row.ID)
+	logged := provisioningAttempt{
+		TransactionID: row.ID,
+		PhoneNumber:   row.PhoneNumber,
+		Attempt:       attempt,
+	}
 	if err := p.provision(ctx, row); err != nil {
-		provisioningAttempt{TransactionID: row.ID, Attempt: attempt, Outcome: OutcomeRetry}.
-			log(p.logger, err)
+		logged.Outcome = OutcomeRetry
+		logged.log(p.logger, err)
 		return err
 	}
-	provisioningAttempt{TransactionID: row.ID, Attempt: attempt, Outcome: OutcomeOK}.
-		log(p.logger, nil)
+	logged.Outcome = OutcomeOK
+	logged.log(p.logger, nil)
 	return nil
 }
 

@@ -15,17 +15,6 @@ import (
 	"github.com/novriyantoAli/mikrotik-login-page/backend/internal/pkg/queue"
 )
 
-// ReconciliationSettings are the reconciliation knobs, kept in a local struct so
-// the domain never depends on the deployment configuration.
-type ReconciliationSettings struct {
-	// SweepInterval is how often the worker asks about pending Transactions whose
-	// callback never arrived.
-	SweepInterval time.Duration
-	// Batch bounds one sweep, so a backlog is chipped away instead of holding one
-	// gateway round trip per pending row at once.
-	Batch int
-}
-
 // Reconciler recovers a settlement whose callback was lost. It is a separate
 // surface from Service because only the worker process runs it, and it is a
 // sweep rather than a per-Transaction task because the durable work item is
@@ -42,7 +31,7 @@ type reconciler struct {
 	gateway     payment.Gateway
 	transitions *transitions
 	clock       clock.Clock
-	settings    ReconciliationSettings
+	settings    SweepSettings
 	logger      *zap.Logger
 }
 
@@ -53,7 +42,7 @@ func NewReconciler(
 	gateway payment.Gateway,
 	waker queue.Enqueuer,
 	clock clock.Clock,
-	settings ReconciliationSettings,
+	settings SweepSettings,
 	logger *zap.Logger,
 ) Reconciler {
 	return &reconciler{
@@ -72,7 +61,7 @@ func (r *reconciler) ReconcileDue(ctx context.Context) (int, error) {
 	// Only rows whose deadline can still be met are asked about: `expired` is
 	// final (ADR 0015), so a settlement arriving after it would be logged and
 	// dropped. That makes the selector the reconciliation window (ADR 0018).
-	ids, err := r.repo.ReconcilableIDs(ctx, now, r.settings.Batch)
+	ids, err := r.repo.ReconcilableIDs(ctx, now, r.settings.Reconcile.Batch)
 	if err != nil {
 		return 0, err
 	}

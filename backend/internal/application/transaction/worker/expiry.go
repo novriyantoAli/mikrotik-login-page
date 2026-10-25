@@ -5,7 +5,6 @@ package worker
 
 import (
 	"context"
-	"time"
 
 	"github.com/hibiken/asynq"
 	"go.uber.org/fx"
@@ -22,13 +21,6 @@ import (
 // times.
 const TaskExpire = "transaction:expire"
 
-// Settings are the sweeper knobs, kept in a local struct because Fx cannot
-// resolve a bare time.Duration.
-type Settings struct {
-	// SweepInterval is how often overdue pending Transactions are closed.
-	SweepInterval time.Duration
-}
-
 // Expiry sweeps the Transaction table on an interval and on demand.
 type Expiry struct {
 	sweeper *sweeper
@@ -38,12 +30,12 @@ type Expiry struct {
 func NewExpiry(
 	lc fx.Lifecycle,
 	expiry service.Expiry,
-	settings Settings,
+	settings service.SweepSettings,
 	registry *sweep.Registry,
 	clk clock.Clock,
 	logger *zap.Logger,
 ) *Expiry {
-	sweeper := newSweeper(settings.SweepInterval, TaskExpire, registry, clk, func(ctx context.Context) {
+	sweeper := newSweeper(settings.Expire.Interval, TaskExpire, registry, clk, func(ctx context.Context) {
 		if _, err := expiry.ExpireDue(ctx); err != nil {
 			logger.Error("expire pending transactions", zap.Error(err))
 		}

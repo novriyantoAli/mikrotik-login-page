@@ -163,9 +163,6 @@ func WorkerWithBase(base fx.Option, extra ...fx.Option) fx.Option {
 			func(cfg *config.Config) notificationworker.Settings {
 				return notificationworker.Settings{SweepInterval: cfg.SMS.SweepInterval}
 			},
-			func(cfg *config.Config) transactionworker.Settings {
-				return transactionworker.Settings{SweepInterval: cfg.Transaction.ExpirySweepInterval}
-			},
 			fx.Annotate(
 				notificationworker.NewDrainer,
 				fx.As(new(serverworker.TaskRegistrar)),

@@ -4,6 +4,7 @@ import (
 	"go.uber.org/zap"
 
 	"github.com/novriyantoAli/mikrotik-login-page/backend/internal/application/transaction/entity"
+	"github.com/novriyantoAli/mikrotik-login-page/backend/internal/application/transaction/repository"
 	"github.com/novriyantoAli/mikrotik-login-page/backend/internal/pkg/phone"
 )
 
@@ -51,6 +52,13 @@ func subjectOf(row *entity.Transaction) changeSubject {
 	return changeSubject{ID: row.ID, Reference: row.Reference, PhoneNumber: row.PhoneNumber}
 }
 
+// subjectOfClosed is the same identity for a row the repository already reduced to
+// the three fields a log line needs. The two bulk expiry paths hand back
+// repository.Expired, so converting it lives here instead of at both call sites.
+func subjectOfClosed(row repository.Expired) changeSubject {
+	return changeSubject{ID: row.ID, Reference: row.Reference, PhoneNumber: row.PhoneNumber}
+}
+
 // logStateChange is the one place a Transaction transition reaches the log, so
 // every reason writes the same keys; two spellings of the same event would make
 // the log unqueryable (ADR 0018). extra carries context that belongs to one reason
@@ -79,11 +87,23 @@ func logStateChange(
 	logger.Info("transaction state changed", fields...)
 }
 
+// logDeadlinesClosed is the one place a deadline closing reaches the log. Both bulk
+// expiry paths (the worker's sweep and a checkout superseding its own overdue row)
+// make the same transition and differ only in reason, so they share one loop.
+func logDeadlinesClosed(logger *zap.Logger, rows []repository.Expired, reason string) {
+	for _, row := range rows {
+		logStateChange(logger, subjectOfClosed(row), entity.StatePending, entity.StateExpired, reason)
+	}
+}
+
 // provisioningAttempt is one logged provisioning attempt. Attempt is the running
 // count for this Transaction — 0 when the counter itself was unavailable, because
-// a failed observation must not fail the attempt (ADR 0018).
+// a failed observation must not fail the attempt (ADR 0018). PhoneNumber is carried
+// masked so an operator can pair the attempt with the buyer without joining on the
+// state-change line.
 type provisioningAttempt struct {
 	TransactionID uint
+	PhoneNumber   string
 	Attempt       int
 	Outcome       string
 }
@@ -92,6 +112,7 @@ func (a provisioningAttempt) log(logger *zap.Logger, cause error) {
 	fields := []zap.Field{
 		zap.String("event", EventProvisioningAttempt),
 		zap.Uint("transaction_id", a.TransactionID),
+		zap.String("phone", phone.Mask(a.PhoneNumber)),
 		zap.Int("attempt", a.Attempt),
 		zap.String("outcome", a.Outcome),
 	}

@@ -162,11 +162,7 @@ func (s *service) Create(
 	if err != nil {
 		return nil, err
 	}
-	for _, row := range superseded {
-		logStateChange(s.logger,
-			changeSubject{ID: row.ID, Reference: row.Reference, PhoneNumber: row.PhoneNumber},
-			entity.StatePending, entity.StateExpired, ReasonCheckoutSuperseded)
-	}
+	logDeadlinesClosed(s.logger, superseded, ReasonCheckoutSuperseded)
 
 	existing, err := s.repo.Pending(ctx, phoneNumber, request.PackageID, now)
 	if err != nil {

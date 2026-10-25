@@ -3,12 +3,9 @@
 package handler
 
 import (
-	"net/http"
-
 	"github.com/gin-gonic/gin"
 	"go.uber.org/zap"
 
-	"github.com/novriyantoAli/mikrotik-login-page/backend/internal/application/health/dto"
 	"github.com/novriyantoAli/mikrotik-login-page/backend/internal/application/health/service"
 	"github.com/novriyantoAli/mikrotik-login-page/backend/internal/pkg/httpx"
 )
@@ -43,10 +40,5 @@ func (h *Handler) RegisterRoutes(api *gin.RouterGroup) {
 func (h *Handler) GetHealth(c *gin.Context) {
 	report := h.service.Report(c.Request.Context())
 
-	status := http.StatusOK
-	if report.Status != dto.StatusOK {
-		status = http.StatusServiceUnavailable
-	}
-
-	httpx.Data(c, status, report)
+	httpx.Data(c, report.StatusCode(), report)
 }

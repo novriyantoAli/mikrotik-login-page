@@ -2,6 +2,8 @@
 // endpoint (golden rule: entities never reach JSON).
 package dto
 
+import "net/http"
+
 // Overall status values. "ok" means every dependency is reachable, "degraded"
 // means at least one is not.
 const (
@@ -41,4 +43,15 @@ type Health struct {
 	Version   string           `json:"version"`
 	CheckedAt string           `json:"checked_at"`
 	Checks    map[string]Check `json:"checks"`
+}
+
+// StatusCode is the HTTP status this report means: 503 while any dependency is
+// down, 200 when every one is up. Both surfaces that serve the report — the API's
+// /health and the worker's /healthz — answer with it, so "healthy" cannot come to
+// mean two different things (ADR 0018 §3).
+func (h Health) StatusCode() int {
+	if h.Status != StatusOK {
+		return http.StatusServiceUnavailable
+	}
+	return http.StatusOK
 }

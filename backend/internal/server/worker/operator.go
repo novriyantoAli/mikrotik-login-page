@@ -12,7 +12,6 @@ import (
 	"go.uber.org/fx"
 	"go.uber.org/zap"
 
-	healthdto "github.com/novriyantoAli/mikrotik-login-page/backend/internal/application/health/dto"
 	healthservice "github.com/novriyantoAli/mikrotik-login-page/backend/internal/application/health/service"
 	notificationservice "github.com/novriyantoAli/mikrotik-login-page/backend/internal/application/notification/service"
 	transactionservice "github.com/novriyantoAli/mikrotik-login-page/backend/internal/application/transaction/service"
@@ -126,16 +125,11 @@ func newOperatorMux(
 }
 
 // healthHandler answers like /api/health: 200 when every check is up, 503 when one
-// is not, with the same report body so both surfaces mean the same thing.
+// is not, with the same report body and the same status rule (ADR 0018 §3).
 func healthHandler(health healthservice.Service) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		report := health.Report(r.Context())
-
-		status := http.StatusOK
-		if report.Status != healthdto.StatusOK {
-			status = http.StatusServiceUnavailable
-		}
-		writeJSON(w, status, report)
+		writeJSON(w, report.StatusCode(), report)
 	}
 }
 

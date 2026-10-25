@@ -30,12 +30,12 @@ type Reconciliation struct {
 func NewReconciliation(
 	lc fx.Lifecycle,
 	reconciler service.Reconciler,
-	settings service.ReconciliationSettings,
+	settings service.SweepSettings,
 	registry *sweep.Registry,
 	clk clock.Clock,
 	logger *zap.Logger,
 ) *Reconciliation {
-	sweeper := newSweeper(settings.SweepInterval, TaskReconcile, registry, clk, func(ctx context.Context) {
+	sweeper := newSweeper(settings.Reconcile.Interval, TaskReconcile, registry, clk, func(ctx context.Context) {
 		reconciled, err := reconciler.ReconcileDue(ctx)
 		if err != nil {
 			logger.Error("reconcile pending transactions", zap.Error(err))

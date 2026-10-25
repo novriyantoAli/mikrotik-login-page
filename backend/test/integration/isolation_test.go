@@ -25,6 +25,16 @@ var publicRoutes = []string{
 	"POST /api/auth/magic-link/exchange",
 }
 
+// bodyAssertedRoutes are the routes the subtests below cover by asserting what the
+// response body carries rather than a bare status, so they name their route here
+// instead of in the status table. Every other session route is derived from the
+// table itself (see isolationRoutes).
+var bodyAssertedRoutes = []string{
+	"GET /api/auth/session",
+	"GET /api/transactions/channels",
+	"POST /api/auth/logout",
+}
+
 // isolationCase is one row of the table: the request a buyer could send naming
 // somebody else, and the status the API must answer.
 type isolationCase struct {
@@ -52,10 +62,6 @@ func TestSessionEndpointsIsolatePhoneNumbers(t *testing.T) {
 	ownPhone := "6281300000061"
 	foreignPhone := "6281300000062"
 	clientIP := "198.51.100.61"
-
-	t.Run("table covers every session route", func(t *testing.T) {
-		assertIsolationTableCoversEverySessionRoute(t, harness.Engine)
-	})
 
 	cases := []isolationCase{
 		{
@@ -131,6 +137,10 @@ func TestSessionEndpointsIsolatePhoneNumbers(t *testing.T) {
 			want: http.StatusOK,
 		},
 	}
+
+	t.Run("table covers every session route", func(t *testing.T) {
+		assertIsolationTableCoversEverySessionRoute(t, harness.Engine, isolationRoutes(cases, controls))
+	})
 
 	for _, testCase := range append(cases, controls...) {
 		t.Run(testCase.name, func(t *testing.T) {
@@ -208,10 +218,58 @@ func TestSessionEndpointsIsolatePhoneNumbers(t *testing.T) {
 	})
 }
 
+// isolationRoutes is what the coverage guard believes the table covers: the route
+// each row of both tables exercises, normalised to the router's own shape, plus
+// the routes asserted by the body subtests. A new endpoint therefore has to bring a
+// row — adding a name to a list cannot fake coverage anymore.
+func isolationRoutes(tables ...[]isolationCase) []string {
+	routes := make([]string, 0, len(bodyAssertedRoutes))
+	for _, table := range tables {
+		for _, testCase := range table {
+			routes = append(routes, routePatternOf(testCase.method, testCase.path))
+		}
+	}
+	return append(routes, bodyAssertedRoutes...)
+}
+
+// routePatternOf reduces a request path to the router's pattern: the query string
+// is not part of a route, and a numeric segment is that route's `:id`.
+func routePatternOf(method, requestPath string) string {
+	withoutQuery, _, _ := strings.Cut(requestPath, "?")
+
+	segments := strings.Split(withoutQuery, "/")
+	for index, segment := range segments {
+		if segment != "" && strings.Trim(segment, "0123456789") == "" {
+			segments[index] = ":id"
+		}
+	}
+	return method + " " + strings.Join(segments, "/")
+}
+
+// TestIsolationRoutePatternReducesAPathToItsRoute keeps the coverage guard honest:
+// a derivation that produced the wrong pattern would flag every route as uncovered
+// (or worse, match one by accident).
+func TestIsolationRoutePatternReducesAPathToItsRoute(t *testing.T) {
+	t.Parallel()
+
+	cases := map[string]string{
+		"/api/account?phone_number=6281300000062":                     "GET /api/account",
+		"/api/account/extend-preview?package_id=7&phone_number=62813": "GET /api/account/extend-preview",
+		"/api/transactions/41":                                        "GET /api/transactions/:id",
+		"/api/transactions":                                           "POST /api/transactions",
+	}
+	for requestPath, want := range cases {
+		method := strings.Fields(want)[0]
+		if got := routePatternOf(method, requestPath); got != want {
+			t.Fatalf("routePatternOf(%q) = %q, want %q", requestPath, got, want)
+		}
+	}
+}
+
 // assertIsolationTableCoversEverySessionRoute fails when the router grows a route
-// that nobody added to the isolation table, and when a route listed as public
-// stops existing (a typo would otherwise hide a protected route).
-func assertIsolationTableCoversEverySessionRoute(t *testing.T, engine *gin.Engine) {
+// that no case covers, and when a covered route stops existing (a typo would
+// otherwise hide a protected route).
+func assertIsolationTableCoversEverySessionRoute(t *testing.T, engine *gin.Engine, routes []string) {
 	t.Helper()
 
 	registered := make(map[string]bool)
@@ -237,20 +295,14 @@ func assertIsolationTableCoversEverySessionRoute(t *testing.T, engine *gin.Engin
 	}
 	sort.Strings(sessionRoutes)
 
-	covered := map[string]bool{
-		"GET /api/account":                true,
-		"GET /api/account/extend-preview": true,
-		"GET /api/auth/session":           true,
-		"POST /api/auth/logout":           true,
-		"GET /api/transactions":           true,
-		"POST /api/transactions":          true,
-		"GET /api/transactions/channels":  true,
-		"GET /api/transactions/:id":       true,
+	covered := make(map[string]bool, len(routes))
+	for _, route := range routes {
+		covered[route] = true
 	}
 	for _, route := range sessionRoutes {
 		if !covered[route] {
-			t.Fatalf("route %q answers for one buyer but has no isolation case: "+
-				"add it to the table in TestSessionEndpointsIsolatePhoneNumbers", route)
+			t.Fatalf("route %q answers for one buyer but no case covers it: "+
+				"add a row to TestSessionEndpointsIsolatePhoneNumbers", route)
 		}
 	}
 	deleteAll(covered, sessionRoutes)

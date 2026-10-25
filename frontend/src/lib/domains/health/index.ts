@@ -4,12 +4,7 @@
  */
 export { default as HealthStatusCard } from './components/HealthStatusCard.svelte';
 export { createHealthQuery, healthKeys } from './queries/health.queries';
-export {
-  HealthSchema,
-  HealthEnvelopeSchema,
-  dependencyLabels,
-  failureLabels,
-} from './schemas/health.schema';
+export { HealthSchema, HealthEnvelopeSchema } from './schemas/health.schema';
 export type {
   Health,
   HealthCheck,
