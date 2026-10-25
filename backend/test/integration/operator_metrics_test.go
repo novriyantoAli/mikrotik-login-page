@@ -33,8 +33,10 @@ func TestOperatorCounters_ReportTheBacklogs(t *testing.T) {
 
 	now := harness.Doubles.Clock.Now()
 
-	// One row per state. The oldest undelivered message is the failed one, 90
-	// seconds old; the sent row is older still and must not count towards the wait.
+	// One row per state. The oldest row a buyer is *waiting* on is the sending one,
+	// 90 seconds old; the failed row is older still and terminal, and the sent row
+	// older again — neither may count towards the wait, or the gauge could never
+	// return to zero while a dead message sits in the table.
 	for _, row := range []*notificationentity.SMS{
 		{
 			PhoneNumber: "6281300000071", Message: "PIN Anda", State: notificationentity.StatePending,
@@ -42,11 +44,11 @@ func TestOperatorCounters_ReportTheBacklogs(t *testing.T) {
 		},
 		{
 			PhoneNumber: "6281300000071", Message: "PIN Anda", State: notificationentity.StateSending,
-			NextAttemptAt: now, CreatedAt: now.Add(-45 * time.Second),
+			NextAttemptAt: now, CreatedAt: now.Add(-90 * time.Second),
 		},
 		{
 			PhoneNumber: "6281300000071", Message: "PIN Anda", State: notificationentity.StateFailed,
-			NextAttemptAt: now, CreatedAt: now.Add(-90 * time.Second),
+			NextAttemptAt: now, CreatedAt: now.Add(-5 * time.Minute),
 		},
 		{
 			PhoneNumber: "6281300000071", Message: "", State: notificationentity.StateSent,
@@ -82,7 +84,7 @@ func TestOperatorCounters_ReportTheBacklogs(t *testing.T) {
 		t.Fatalf("outbox counts = %+v, want one row per state", outboxCounts)
 	}
 	if outboxCounts.OldestPendingAgeSeconds != 90 {
-		t.Fatalf("oldest wait = %ds, want 90 (the failed row, not the delivered one)",
+		t.Fatalf("oldest wait = %ds, want 90 (the sending row, not the terminal ones)",
 			outboxCounts.OldestPendingAgeSeconds)
 	}
 

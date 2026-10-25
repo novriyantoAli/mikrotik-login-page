@@ -83,8 +83,9 @@ listener (§3), returning a plain JSON body:
 Definitions, because a metric without one is a guess: `sending` counts rows
 claimed but unfinished, which is how a stuck lease shows up;
 `oldest_pending_age_seconds` is measured from the `created_at` of the oldest row
-not yet `sent` — how long a buyer has been waiting — and is `0` when nothing is
-queued. `provisioning.paid_awaiting` is the count of `paid` rows, and
+still owed (`pending` or `sending`) — how long a buyer has been waiting — and is
+`0` when nothing is queued. A terminal `sent` or `failed` row is not a wait, so
+the gauge can return to zero instead of growing forever on a dead message. `provisioning.paid_awaiting` is the count of `paid` rows, and
 `provisioning.attempts` is `SUM(provision_attempts)` over those same rows: a
 **gauge** that rises while a backlog is retrying and returns to zero when it
 clears, not a monotonic counter. `transactions` gains the `provision_attempts`
@@ -222,6 +223,11 @@ wait for `/api/health`, run the spec, and `down -v` in `if: always()`. Separate
 so a journey failure is attributable, and so the backend job stays the fast
 signal it is today.
 
+**Status: this section is a decision, not yet shipped.** The compose override, the
+vendor stub, the journey spec and the `E2E (compose)` job land in the remaining
+part of #17, which needs a host with Docker; until that job is green this
+criterion is unmet. Everything else in this ADR is in the tree.
+
 ## 6. The experience pass is executable, not a review note
 
 Decision: two checks instead of a manual sweep.
@@ -233,15 +239,19 @@ Decision: two checks instead of a manual sweep.
   user-facing attributes (`label`, `title`, `placeholder`, `aria-label`, `alt`).
   Matching rendered text is what keeps CSS such as `order:` and ordinary
   identifiers out of the failure list, so the test needs no growing allowlist.
-- 360px: the E2E asserts, on each screen it reaches, that
-  `document.documentElement.scrollWidth <= clientWidth` at a 360×740 viewport.
-  jsdom cannot measure layout, so this belongs where a real browser already runs.
+- 360px: `document.documentElement.scrollWidth <= clientWidth` is asserted at a
+  360×740 viewport on every screen of the app. jsdom cannot measure layout, so
+  this belongs in a real browser: today that is `tests/app/layout.spec.mjs`,
+  which builds the SPA, serves it with `vite preview` and answers `/api/**` from
+  the contract fixtures, so it needs no backend. When §5 lands, the same
+  assertion folds into the journey spec and the stand-alone project goes away.
 
 Rejected alternatives: a one-off manual sweep (an acceptance criterion only a
 human can check rots by the next commit); scanning the raw source (false
 positives on CSS and identifiers force a skip list that grows until the test
-means nothing); a second Playwright project only for 360px (one more browser
-boot for one assertion).
+means nothing); waiting for the E2E to exist before any 360px check runs at all
+(the layout criterion is decidable today, and a browser boot is cheaper than an
+unverified claim).
 
 ## Consequences
 

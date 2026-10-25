@@ -7,6 +7,7 @@ import (
 	"go.uber.org/fx"
 	"go.uber.org/zap"
 
+	"github.com/novriyantoAli/mikrotik-login-page/backend/internal/pkg/clock"
 	"github.com/novriyantoAli/mikrotik-login-page/backend/internal/pkg/sweep"
 
 	"github.com/novriyantoAli/mikrotik-login-page/backend/internal/application/transaction/service"
@@ -31,9 +32,10 @@ func NewReconciliation(
 	reconciler service.Reconciler,
 	settings service.ReconciliationSettings,
 	registry *sweep.Registry,
+	clk clock.Clock,
 	logger *zap.Logger,
 ) *Reconciliation {
-	sweeper := newSweeper(settings.SweepInterval, TaskReconcile, registry, func(ctx context.Context) {
+	sweeper := newSweeper(settings.SweepInterval, TaskReconcile, registry, clk, func(ctx context.Context) {
 		reconciled, err := reconciler.ReconcileDue(ctx)
 		if err != nil {
 			logger.Error("reconcile pending transactions", zap.Error(err))
@@ -50,8 +52,5 @@ func NewReconciliation(
 
 // RegisterHandlers implements the worker's TaskRegistrar.
 func (r *Reconciliation) RegisterHandlers(mux *asynq.ServeMux) {
-	mux.HandleFunc(TaskReconcile, func(context.Context, *asynq.Task) error {
-		r.sweeper.wakeUp()
-		return nil
-	})
+	r.sweeper.register(mux, TaskReconcile)
 }

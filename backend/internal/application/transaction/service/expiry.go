@@ -42,14 +42,9 @@ func (e *expiry) ExpireDue(ctx context.Context) (int64, error) {
 	// event as a settlement: the operator query is one event name across both
 	// (ADR 0018).
 	for _, row := range expired {
-		stateChange{
-			TransactionID: row.ID,
-			Reference:     row.Reference,
-			PhoneNumber:   row.PhoneNumber,
-			From:          entity.StatePending,
-			To:            entity.StateExpired,
-			Reason:        ReasonExpirySweep,
-		}.log(e.logger)
+		logStateChange(e.logger,
+			changeSubject{ID: row.ID, Reference: row.Reference, PhoneNumber: row.PhoneNumber},
+			entity.StatePending, entity.StateExpired, ReasonExpirySweep)
 	}
 	return int64(len(expired)), nil
 }

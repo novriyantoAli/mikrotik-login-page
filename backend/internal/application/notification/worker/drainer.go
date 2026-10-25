@@ -14,6 +14,7 @@ import (
 
 	"github.com/novriyantoAli/mikrotik-login-page/backend/internal/application/notification/service"
 	"github.com/novriyantoAli/mikrotik-login-page/backend/internal/application/notification/sms"
+	"github.com/novriyantoAli/mikrotik-login-page/backend/internal/pkg/clock"
 	"github.com/novriyantoAli/mikrotik-login-page/backend/internal/pkg/sweep"
 )
 
@@ -38,6 +39,7 @@ type Drainer struct {
 	// registry is where a completed pass is recorded, so the worker's /healthz can
 	// tell a working drainer from a wedged one (ADR 0018).
 	registry *sweep.Registry
+	clock    clock.Clock
 
 	wake chan struct{}
 	done sync.WaitGroup
@@ -49,6 +51,7 @@ func NewDrainer(
 	deliverer service.Deliverer,
 	settings Settings,
 	registry *sweep.Registry,
+	clk clock.Clock,
 	logger *zap.Logger,
 ) *Drainer {
 	drainer := &Drainer{
@@ -56,6 +59,7 @@ func NewDrainer(
 		logger:    logger,
 		sweep:     settings.SweepInterval,
 		registry:  registry,
+		clock:     clk,
 		wake:      make(chan struct{}, 1),
 	}
 
@@ -122,7 +126,8 @@ func (d *Drainer) run(ctx context.Context) {
 
 	for {
 		d.drain(ctx)
-		d.registry.Beat(sms.TaskDeliver, d.sweep, time.Now())
+		// Same clock as the checker that reads this beat, never the wall clock.
+		d.registry.Beat(sms.TaskDeliver, d.sweep, d.clock.Now())
 
 		select {
 		case <-ctx.Done():

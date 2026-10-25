@@ -11,6 +11,7 @@ import (
 	"go.uber.org/fx"
 	"go.uber.org/zap"
 
+	"github.com/novriyantoAli/mikrotik-login-page/backend/internal/pkg/clock"
 	"github.com/novriyantoAli/mikrotik-login-page/backend/internal/pkg/sweep"
 
 	"github.com/novriyantoAli/mikrotik-login-page/backend/internal/application/transaction/service"
@@ -39,9 +40,10 @@ func NewExpiry(
 	expiry service.Expiry,
 	settings Settings,
 	registry *sweep.Registry,
+	clk clock.Clock,
 	logger *zap.Logger,
 ) *Expiry {
-	sweeper := newSweeper(settings.SweepInterval, TaskExpire, registry, func(ctx context.Context) {
+	sweeper := newSweeper(settings.SweepInterval, TaskExpire, registry, clk, func(ctx context.Context) {
 		if _, err := expiry.ExpireDue(ctx); err != nil {
 			logger.Error("expire pending transactions", zap.Error(err))
 		}
@@ -53,8 +55,5 @@ func NewExpiry(
 
 // RegisterHandlers implements the worker's TaskRegistrar.
 func (e *Expiry) RegisterHandlers(mux *asynq.ServeMux) {
-	mux.HandleFunc(TaskExpire, func(context.Context, *asynq.Task) error {
-		e.sweeper.wakeUp()
-		return nil
-	})
+	e.sweeper.register(mux, TaskExpire)
 }

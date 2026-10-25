@@ -90,14 +90,8 @@ func (t *transitions) settle(
 		return false, nil
 	}
 
-	stateChange{
-		TransactionID: row.ID,
-		Reference:     row.Reference,
-		PhoneNumber:   row.PhoneNumber,
-		From:          entity.StatePending,
-		To:            entity.StatePaid,
-		Reason:        reason,
-	}.log(t.logger, zap.Int64("amount_idr", row.AmountIDR))
+	logStateChange(t.logger, subjectOf(row), entity.StatePending, entity.StatePaid, reason,
+		zap.Int64("amount_idr", row.AmountIDR))
 	// Ask the worker to provision now; the paid row is the durable work item, so a
 	// lost wake-up costs one sweep interval, not the account (ADR 0016).
 	if err := t.waker.Enqueue(ctx, TaskProvision); err != nil {
@@ -133,14 +127,7 @@ func (t *transitions) close(
 		return false, err
 	}
 	if changed {
-		stateChange{
-			TransactionID: row.ID,
-			Reference:     row.Reference,
-			PhoneNumber:   row.PhoneNumber,
-			From:          entity.StatePending,
-			To:            next,
-			Reason:        reason,
-		}.log(t.logger)
+		logStateChange(t.logger, subjectOf(row), entity.StatePending, next, reason)
 	}
 	return changed, nil
 }

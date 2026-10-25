@@ -248,14 +248,8 @@ func (p *provisioner) complete(ctx context.Context, row *entity.Transaction, pin
 		return nil
 	}
 
-	stateChange{
-		TransactionID: row.ID,
-		Reference:     row.Reference,
-		PhoneNumber:   row.PhoneNumber,
-		From:          entity.StatePaid,
-		To:            entity.StateProvisioned,
-		Reason:        ReasonProvisioning,
-	}.log(p.logger)
+	logStateChange(p.logger, subjectOf(row), entity.StatePaid, entity.StateProvisioned,
+		ReasonProvisioning)
 	return nil
 }
 

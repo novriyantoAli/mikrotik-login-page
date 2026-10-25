@@ -163,14 +163,9 @@ func (s *service) Create(
 		return nil, err
 	}
 	for _, row := range superseded {
-		stateChange{
-			TransactionID: row.ID,
-			Reference:     row.Reference,
-			PhoneNumber:   row.PhoneNumber,
-			From:          entity.StatePending,
-			To:            entity.StateExpired,
-			Reason:        ReasonCheckoutSuperseded,
-		}.log(s.logger)
+		logStateChange(s.logger,
+			changeSubject{ID: row.ID, Reference: row.Reference, PhoneNumber: row.PhoneNumber},
+			entity.StatePending, entity.StateExpired, ReasonCheckoutSuperseded)
 	}
 
 	existing, err := s.repo.Pending(ctx, phoneNumber, request.PackageID, now)

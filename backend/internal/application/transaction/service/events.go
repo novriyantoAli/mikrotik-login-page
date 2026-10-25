@@ -37,32 +37,42 @@ const (
 	OutcomeRetry = "retry"
 )
 
-// stateChange is one logged transition. It exists as a type so every caller
-// writes the same keys; two spellings of the same event would make the log
-// unqueryable (ADR 0018).
-type stateChange struct {
-	TransactionID uint
-	Reference     string
-	PhoneNumber   string
-	From          entity.State
-	To            entity.State
-	Reason        string
+// changeSubject is the identity of the Transaction a transition happened to. The
+// three fields always travel together, so they travel as one value instead of
+// being repeated at every call site (ADR 0018).
+type changeSubject struct {
+	ID          uint
+	Reference   string
+	PhoneNumber string
 }
 
-// log writes the transition. extra carries context that belongs to one reason
+// subjectOf is the subject of a row the caller is already holding.
+func subjectOf(row *entity.Transaction) changeSubject {
+	return changeSubject{ID: row.ID, Reference: row.Reference, PhoneNumber: row.PhoneNumber}
+}
+
+// logStateChange is the one place a Transaction transition reaches the log, so
+// every reason writes the same keys; two spellings of the same event would make
+// the log unqueryable (ADR 0018). extra carries context that belongs to one reason
 // only (the settled amount, say) without changing the shared shape.
-func (c stateChange) log(logger *zap.Logger, extra ...zap.Field) {
+func logStateChange(
+	logger *zap.Logger,
+	subject changeSubject,
+	from, to entity.State,
+	reason string,
+	extra ...zap.Field,
+) {
 	fields := make([]zap.Field, 0, 7+len(extra))
 	fields = append(fields,
 		zap.String("event", EventStateChanged),
-		zap.Uint("transaction_id", c.TransactionID),
-		zap.String("from", string(c.From)),
-		zap.String("to", string(c.To)),
-		zap.String("reference", c.Reference),
+		zap.Uint("transaction_id", subject.ID),
+		zap.String("from", string(from)),
+		zap.String("to", string(to)),
+		zap.String("reference", subject.Reference),
 		// The Phone Number is the account identity, so it is masked here even
 		// though the PIN never reaches a log line at all (ADR 0018).
-		zap.String("phone", phone.Mask(c.PhoneNumber)),
-		zap.String("reason", c.Reason),
+		zap.String("phone", phone.Mask(subject.PhoneNumber)),
+		zap.String("reason", reason),
 	)
 	fields = append(fields, extra...)
 
