@@ -226,7 +226,9 @@ wait for `/api/health`, run the spec, and `down -v` in `if: always()`. Separate
 so a journey failure is attributable, and so the backend job stays the fast
 signal it is today.
 
-**Status: shipped, pending one green CI run.** The pieces are in the tree:
+**Status: shipped and green in CI.** `E2E (compose)` runs the journey against a
+real stack on every push, and it is what closes #17's last acceptance criterion.
+The pieces are:
 `docker/tripay-stub/` (the two vendor endpoints, the channel list, a `/bayar`
 page that posts a genuinely signed callback, and `/healthz`),
 `docker-compose.e2e.yml` (vendor edge, absent modem, plain-HTTP cookie), the
@@ -237,11 +239,32 @@ on plain HTTP, and the SMS row must keep its body — a failed send reschedules
 while attempts remain, and only the final attempt clears `message` — so the
 override raises the retry budget and the backoff instead of trusting the default.
 
-Verified locally against a real stack (Postgres, MySQL FreeRADIUS, Redis, API,
-worker, stub): the journey reaches `provisioned` on the first attempt, writes
-`radcheck`/`radreply` for the buyer, and leaves five undelivered SMS bodies
-intact. The CI job itself has not run yet, because the machine that wrote it has
-no Docker; until it is green the acceptance criterion is not claimed.
+The journey paid for itself before it was green. Three defects that every
+deployment carried and no test could see fell out of it:
+
+1. **`WORKER_HEALTH_ADDR` was inert.** `worker.health_addr` had no default, and
+   Viper only binds environment variables for keys it knows, so the key worked
+   from a YAML file and was ignored from the environment — which is the only way
+   compose passes it. The worker's operator listener was therefore permanently
+   disabled in every deployment, and the healthcheck added in §3 could never pass.
+   Fixed by a default plus `TestEveryConfigFieldHasADefault`, which walks `Config`
+   by reflection rather than `Keys()` (that function is derived from the defaults
+   and would agree by construction).
+2. **The proxy's CSP blanked the app.** `default-src 'self'` on the single origin
+   blocked the inline bootstrap script SvelteKit emits, so `index.html` and its
+   assets loaded and no request was ever made — a blank page with nothing in the
+   network log to blame. The app now owns its policy through `kit.csp` hash mode
+   (the bootstrap hash changes per build, so a static header cannot carry it) and
+   the proxy keeps only `frame-ancestors 'none'`, the part `<meta>` cannot express.
+3. **Reading the outbox would not have worked on the runner.** `docker compose
+   exec` does not forward the host environment, so passing the SQL through
+   `$E2E_SQL` reached psql empty and returned nothing — silently, since an empty
+   query is not an error. The SQL now travels on stdin, and a CI step proves the
+   read before the browser starts.
+
+The first two were live in `make up` deployments. They were unfindable by unit or
+integration tests because each one is a property of the assembled deployment — a
+configuration key's binding, and a header in front of a static build.
 
 ## 6. The experience pass is executable, not a review note
 
