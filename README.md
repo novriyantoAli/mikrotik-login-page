@@ -12,6 +12,20 @@ decisions live in [`docs/adr/`](docs/adr/), the full requirements in
 [`docs/prd/transaction-purchase-app-backend.md`](docs/prd/transaction-purchase-app-backend.md)
 (backend + purchase app).
 
+## Status
+
+Both PRDs are delivered: the Login Page integration (public Package list,
+credential modes, Active Period) and the backend + purchase app (Magic Link,
+payment, provisioning, Account Status and Extend, then the hardening slice of
+ADR 0018). No scheduled slice remains behind them.
+
+The **Admin Panel** — managing the Package catalog, listing Transactions, and
+listing active hotspot users — is the only remaining area, and it has no PRD
+yet, so it starts with requirements rather than with code (ADR 0018). Until it
+exists the catalog is what the deployment seed inserted plus whatever an
+operator changed by hand in SQL; the seed never overwrites those edits
+(ADR 0012).
+
 ## Monorepo layout
 
 | Path | Role |
