@@ -77,7 +77,27 @@ make test-frontend        # purchase app unit/component/contract tests
 make typecheck            # tsc (login page), go build/vet, svelte-check
 make lint                 # golangci-lint v2 + go vet, ESLint + Prettier
 npm run test:smoke        # Playwright browser tests for the Login Page
+npm run test:app          # Playwright 360px layout checks for the purchase app
+make test-e2e             # full journey against the compose stack (needs Docker)
 ```
+
+`make test-e2e` is the one suite that does not fake the stack: it brings the
+compose services up, points the vendor at `docker/tripay-stub` and leaves the
+modem absent, then walks Login Page → Package → Magic Link → payment → **PIN** in
+Account Status → back to the Login Page (ADR 0018 §5). The Magic Link is read
+from the undelivered `sms_outbox.message`, because the stored session is a hash
+and the token row never keeps the token. Without Docker, the same spec runs
+against a stack you already have: set `E2E_APP_URL`, `E2E_STUB_URL`,
+`E2E_LOGIN_PAGE_URL` and — when `sms_outbox` is not reachable through
+`docker compose exec` — `E2E_PSQL_CMD`, then
+
+```bash
+npx playwright test -c playwright.e2e.config.mjs --project=stub
+```
+
+`E2E_SANDBOX=1 … --project=sandbox` instead checks the real Tripay sandbox: it
+creates a payment and stops, so it never settles money and needs no public
+callback ingress. Run it when the vendor announces a change, not on every PR.
 
 `make test-backend` needs a real Postgres and a real Redis. When
 `TEST_POSTGRES_DSN` / `TEST_REDIS_ADDR` are unset the harness starts an embedded

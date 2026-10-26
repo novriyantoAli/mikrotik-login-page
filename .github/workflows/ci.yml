@@ -120,3 +120,71 @@ jobs:
           echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
       - run: make -C backend lint
       - run: make -C backend test
+
+  # The one job that runs the whole chain against a real stack (ADR 0018 §5).
+  # Separate from `backend` so a journey failure is attributable, and so the fast
+  # signal stays fast. The vendor is stubbed and the modem is absent — the ADR
+  # says exactly what that does and does not prove.
+  e2e-compose:
+    name: E2E (compose)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium
+
+      # The compose file requires secrets with `:?`, and the stub signs callbacks
+      # with the same private key the backend verifies. Ephemeral values only:
+      # this stack never talks to a real vendor.
+      - name: Prepare .env for the stack
+        run: |
+          cp .env.example .env
+          cat >> .env <<'ENV'
+          POSTGRES_PASSWORD=ci-postgres
+          FREERADIUS_MYSQL_PASSWORD=ci-radius
+          FREERADIUS_MYSQL_ROOT_PASSWORD=ci-radius-root
+          REDIS_PASSWORD=ci-redis
+          TRIPAY_PRIVATE_KEY=ci-e2e-stub-private-key
+          SMS_DEVICE=/dev/ttyE2E-does-not-exist
+          ENV
+
+      - name: Bring the stack up
+        run: docker compose -f docker-compose.yml -f docker-compose.e2e.yml up -d --build
+
+      - name: Wait for the API and the worker
+        run: |
+          for attempt in $(seq 1 60); do
+            if curl -fsS http://127.0.0.1:8080/api/health > /dev/null \
+              && curl -fsS http://127.0.0.1:8081/healthz > /dev/null; then
+              echo "stack siap setelah ${attempt} percobaan"
+              exit 0
+            fi
+            sleep 5
+          done
+          echo "stack tidak siap dalam 300 detik"
+          docker compose -f docker-compose.yml -f docker-compose.e2e.yml ps
+          exit 1
+
+      - run: npx playwright test -c playwright.e2e.config.mjs --project=stub
+
+      - name: Stack logs on failure
+        if: failure()
+        run: docker compose -f docker-compose.yml -f docker-compose.e2e.yml logs --tail=200
+
+      - name: Upload the Playwright report
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-report
+          path: |
+            playwright-report/
+            test-results/
+          retention-days: 7
+
+      - name: Tear the stack down
+        if: always()
+        run: docker compose -f docker-compose.yml -f docker-compose.e2e.yml down -v

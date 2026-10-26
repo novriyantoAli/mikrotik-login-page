@@ -9,7 +9,8 @@
     "test:smoke": "playwright test",
     "test:app": "playwright test -c playwright.app.config.mjs",
     "test:all": "npm run test && npm run test:smoke && npm run test:app",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test:e2e": "playwright test -c playwright.e2e.config.mjs --project=stub"
   },
   "devDependencies": {
     "@playwright/test": "1.63.0",

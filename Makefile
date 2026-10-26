@@ -1,7 +1,7 @@
 SHELL := /usr/bin/env bash
 NPM ?= npm
 
-.PHONY: help install test test-login test-backend test-frontend typecheck lint fmt build build-backend build-frontend up down logs ps dev clean
+.PHONY: help install test test-login test-backend test-frontend test-e2e typecheck lint fmt build build-backend build-frontend up down logs ps dev clean
 
 help: ## Show the available targets
 	@grep -hE '^[a-zA-Z0-9_-]+:.*?## ' $(MAKEFILE_LIST) | sort | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-18s\033[0m %s\n", $$1, $$2}'
@@ -24,6 +24,14 @@ test-backend: ## Backend unit + integration tests (real Postgres and Redis)
 
 test-frontend: ## Purchase app unit/component/contract tests
 	cd frontend && $(NPM) test
+
+# The full journey needs the real stack (Postgres, MySQL FreeRADIUS, Redis, API,
+# worker, app) plus a stub for the vendor, so it is not part of `make test`:
+# `make e2e` brings the stack up, runs the journey, and tears it down again.
+test-e2e: ## Full-journey smoke against the compose stack (needs Docker)
+	docker compose -f docker-compose.yml -f docker-compose.e2e.yml up -d --build
+	$(NPM) run test:e2e
+	docker compose -f docker-compose.yml -f docker-compose.e2e.yml down -v
 
 typecheck: ## Typecheck every part of the monorepo
 	$(NPM) run typecheck
