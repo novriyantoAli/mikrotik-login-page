@@ -123,9 +123,7 @@ describe('interface language (PRD point 30)', () => {
     expect(components.some((file) => file.includes('domains/account'))).toBe(true);
     // Copy held in a `.ts` label map is interface text too, so the scan reaches it.
     expect(scripts.length).toBeGreaterThan(20);
-    expect(scripts.some((file) => file.endsWith('domains/health/components/labels.ts'))).toBe(
-      true,
-    );
+    expect(scripts.some((file) => file.endsWith('domains/health/components/labels.ts'))).toBe(true);
   });
 
   it.each(forbiddenTerms)('never shows "$term" in rendered copy', ({ term, use }) => {
