@@ -35,7 +35,10 @@ other domain's service interface, and only DTOs cross the HTTP boundary.
 Every knob is in `internal/config/config.go`; `config.sample.yaml` documents the
 defaults and `../.env.example` documents the environment names. Deployed values
 arrive as `SECTION_KEY` environment variables (compose does this); nothing is
-hardcoded in domain code and no secret is committed.
+hardcoded in domain code and no secret is committed. A new key therefore lands
+in four places — `config.go`, `config.sample.yaml`, `../.env.example` and
+`../docker-compose.yml` — and `test/integration/deployment_test.go` fails when
+one is missed.
 
 `CONFIG_FILE` (not a `config.Keys()` entry) points at a YAML file instead of the
 default search path, which is `config.yaml` (or `config.yml`) in the working
@@ -217,13 +220,18 @@ Integration tests assert HTTP behaviour, never internal calls.
   next test.
 - **FreeRADIUS MySQL** is external only (`TEST_FREERADIUS_MYSQL_DSN`). Without
   it the health test asserts the `down` path, so the suite is still meaningful.
+  In CI the DSN is mandatory: `TestMain` exits non-zero when `CI` is set and the
+  DSN is empty, because a skipped write test would otherwise leave the job green
+  (ADR 0016).
 - **Vendor fakes** behind the real ports: `FakeGateway`, `FakeSMSSender`,
   `FakeRadiusWriter`, `FakeRadiusReader`, and a `FakeClock`. `NewAPIHarness`
   wires the production router and dependencies, decorates the production
   adapters with the fakes and exposes them for assertions;
   `WithRealRadiusReader()` keeps the MySQL adapter for tests of the degraded
   FreeRADIUS path. `harness.TransactionProvisioning` drives provisioning the way
-  the worker does, because the harness runs the API process.
+  the worker does, because the harness runs the API process. A test that needs
+  time to pass moves `FakeClock`; `time.Sleep` is only acceptable in the process
+  tests' bounded polls, never to wait for a state change.
 - **Migrations** run against the throwaway schema when the harness starts, the
   same step deployment runs, so tests see the seeded catalog.
 

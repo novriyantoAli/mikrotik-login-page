@@ -89,8 +89,11 @@ proxy; the deployed origin is the reverse proxy. It is documented in
   server environment at runtime, and `$env/static/public` would fail the build
   unless every `PUBLIC_*` value is provisioned at build time. `env.ts` is the
   only file allowed to read `import.meta.env`; domain code imports `env`.
-- **Playwright e2e for this app** arrives with issue #17 (hardening & end-to-end
-  smoke); the prefactor covers Vitest, component and shared-contract tests.
+- **Playwright e2e lives outside this package** (ADR 0018 §5):
+  `playwright.app.config.mjs` drives `tests/app` for the 360px layout checks and
+  `playwright.e2e.config.mjs` drives the full `@stub` journey in `tests/e2e` from
+  the repo root; this package's own suite stays Vitest, component and
+  shared-contract tests.
 
 ## Shared contract fixtures
 

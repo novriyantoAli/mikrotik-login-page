@@ -1,12 +1,12 @@
 ---
-status: ready-for-agent
+status: delivered
 judul: Transaksi Package — Backend & Aplikasi Pembelian
 pelaku: Pengguna hotspot, Pembeli Extend, Operator hotspot, Admin
 ---
 
 # PRD — Transaksi Package: Backend & Aplikasi Pembelian
 
-> **Status triase:** `ready-for-agent`
+> **Status triase:** `delivered` (#17 merge menutup slice terakhir)
 > **Konteks:** `CONTEXT.md` (glosarium domain, mengikat) dan `docs/adr/` (ADR 0001–0009).
 > **Ruang lingkup:** monorepo baru (`backend/` + `frontend/`) sesuai ADR 0007. **Login Page** sudah selesai (PRD sebelumnya) dan tidak diubah.
 > **Cakupan:** backend + aplikasi pembelian, termasuk **Account Status**. **Admin Panel** di luar cakupan.

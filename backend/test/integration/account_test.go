@@ -183,8 +183,8 @@ func TestAccountStatus_ShowsTheCurrentAccountAndPIN(t *testing.T) {
 	}
 }
 
-// TestAccountStatus_NearExpiryUsesTheConfiguredThreshold is the clock proof the
-// handoff asks for: 23 hours before the end is expiring, 25 hours is active, and
+// TestAccountStatus_NearExpiryUsesTheConfiguredThreshold is the clock proof
+// ADR 0017 requires: 23 hours before the end is expiring, 25 hours is active, and
 // a passed expiration is expired, all without sleeping.
 func TestAccountStatus_NearExpiryUsesTheConfiguredThreshold(t *testing.T) {
 	harness, cookie, created := paidCheckout(t, "081300000103", "198.51.100.103")

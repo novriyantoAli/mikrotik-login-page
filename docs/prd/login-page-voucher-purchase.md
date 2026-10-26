@@ -1,12 +1,12 @@
 ---
-status: ready-for-agent
+status: delivered
 judul: Integrasi Login Page dengan Alur Pembelian Voucher
 pelaku: Operator hotspot, Pengguna hotspot, Admin
 ---
 
 # PRD — Integrasi Login Page dengan Alur Pembelian Voucher
 
-> **Status triase:** `ready-for-agent`
+> **Status triase:** `delivered` (slice #2–#9 merge)
 > **Konteks:** Lihat `CONTEXT.md` (glosarium domain) dan `docs/adr/` (ADR 0001–0004).
 
 ## Problem Statement
