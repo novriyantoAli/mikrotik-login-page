@@ -31,6 +31,17 @@ test.describe('perjalanan penuh', () => {
     const app = appOrigin();
     const loginPage = `${loginPageOrigin()}/login.html`;
 
+    // A Content-Security-Policy that blocks SvelteKit's inline bootstrap leaves a
+    // blank screen and no failed request, so the only visible symptom is "the
+    // element is not there". Surface the cause instead: this is how a proxy CSP
+    // that blocked the app was found.
+    const cspViolations = [];
+    page.on('console', (message) => {
+      if (message.type() === 'error' && /Content Security Policy/i.test(message.text())) {
+        cspViolations.push(message.text());
+      }
+    });
+
     // 1. The Login Page reads the catalog from the real backend, configured the
     //    way a deployment does it: no page asset is edited (assets are frozen).
     await configureDeployment(page, {
@@ -129,5 +140,7 @@ test.describe('perjalanan penuh', () => {
     await page.goto(loginPage);
     await expect(page.locator('#username')).toBeVisible();
     await expect(page.locator('#btnLogin')).toBeEnabled();
+
+    expect(cspViolations, cspViolations.join('\n')).toEqual([]);
   });
 });

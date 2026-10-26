@@ -49,6 +49,17 @@ address bar.
 `/api`, the path the reverse proxy forwards to the backend on the same origin —
 there is no CORS and no token in JavaScript.
 
+### Content-Security-Policy
+
+The app ships its own policy in a `<meta>` tag (`kit.csp`, hash mode in
+`svelte.config.js`) because SvelteKit emits one inline bootstrap script whose
+hash changes with every build; a static header cannot know it. `build/index.html`
+carries the matching `sha256-…`, so the reverse proxy must **not** send a stricter
+`default-src`/`script-src` header for documents — the two policies intersect, and
+a header without the hash leaves a blank page with no failed request. The proxy in
+`docker/proxy/nginx.conf` therefore sends only `frame-ancestors 'none'`, the part a
+`<meta>` tag cannot express.
+
 ## Commands
 
 ```bash
