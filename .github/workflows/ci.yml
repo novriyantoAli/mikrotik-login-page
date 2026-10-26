@@ -169,6 +169,15 @@ jobs:
           docker compose -f docker-compose.yml -f docker-compose.e2e.yml ps
           exit 1
 
+      # The journey reads the Magic Link out of `sms_outbox`, the only place it
+      # exists. Prove that read works before the browser run: a wrong query would
+      # otherwise surface as a vague "element not found" twenty seconds later.
+      - name: Prove the outbox is readable
+        run: |
+          printf 'select count(*) from sms_outbox' | \
+            docker compose -f docker-compose.yml -f docker-compose.e2e.yml exec -T postgres \
+              sh -c 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DATABASE" -tA'
+
       - run: npx playwright test -c playwright.e2e.config.mjs --project=stub
 
       - name: Stack logs on failure
