@@ -1,4 +1,4 @@
-import { execSync } from 'node:child_process';
+import { execFileSync, execSync } from 'node:child_process';
 
 /**
  * Shared plumbing for the two end-to-end specs.
@@ -32,18 +32,35 @@ export function uniquePhoneNumber() {
 }
 
 /**
- * The command that reads the outbox. It is overridable so the same spec can run
- * against a stack that is not the compose one (a LAN database, say):
+ * How the outbox is read: the SQL goes to the command's **stdin**, which keeps
+ * quoting out of it entirely (a Phone Number must never become shell syntax).
  *
- *   E2E_PSQL_CMD='psql "postgres://user:pass@host:5432/db" -tAc "$E2E_SQL"'
+ * The default runs psql inside the compose Postgres container, letting that
+ * container resolve its own `$POSTGRES_USER`/`$POSTGRES_DATABASE`. It is an
+ * argv array, not a shell string, so nothing is re-interpreted on the way.
  *
- * The SQL is passed through the environment rather than interpolated into the
- * shell, so no quoting accident can turn a Phone Number into shell syntax.
+ * `E2E_PSQL_CMD` overrides it for a stack that is not the compose one — anything
+ * that prints the result of a query read from stdin works:
+ *
+ *   E2E_PSQL_CMD='psql "postgres://user:pass@host:5432/db" -tA'
+ *   E2E_PSQL_CMD='docker run --rm -i postgres:16-alpine psql "postgres://…" -tA'
  */
-const psqlCommand = () =>
-  process.env.E2E_PSQL_CMD ??
-  `docker compose -f docker-compose.yml -f docker-compose.e2e.yml exec -T postgres ` +
-    `sh -c 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DATABASE" -tAc "$E2E_SQL"'`;
+const composePsqlArgv = [
+  'compose',
+  '-f',
+  'docker-compose.yml',
+  '-f',
+  'docker-compose.e2e.yml',
+  'exec',
+  '-T',
+  'postgres',
+  'sh',
+  '-c',
+  'psql -U "$POSTGRES_USER" -d "$POSTGRES_DATABASE" -tA',
+];
+
+const psqlDescription = () =>
+  process.env.E2E_PSQL_CMD ?? `docker ${composePsqlArgv.join(' ')}`;
 
 function queryMagicLinkBody(phoneNumber) {
   const sql =
@@ -51,11 +68,19 @@ function queryMagicLinkBody(phoneNumber) {
     `where phone_number = '${phoneNumber}' and state in ('pending', 'sending') ` +
     `order by id desc limit 1`;
 
-  return execSync(psqlCommand(), {
+  if (process.env.E2E_PSQL_CMD) {
+    return execSync(process.env.E2E_PSQL_CMD, {
+      input: sql,
+      encoding: 'utf8',
+      shell: '/bin/sh',
+      stdio: ['pipe', 'pipe', 'pipe'],
+    }).trim();
+  }
+
+  return execFileSync('docker', composePsqlArgv, {
+    input: sql,
     encoding: 'utf8',
-    shell: '/bin/sh',
-    stdio: ['ignore', 'pipe', 'pipe'],
-    env: { ...process.env, E2E_SQL: sql },
+    stdio: ['pipe', 'pipe', 'pipe'],
   }).trim();
 }
 
@@ -77,7 +102,7 @@ export async function readMagicLink(phoneNumber, { timeoutMs = 45_000 } = {}) {
       lastBody = queryMagicLinkBody(phoneNumber);
     } catch (error) {
       throw new Error(
-        `Tidak bisa membaca sms_outbox lewat:\n  ${psqlCommand()}\n` +
+        `Tidak bisa membaca sms_outbox lewat:\n  ${psqlDescription()}\n` +
           `Set E2E_PSQL_CMD kalau stack-nya bukan compose. Penyebab: ${error.message}`,
       );
     }
