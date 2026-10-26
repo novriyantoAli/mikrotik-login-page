@@ -1,0 +1,77 @@
+# End-to-end smoke override (ADR 0018 §5). Never merged into docker-compose.yml:
+#
+#   docker compose -f docker-compose.yml -f docker-compose.e2e.yml up -d --build
+#   npx playwright test -c playwright.e2e.config.mjs --project=stub
+#   docker compose -f docker-compose.yml -f docker-compose.e2e.yml down -v
+#
+# It changes three things and nothing else: the vendor edge points at a stub, the
+# modem is absent, and the browser-facing origin is plain HTTP. Everything else
+# (databases, queues, images, healthchecks) is inherited, because Compose merges
+# `environment` per key — no need to repeat the sixty keys in x-backend-env.
+name: mikrotik-login-page
+
+# The vendor boundary this journey controls. The stub signs the callback with the
+# same private key the backend verifies, so signature handling stays on the
+# production path instead of being bypassed by the test (ADR 0018 §5).
+x-e2e-tripay: &e2e-tripay
+  TRIPAY_BASE_URL: http://tripay-stub:8080
+  # The vendor posts settlements here, so it must be reachable from the stub
+  # container — not the public proxy origin.
+  TRIPAY_CALLBACK_URL: http://api:8080/api/payments/callback
+  TRIPAY_API_KEY: ${TRIPAY_API_KEY:-e2e-api-key}
+  TRIPAY_MERCHANT_CODE: ${TRIPAY_MERCHANT_CODE:-T0001}
+  TRIPAY_PRIVATE_KEY: ${TRIPAY_PRIVATE_KEY:?TRIPAY_PRIVATE_KEY is required}
+
+services:
+  api:
+    environment:
+      <<: *e2e-tripay
+      # The journey runs on plain HTTP (no TLS terminator in front of compose),
+      # so a Secure cookie would be dropped by the browser and no session would
+      # ever exist (ADR 0009).
+      AUTH_COOKIE_SECURE: "false"
+      # The Magic Link the SMS carries must point at the origin the browser uses.
+      AUTH_APP_BASE_URL: ${E2E_APP_URL:-http://localhost:8080}
+      # The Login Page's `return` target is honoured only when it is allowed.
+      AUTH_LOGIN_PAGE_ALLOWLIST: ${E2E_LOGIN_PAGE_ALLOWLIST:-http://localhost:4173/login.html}
+    depends_on:
+      tripay-stub:
+        condition: service_healthy
+
+  worker:
+    environment:
+      <<: *e2e-tripay
+      # A device that cannot exist: the drainer fails the send, which is PRD
+      # point 24 proven rather than assumed (a dead modem must not cost a paid
+      # buyer the PIN).
+      SMS_DEVICE: ${SMS_DEVICE:-/dev/ttyE2E-does-not-exist}
+      # A failed send reschedules while there is an attempt left, and only the
+      # final attempt empties `message` (notification/repository MarkFailed). The
+      # spec reads the Magic Link out of that body, so the row must keep it: many
+      # attempts, and a backoff longer than the run.
+      SMS_MAX_ATTEMPTS: "100"
+      SMS_RETRY_BACKOFF: 1h
+    depends_on:
+      tripay-stub:
+        condition: service_healthy
+
+  # Stands in for the vendor's API and its payment page. Published on the host
+  # because only containers resolve `tripay-stub`, while the browser driven by
+  # Playwright has to open its /bayar page.
+  tripay-stub:
+    build:
+      context: ./docker/tripay-stub
+    environment:
+      TRIPAY_PRIVATE_KEY: ${TRIPAY_PRIVATE_KEY:?TRIPAY_PRIVATE_KEY is required}
+      TRIPAY_CALLBACK_URL: http://api:8080/api/payments/callback
+      STUB_PUBLIC_URL: ${E2E_STUB_URL:-http://127.0.0.1:8082}
+    ports:
+      - "127.0.0.1:${E2E_STUB_PORT:-8082}:8080"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:8080/healthz || exit 1"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true

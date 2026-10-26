@@ -226,10 +226,22 @@ wait for `/api/health`, run the spec, and `down -v` in `if: always()`. Separate
 so a journey failure is attributable, and so the backend job stays the fast
 signal it is today.
 
-**Status: this section is a decision, not yet shipped.** The compose override, the
-vendor stub, the journey spec and the `E2E (compose)` job land in the remaining
-part of #17, which needs a host with Docker; until that job is green this
-criterion is unmet. Everything else in this ADR is in the tree.
+**Status: shipped, pending one green CI run.** The pieces are in the tree:
+`docker/tripay-stub/` (the two vendor endpoints, the channel list, a `/bayar`
+page that posts a genuinely signed callback, and `/healthz`),
+`docker-compose.e2e.yml` (vendor edge, absent modem, plain-HTTP cookie), the
+`@stub` journey in `tests/e2e/`, and the separate `E2E (compose)` job. Two
+details are load-bearing and were found by running the journey, not by reading
+it: `AUTH_COOKIE_SECURE` must be `false` or the browser drops the session cookie
+on plain HTTP, and the SMS row must keep its body — a failed send reschedules
+while attempts remain, and only the final attempt clears `message` — so the
+override raises the retry budget and the backoff instead of trusting the default.
+
+Verified locally against a real stack (Postgres, MySQL FreeRADIUS, Redis, API,
+worker, stub): the journey reaches `provisioned` on the first attempt, writes
+`radcheck`/`radreply` for the buyer, and leaves five undelivered SMS bodies
+intact. The CI job itself has not run yet, because the machine that wrote it has
+no Docker; until it is green the acceptance criterion is not claimed.
 
 ## 6. The experience pass is executable, not a review note
 
