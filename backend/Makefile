@@ -34,7 +34,7 @@ build-migrate:
 	@mkdir -p $(BIN_DIR)
 	$(GOCMD) build -trimpath -o $(BIN_DIR)/migrate ./cmd/migrate
 
-run-api: ## CONFIG_FILE=config.yaml by default; env overrides still apply
+run-api: ## CONFIG_FILE=config.yaml or config.yml; env overrides still apply
 	$(GOCMD) run ./cmd/api
 
 run-worker:
