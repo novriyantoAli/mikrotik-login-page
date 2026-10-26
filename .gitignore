@@ -22,7 +22,9 @@ coverage.out
 .env
 .env.local
 backend/config.yaml
+backend/config.yml
 backend/config.local.yaml
+backend/config.local.yml
 frontend/.env
 frontend/.env.local
 

@@ -38,8 +38,10 @@ arrive as `SECTION_KEY` environment variables (compose does this); nothing is
 hardcoded in domain code and no secret is committed.
 
 `CONFIG_FILE` (not a `config.Keys()` entry) points at a YAML file instead of the
-default `config.yaml` search path. The compose deployment passes environment
-variables only, so it never sets it.
+default search path, which is `config.yaml` (or `config.yml`) in the working
+directory. Both names are git-ignored, so a local copy of `config.sample.yaml`
+named either way never carries a secret into a commit. The compose deployment
+passes environment variables only, so it never sets it.
 
 The API starts even when a dependency is unreachable: `GET /api/health` then
 reports which one is down (503, `{"data": {"status": "degraded", ...}}`) instead

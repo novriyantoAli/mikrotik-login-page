@@ -2,6 +2,10 @@ bin
 tmp
 coverage.out
 config.yaml
+config.yml
+config.local.yaml
+config.local.yml
+
 .env
 .env.*
 !.env.example
