@@ -41,6 +41,7 @@ func TestLoadAppliesEnvironmentOverrides(t *testing.T) {
 	t.Setenv("SERVER_PORT", "9090")
 	t.Setenv("HEALTH_TIMEOUT", "750ms")
 	t.Setenv("WORKER_QUEUES", "critical,low")
+	t.Setenv("WORKER_HEALTH_ADDR", ":9099")
 	t.Setenv("SERVER_TRUSTED_PROXIES", "10.0.0.0/8,192.168.0.0/16")
 	t.Setenv("FREE_RADIUS_UNUSED", "ignored")
 
@@ -63,6 +64,12 @@ func TestLoadAppliesEnvironmentOverrides(t *testing.T) {
 	}
 	if strings.Join(cfg.Worker.Queues, ",") != "critical,low" {
 		t.Fatalf("worker.queues = %v", cfg.Worker.Queues)
+	}
+	// A key without a default is not looked up in the environment at all, so this
+	// assertion is what catches the next one (it caught WORKER_HEALTH_ADDR, whose
+	// absence left the worker's operator listener disabled in compose).
+	if cfg.Worker.HealthAddr != ":9099" {
+		t.Fatalf("worker.health_addr = %q, want the WORKER_HEALTH_ADDR override", cfg.Worker.HealthAddr)
 	}
 	if strings.Join(cfg.Server.TrustedProxyCIDRs(), ",") != "10.0.0.0/8,192.168.0.0/16" {
 		t.Fatalf("server.trusted_proxies = %v", cfg.Server.TrustedProxyCIDRs())
