@@ -5,15 +5,17 @@ var cfgLogin = {
   option: 0,
 
   // Login modes (ADR 0006). Each toggle enables one credential scheme and
-  // `label` is the segmented-control label for it. Only Phone Number + PIN is
-  // enabled by default, so the Login Page behaves exactly as before and no tab
-  // is shown; the segmented control only appears once more than one is enabled.
-  // The form title, field shape and placeholders are defined by the mode
-  // descriptors in assets/voucher-client.js, not here.
+  // `label` is the segmented-control label for it. All three are enabled for
+  // this deployment, so the Login Page offers the segmented control and the
+  // user picks a method. Kode Akses is the default because a buyer leaves the
+  // purchase flow with a code, not a PIN. The form title, field shape and
+  // placeholders are defined by the mode descriptors in
+  // assets/voucher-client.js, not here.
+  defaultMode: "accessCode",
   modes: {
-    accessCode: { status: 0, label: "Kode Akses" },
+    accessCode: { status: 1, label: "Kode Akses" },
     phone: { status: 1, label: "Nomor HP" },
-    user: { status: 0, label: "User" },
+    user: { status: 1, label: "User" },
   },
 
   menu: {

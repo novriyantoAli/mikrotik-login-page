@@ -88,6 +88,8 @@
     empty: "Belum ada paket tersedia.",
     error: "Gagal memuat paket. Silakan coba lagi.",
     notConfigured: "Daftar paket belum dikonfigurasi. Hubungi admin.",
+    packageTitle: "Paket Internet",
+    packageSubtitle: "Pilih paket sesuai kebutuhan Anda.",
     statusUnavailable: "Active Period tidak tersedia.",
     statusLoading: "Memuat Active Period...",
     purchaseAppUnavailable: "Pembelian belum dikonfigurasi. Hubungi admin.",
@@ -138,6 +140,22 @@
     return {};
   }
 
+  /**
+   * The Package section's own labels, from the deployment's `cfgIP` (the section
+   * that used to render the manual list). Reusing them keeps the heading and
+   * subtitle a configuration concern, exactly like the FAQ section, and gives the
+   * backend list the title the page already advertises.
+   * @returns {{title: string, subtitle: string}}
+   */
+  function readPackageLabels() {
+    var config = typeof globalThis !== "undefined" ? globalThis.cfgIP : undefined;
+    var label = (config && config.label) || {};
+    return {
+      title: label.title || MESSAGES.packageTitle,
+      subtitle: label.sub_title || label.subtitle || MESSAGES.packageSubtitle,
+    };
+  }
+
   /** @returns {Record<string, unknown>} */
   function readGlobalLoginConfig() {
     if (typeof globalThis !== "undefined" && globalThis.cfgLogin) {
@@ -165,6 +183,7 @@
 
   /**
    * @typedef {Object} LoginConfig
+   * @property {string} [defaultMode] Enabled mode id the form starts in.
    * @property {Record<string, {status?: unknown, label?: string}>} [modes]
    */
 
@@ -304,7 +323,14 @@
     var sources = [readGlobalLoginConfig(), overrides || {}];
 
     for (var i = 0; i < sources.length; i++) {
-      var modes = sources[i] && /** @type {any} */ (sources[i]).modes;
+      var source = /** @type {any} */ (sources[i]);
+      // The default mode is a deployment choice like the toggles, so it is merged
+      // the same way; an empty value keeps whatever an earlier source set.
+      if (source && source.defaultMode !== undefined && source.defaultMode !== "") {
+        merged.defaultMode = String(source.defaultMode);
+      }
+
+      var modes = source && source.modes;
       if (!modes) {
         continue;
       }
@@ -612,12 +638,20 @@
     }
 
     /**
-     * The default mode is the first enabled one in canonical order, which is
-     * Phone Number + PIN whenever it is enabled (ADR 0006).
+     * The mode the form starts in: `cfgLogin.defaultMode` when it names an enabled
+     * mode, otherwise the first enabled one in canonical order (ADR 0006). A
+     * default that is disabled or unknown is ignored instead of breaking the page.
      * @returns {string}
      */
     function defaultLoginMode() {
       var modes = loginModes();
+      var requested = loginConfig && loginConfig.defaultMode ? String(loginConfig.defaultMode) : "";
+
+      for (var i = 0; i < modes.length; i++) {
+        if (modes[i].id === requested) {
+          return modes[i].id;
+        }
+      }
       return modes.length ? modes[0].id : DEFAULT_LOGIN_MODE;
     }
 
@@ -792,7 +826,8 @@
       var opts = options || {};
       var target = resolveContainer(container);
       var modes = opts.modes && opts.modes.length ? opts.modes : resolveLoginModes(opts.config !== undefined ? opts.config : loginConfig);
-      var active = resolveActiveMode(modes, opts.activeMode);
+      var requested = opts.activeMode !== undefined ? opts.activeMode : defaultLoginMode();
+      var active = resolveActiveMode(modes, requested);
 
       var control = createElement("div", "login-modes");
       control.setAttribute("role", "tablist");
@@ -1017,9 +1052,18 @@
     function renderPackages(container, packages) {
       var target = resolveContainer(container);
       var items = normalizePackageList(packages);
+      var labels = readPackageLabels();
       target.innerHTML = "";
 
-      var list = createElement("div", "package-list");
+      var section = createElement("section", "package-list");
+      var intro = createElement("div", "package-list__intro");
+      intro.appendChild(createTextElement("p", "package-list__title", labels.title));
+      if (labels.subtitle) {
+        intro.appendChild(createTextElement("p", "package-list__subtitle", labels.subtitle));
+      }
+      section.appendChild(intro);
+
+      var list = createElement("div", "package-list__items");
       if (items.length === 0) {
         list.appendChild(createTextElement("p", "package-list__empty", MESSAGES.empty));
       } else {
@@ -1027,8 +1071,9 @@
           list.appendChild(buildPackageCard(items[i]));
         }
       }
-      target.appendChild(list);
-      return list;
+      section.appendChild(list);
+      target.appendChild(section);
+      return section;
     }
 
     /**
@@ -1052,10 +1097,24 @@
      */
     function buildPackageCard(pkg) {
       var card = createElement("div", "package-card");
-      card.appendChild(createTextElement("div", "package-card__name", pkg.name));
-      card.appendChild(createTextElement("div", "package-card__price", pkg.price));
-      card.appendChild(createTextElement("div", "package-card__period", pkg.activePeriod));
-      card.appendChild(createTextElement("div", "package-card__speed", pkg.speedLimit));
+
+      var head = createElement("div", "package-card__head");
+      head.appendChild(createTextElement("div", "package-card__name", pkg.name));
+      head.appendChild(createTextElement("div", "package-card__price", pkg.price));
+      card.appendChild(head);
+
+      // The Active Period and the speed limit are attributes of the Package, not
+      // prose: pills keep them scannable next to the price.
+      var meta = createElement("div", "package-card__meta");
+      if (pkg.activePeriod) {
+        meta.appendChild(createTextElement("span", "package-card__period", pkg.activePeriod));
+      }
+      if (pkg.speedLimit) {
+        meta.appendChild(createTextElement("span", "package-card__speed", pkg.speedLimit));
+      }
+      if (meta.childNodes.length > 0) {
+        card.appendChild(meta);
+      }
 
       var button = createTextElement("button", "package-card__buy", "Beli");
       button.setAttribute("type", "button");
@@ -1271,6 +1330,7 @@
       buildPurchaseUrl: purchaseUrlFor,
       hashPin: hashPin,
       loginModes: loginModes,
+      defaultLoginMode: defaultLoginMode,
       loginModeDescriptor: loginModeDescriptor,
       renderLoginModes: renderLoginModes,
       loginCredentials: loginCredentials,

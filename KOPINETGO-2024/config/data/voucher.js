@@ -11,6 +11,7 @@
 var cfgVoucher = {
   // Base URL of the backend that serves the Package list (no trailing slash).
   // Required when packagesFromBackend is 1; leave empty to disable temporarily.
+  // Must carry the API prefix: the backend mounts every endpoint under /api.
   backendBaseUrl: "",
 
   // Path of the public Package list endpoint on the backend.

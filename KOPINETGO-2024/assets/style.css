@@ -4,3 +4,47 @@
 .login-modes{display:flex;width:100%;gap:.25rem;padding:.25rem;border-radius:9999px;background:rgba(100,116,139,.12)}
 .login-modes__tab{flex:1 1 0%;padding:.5rem .75rem;font-size:.875rem;line-height:1.25rem;text-align:center;border-radius:9999px;cursor:pointer;background:transparent;border:0;color:inherit;opacity:.65;transition:background-color .15s ease,opacity .15s ease}
 .login-modes__tab--active{font-weight:600;opacity:1;background:rgba(100,116,139,.24)}
+
+/* Package list below the banner. Rendered by assets/voucher-client.js; before
+   this block the cards had no rules at all and read as a bare list of words.
+   The palette is the template's own: the #f8fafc card surface the FAQ uses, the
+   #475569 body copy, the #d21c28 section title and the coral pill of the Login
+   button. Values are variables so a deployment can retheme the page here
+   without editing the markup or the client. */
+:root {
+  --pkg-title: #d21c28;
+  --pkg-strong: #03072e;
+  --pkg-muted: #475569;
+  --pkg-surface: #f8fafc;
+  --pkg-surface-hover: #ffffff;
+  --pkg-border: rgba(100, 116, 139, 0.18);
+  --pkg-pill: rgba(100, 116, 139, 0.12);
+  --pkg-accent: #fa4b48;
+  --pkg-accent-text: #ecfdf5;
+  --pkg-shadow: 0 10px 15px -3px rgba(99, 102, 241, 0.2), 0 4px 6px -4px rgba(99, 102, 241, 0.2);
+}
+.package-list{display:flex;flex-direction:column;gap:.75rem;width:100%}
+.package-list__intro{display:flex;flex-direction:column;gap:.125rem}
+.package-list__title{margin:0;color:var(--pkg-title);font-size:1.5rem;line-height:2rem;font-weight:700}
+.package-list__subtitle{margin:0;color:var(--pkg-muted);font-size:.875rem;line-height:1.25rem}
+.package-list__items{display:flex;flex-direction:column;gap:.625rem}
+.package-list__empty{margin:0;padding:.875rem 1rem;border:1px dashed var(--pkg-border);border-radius:1rem;background:var(--pkg-surface);color:var(--pkg-muted);font-size:.875rem;line-height:1.25rem}
+.package-card{display:flex;flex-direction:column;gap:.75rem;padding:.875rem;border:1px solid var(--pkg-border);border-radius:1rem;background:var(--pkg-surface);box-shadow:var(--pkg-shadow);transition:background-color .15s ease,box-shadow .15s ease,transform .15s ease}
+.package-card:hover{background:var(--pkg-surface-hover);transform:translateY(-1px)}
+.package-card__head{display:flex;align-items:baseline;justify-content:space-between;gap:.625rem}
+.package-card__name{color:var(--pkg-strong);font-size:1rem;line-height:1.5rem;font-weight:600;overflow-wrap:anywhere}
+.package-card__price{color:var(--pkg-title);font-size:1.25rem;line-height:1.75rem;font-weight:800;white-space:nowrap}
+.package-card__meta{display:flex;flex-wrap:wrap;gap:.375rem}
+.package-card__period,.package-card__speed{display:inline-flex;align-items:center;gap:.375rem;padding:.25rem .625rem;border-radius:9999px;background:var(--pkg-pill);color:var(--pkg-muted);font-size:.75rem;line-height:1rem;font-weight:600}
+.package-card__period:before,.package-card__speed:before{content:"";width:.375rem;height:.375rem;border-radius:9999px;background:var(--pkg-title);opacity:.75}
+.package-card__speed:before{background:var(--pkg-strong);opacity:.55}
+.package-card__buy{align-self:stretch;margin-top:.125rem;padding:.75rem 1rem;border:0;border-radius:9999px;background-image:linear-gradient(45deg,var(--pkg-accent),var(--pkg-accent));color:var(--pkg-accent-text);font-size:1rem;line-height:1.5rem;font-weight:600;box-shadow:0 10px 15px -3px rgba(250,75,72,.28),0 4px 6px -4px rgba(250,75,72,.28);transition:filter .15s ease,transform .15s ease}
+.package-card__buy:hover:not(:disabled){filter:brightness(1.04)}
+.package-card__buy:active:not(:disabled){transform:translateY(1px)}
+.package-card__buy:focus-visible{outline:2px solid var(--pkg-strong);outline-offset:2px}
+.package-card__buy:disabled{background-image:none;background-color:rgba(148,163,184,.35);color:rgba(71,85,105,.8);box-shadow:none;cursor:not-allowed}
+.package-status{margin:0;padding:.875rem 1rem;border:1px dashed var(--pkg-border);border-radius:1rem;background:var(--pkg-surface);color:var(--pkg-muted);font-size:.875rem;line-height:1.25rem}
+.package-status--loading{animation:package-loading 1.4s ease-in-out infinite}
+.package-status--error{color:#b91c1c;background:rgba(254,226,226,.7);border-color:rgba(185,28,28,.3)}
+@keyframes package-loading{0%,100%{opacity:1}50%{opacity:.55}}
+@media (prefers-reduced-motion:reduce){.package-status--loading{animation:none}.package-card,.package-card__buy{transition:none}.package-card:hover{transform:none}}
