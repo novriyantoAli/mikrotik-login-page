@@ -23,21 +23,33 @@ const CALLBACK_URL = process.env.TRIPAY_CALLBACK_URL ?? 'http://api:8080/api/pay
 // publishes the stub on the host, because only containers know `tripay-stub`.
 const PUBLIC_URL = process.env.STUB_PUBLIC_URL ?? 'http://127.0.0.1:8082';
 
-// Group names must be the closed-payment ones the adapter keeps; anything else
-// is dropped before checkout ever sees it (payment/tripay/payload.go).
+// Group names and fields mirror the vendor's wire contract, not a convenient
+// subset of it: `type: direct` is what tells the adapter a channel is a closed
+// payment, and `minimum_amount`/`maximum_amount` are what checkout filters on
+// (ADR 0021). Tripay files QRIS under `E-Wallet`, so the stub does too — if the
+// stub published a simpler shape, the code-prefix rule would never run here.
 const CHANNELS = [
   {
     code: 'BRIVA',
     name: 'BRI Virtual Account',
     group: 'Virtual Account',
+    type: 'direct',
     active: true,
+    // Rp 10.000 is what the sandbox reports for a virtual account: the reason a
+    // Rp 5.000 Package may not offer one.
+    minimum_amount: 10000,
+    maximum_amount: 10000000,
     fee_customer: { flat: 0, percent: 0 },
   },
   {
     code: 'QRIS',
     name: 'QRIS',
-    group: 'QRIS',
+    group: 'E-Wallet',
+    type: 'direct',
     active: true,
+    // No published maximum: zero means "the vendor published no bound".
+    minimum_amount: 1000,
+    maximum_amount: 0,
     fee_customer: { flat: 0, percent: 0 },
   },
 ];
