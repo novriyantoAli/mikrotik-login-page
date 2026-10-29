@@ -194,19 +194,22 @@ func TestReconcile_BoundsOneSweep(t *testing.T) {
 	for index := 0; index < 3; index++ {
 		reference := "TRX-BATCH-" + string(rune('A'+index))
 		row := &entity.Transaction{
-			Reference:   reference,
-			PhoneNumber: testPhone,
-			PackageID:   uint(index + 1),
-			PackageName: "Paket Mingguan",
-			AmountIDR:   25000,
-			Channel:     "BRIVA",
-			State:       entity.StatePending,
-			ExpiresAt:   f.clock.Now().Add(time.Hour),
+			Reference:        reference,
+			GatewayReference: "GW-" + reference,
+			PhoneNumber:      testPhone,
+			PackageID:        uint(index + 1),
+			PackageName:      "Paket Mingguan",
+			AmountIDR:        25000,
+			Channel:          "BRIVA",
+			State:            entity.StatePending,
+			ExpiresAt:        f.clock.Now().Add(time.Hour),
 		}
 		if err := f.repo.Create(context.Background(), row); err != nil {
 			t.Fatalf("seed %s: %v", reference, err)
 		}
-		f.gateway.statuses[reference] = settledStatus(reference, row.AmountIDR, f.clock.Now())
+		// Seeded by the vendor id the sweep will ask about, since these rows were
+		// never answered by the fake's CreateTransaction.
+		f.gateway.statuses["GW-"+reference] = settledStatus(reference, row.AmountIDR, f.clock.Now())
 	}
 
 	reconciler := service.NewReconciler(
@@ -227,6 +230,41 @@ func TestReconcile_BoundsOneSweep(t *testing.T) {
 	}
 	if len(f.gateway.statusQueries) != 2 {
 		t.Fatalf("asked the gateway about %d references, want 2", len(f.gateway.statusQueries))
+	}
+}
+
+// TestReconcile_SkipsARowWithoutAVendorReference pins the guard for rows written
+// before the vendor id was stored: our own reference is not a substitute, because
+// Tripay answers a detail query by merchant_ref with "Undefined parameter:
+// reference" and the sweep would log a vendor rejection every tick.
+func TestReconcile_SkipsARowWithoutAVendorReference(t *testing.T) {
+	t.Parallel()
+
+	f := newFixture()
+	row := &entity.Transaction{
+		Reference:   "TRX-LEGACY",
+		PhoneNumber: testPhone,
+		PackageID:   9,
+		PackageName: "Paket Mingguan",
+		AmountIDR:   25000,
+		Channel:     "BRIVA",
+		State:       entity.StatePending,
+		ExpiresAt:   f.clock.Now().Add(time.Hour),
+	}
+	if err := f.repo.Create(context.Background(), row); err != nil {
+		t.Fatalf("seed legacy row: %v", err)
+	}
+
+	reconciled, err := f.reconciler.ReconcileDue(context.Background())
+	if err != nil {
+		t.Fatalf("ReconcileDue: %v", err)
+	}
+	if reconciled != 0 {
+		t.Fatalf("reconciled %d Transactions without a gateway reference, want 0", reconciled)
+	}
+	if len(f.gateway.statusQueries) != 0 {
+		t.Fatalf("asked the gateway about %v, want no call without a vendor id",
+			f.gateway.statusQueries)
 	}
 }
 

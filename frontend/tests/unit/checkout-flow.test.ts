@@ -113,6 +113,27 @@ describe('CheckoutFlow', () => {
     expect(screen.queryByText('Rp 2.500')).not.toBeInTheDocument();
   });
 
+  it('explains a Package no channel can carry instead of offering a dead end', async () => {
+    // A Rp 5.000 Package is below every virtual account's minimum. The backend
+    // filters those out, so the app must not render an empty picker with an
+    // enabled pay button.
+    stubApiRoutes([
+      { method: 'get', path: '/auth/session', respond: () => ({ data: session }) },
+      {
+        method: 'get',
+        path: '/packages',
+        respond: () => ({ data: loadContract('packages.response.json') }),
+      },
+      { method: 'get', path: '/transactions/channels', respond: () => ({ data: { data: [] } }) },
+    ]);
+
+    render(CheckoutFlowFixture, { packageId: 1 });
+
+    expect(await screen.findByText('Tidak ada metode pembayaran')).toBeInTheDocument();
+    expect(screen.queryByRole('radio')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Lanjut ke pembayaran' })).not.toBeInTheDocument();
+  });
+
   it('keeps the package visible when the channel list fails, and offers a retry', async () => {
     let attempts = 0;
     stubApiRoutes([

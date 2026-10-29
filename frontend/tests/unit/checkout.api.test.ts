@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 
 import { checkoutApi } from '$lib/domains/checkout/api/checkout.api';
 import { packageApi } from '$lib/domains/packages/api/package.api';
-import { restoreApi, stubApi } from '../support/api';
+import { restoreApi, stubApi, stubApiRoutes } from '../support/api';
 import { loadContract } from '../support/contracts';
 
 describe('checkoutApi', () => {
@@ -27,6 +27,32 @@ describe('checkoutApi', () => {
     }));
 
     await expect(checkoutApi.channels()).rejects.toThrow();
+  });
+
+  it('asks for the channels that can carry the Package price', async () => {
+    const seen: { url?: string; params?: unknown } = {};
+    stubApiRoutes([
+      {
+        method: 'get',
+        path: '/transactions/channels',
+        respond: () => ({ data: loadContract('channels.response.json') }),
+      },
+    ]);
+    const { apiClient } = await import('$lib/api/client');
+    const original = apiClient.interceptors.request.use((config) => {
+      seen.url = config.url;
+      seen.params = config.params;
+      return config;
+    });
+
+    const channels = await checkoutApi.channels(1);
+    apiClient.interceptors.request.eject(original);
+
+    expect(channels).toHaveLength(2);
+    expect(seen.url).toBe('/transactions/channels');
+    // The backend filters by the Package amount; without it the app would offer
+    // a virtual account the vendor refuses for a Rp 5.000 Package.
+    expect(seen.params).toEqual({ package_id: 1 });
   });
 
   it('creates a Transaction and returns the parsed instructions', async () => {

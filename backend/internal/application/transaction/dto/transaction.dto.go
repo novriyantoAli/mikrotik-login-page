@@ -33,6 +33,14 @@ type InstructionResponse struct {
 	Steps []string `json:"steps"`
 }
 
+// ChannelFilter is the query the channel list accepts. PackageID is optional: set,
+// the list keeps only the channels whose published amount window can carry that
+// Package's price, so checkout never offers a method the vendor will refuse
+// (ADR 0021).
+type ChannelFilter struct {
+	PackageID uint `form:"package_id"`
+}
+
 // TransactionResponse is the checkout's whole view of one Transaction: the
 // amount, the channel, the instructions, the deadline and the state the app
 // polls.

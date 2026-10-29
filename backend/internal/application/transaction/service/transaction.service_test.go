@@ -362,6 +362,10 @@ type fakeGateway struct {
 	statuses      map[string]payment.PaymentStatus
 	statusErr     error
 	statusQueries []string
+	// gatewayReferences maps the vendor id back to this system's reference, the
+	// way the Tripay adapter hands both back but only the vendor id is accepted by
+	// a status read.
+	gatewayReferences map[string]string
 }
 
 func (g *fakeGateway) CreateTransaction(
@@ -372,10 +376,17 @@ func (g *fakeGateway) CreateTransaction(
 		return nil, g.createErr
 	}
 	g.createCalls++
+	if g.gatewayReferences == nil {
+		g.gatewayReferences = make(map[string]string)
+	}
+	gatewayReference := "GW-" + req.Reference
+	g.gatewayReferences[gatewayReference] = req.Reference
+
 	return &payment.CreateTransactionResponse{
-		Reference:   req.Reference,
-		ChannelName: req.Channel,
-		PayCode:     "8808812345678901",
+		Reference:        req.Reference,
+		GatewayReference: gatewayReference,
+		ChannelName:      req.Channel,
+		PayCode:          "8808812345678901",
 		Instructions: []payment.Instruction{
 			{Title: "Cara Pembayaran", Steps: []string{"Buka aplikasi bank"}},
 		},
@@ -387,6 +398,9 @@ func (g *fakeGateway) GetStatus(_ context.Context, reference string) (*payment.P
 	g.statusQueries = append(g.statusQueries, reference)
 	if g.statusErr != nil {
 		return nil, g.statusErr
+	}
+	if own, ok := g.gatewayReferences[reference]; ok {
+		reference = own
 	}
 	if status, ok := g.statuses[reference]; ok {
 		return &status, nil
@@ -570,6 +584,17 @@ func TestCreate_SnapshotsTheTypedPackagePrice(t *testing.T) {
 	}
 	if len(transaction.Instructions) != 1 {
 		t.Fatalf("instructions lost: %+v", transaction.Instructions)
+	}
+
+	// A status read is only accepted with the vendor's own id, so the row has to
+	// keep the one the create answered; reconciliation then sweeps with that, not
+	// with our reference (ADR 0020).
+	if len(f.repo.rows) != 1 {
+		t.Fatalf("persisted %d rows, want 1", len(f.repo.rows))
+	}
+	want := "GW-" + f.repo.rows[0].Reference
+	if got := f.repo.rows[0].GatewayReference; got != want {
+		t.Fatalf("gateway reference = %q, want the vendor's own id %q", got, want)
 	}
 }
 

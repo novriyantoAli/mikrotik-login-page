@@ -75,7 +75,7 @@ func New(settings Settings, logger *zap.Logger) *Adapter {
 	if timeout <= 0 {
 		timeout = 20 * time.Second
 	}
-	if settings.APIKey == "" || settings.PrivateKey == "" {
+	if settings.APIKey == "" || settings.PrivateKey == "" || settings.MerchantCode == "" {
 		logger.Warn("tripay credentials are not configured; checkout will fail until they are")
 	}
 
@@ -101,17 +101,18 @@ func (a *Adapter) CreateTransaction(
 	form.Set("callback_url", a.settings.CallbackURL)
 	form.Set("return_url", a.settings.ReturnURL)
 	form.Set("expired_time", strconv.FormatInt(req.ExpiresAt.Unix(), 10))
+	// Tripay refuses a closed-payment request without this field: the vendor answers
+	// 400 "Undefined parameter signature", which is not a credential problem but a
+	// missing one. It signs the same amount string that is sent below.
+	form.Set("signature", a.createSignature(req.Reference, form.Get("amount")))
 
-	items, err := json.Marshal([]map[string]any{{
-		"sku":      req.Reference,
-		"name":     req.PackageName,
-		"price":    req.Amount,
-		"quantity": 1,
-	}})
-	if err != nil {
-		return nil, fmt.Errorf("encode tripay order items: %w", err)
-	}
-	form.Set("order_items", string(items))
+	// Tripay reads order_items as PHP-style nested form fields, not as a JSON
+	// string: a JSON array in this field is answered 400 "order items must be an
+	// array", so each property of the single line item is its own key.
+	form.Set("order_items[0][sku]", req.Reference)
+	form.Set("order_items[0][name]", req.PackageName)
+	form.Set("order_items[0][price]", strconv.FormatInt(req.Amount, 10))
+	form.Set("order_items[0][quantity]", "1")
 
 	request, err := a.newRequest(ctx, http.MethodPost, "/transaction/create",
 		strings.NewReader(form.Encode()))
@@ -217,6 +218,16 @@ func (a *Adapter) Channels(ctx context.Context) ([]payment.Channel, error) {
 	}
 
 	return parseChannels(envelope.Data), nil
+}
+
+// createSignature signs a closed-payment request. Tripay expects the hex
+// HMAC-SHA256 of merchant code + merchant reference + amount, keyed with the
+// private key (no channel, unlike some other vendors). The signed amount must be
+// the exact string sent, or the vendor rejects the request.
+func (a *Adapter) createSignature(reference, amount string) string {
+	mac := hmac.New(sha256.New, []byte(a.settings.PrivateKey))
+	mac.Write([]byte(a.settings.MerchantCode + reference + amount))
+	return hex.EncodeToString(mac.Sum(nil))
 }
 
 // validSignature compares the callback signature with the HMAC-SHA256 of the
