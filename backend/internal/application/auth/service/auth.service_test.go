@@ -15,6 +15,7 @@ import (
 	"github.com/novriyantoAli/mikrotik-login-page/backend/internal/application/auth/repository"
 	"github.com/novriyantoAli/mikrotik-login-page/backend/internal/application/auth/service"
 	notificationdto "github.com/novriyantoAli/mikrotik-login-page/backend/internal/application/notification/service"
+	"github.com/novriyantoAli/mikrotik-login-page/backend/internal/application/notification/sms"
 	packagesdto "github.com/novriyantoAli/mikrotik-login-page/backend/internal/application/packages/dto"
 	packagesentity "github.com/novriyantoAli/mikrotik-login-page/backend/internal/application/packages/entity"
 	packageservice "github.com/novriyantoAli/mikrotik-login-page/backend/internal/application/packages/service"
@@ -167,7 +168,7 @@ func newFixture(t *testing.T) *fixture {
 		service.Settings{
 			MagicLinkTTL:       15 * time.Minute,
 			SessionTTL:         30 * 24 * time.Hour,
-			AppBaseURL:         "https://app.example",
+			AppBaseURL:         testAppBaseURL,
 			MagicLinkPath:      "/masuk/tautan",
 			LoginPageAllowlist: []string{"http://192.168.88.1/login"},
 			PhoneWindow:        5 * time.Minute,
@@ -189,7 +190,7 @@ func (f *fixture) tokenFrom(t *testing.T, index int) string {
 	}
 
 	text := f.outbox.messages[index].Text
-	start := strings.Index(text, "https://app.example/")
+	start := strings.Index(text, testAppBaseURL+"/")
 	if start == -1 {
 		t.Fatalf("SMS %q does not contain a Magic Link", text)
 	}
@@ -205,7 +206,11 @@ func (f *fixture) tokenFrom(t *testing.T, index int) string {
 	return link.Query().Get("token")
 }
 
-// --- tests -----------------------------------------------------------------
+// testAppBaseURL is deliberately a production-length host. The SMS copy budget
+// (ADR 0019 §2) is only meaningful at the length a deployment actually sends: a
+// short test host leaves slack that a real base URL eats, and the message would
+// pass here and be refused by the modem in production.
+const testAppBaseURL = "https://app.kopinetgo.co.id"
 
 func TestRequestMagicLinkQueuesOneSmsToTheCanonicalNumber(t *testing.T) {
 	f := newFixture(t)
@@ -239,6 +244,29 @@ func TestRequestMagicLinkQueuesOneSmsToTheCanonicalNumber(t *testing.T) {
 	}
 	if got := link.ExpiresAt.Sub(f.clock.now); got != 15*time.Minute {
 		t.Fatalf("link lifetime = %v, want 15m", got)
+	}
+}
+
+func TestRequestMagicLinkComposesOneSmsSegment(t *testing.T) {
+	f := newFixture(t)
+
+	if err := f.service.RequestMagicLink(context.Background(),
+		&dto.RequestMagicLinkRequest{PhoneNumber: "081234567890"}, "203.0.113.9"); err != nil {
+		t.Fatalf("request magic link: %v", err)
+	}
+
+	text := f.outbox.messages[0].Text
+	// The modem speaks text mode: it takes one 160-septet segment and answers a
+	// longer body with a bare ERROR. A 178-character link SMS was exactly the
+	// production failure, so the copy has to stay inside the budget.
+	if err := sms.CheckText(text); err != nil {
+		t.Fatalf("the Magic Link SMS cannot leave as one SMS: %v (%d chars)", err, len(text))
+	}
+	if !strings.Contains(text, "berlaku 15 menit") {
+		t.Fatalf("SMS %q does not tell the buyer how long the link lives", text)
+	}
+	if f.tokenFrom(t, 0) == "" {
+		t.Fatal("the SMS carries no token")
 	}
 }
 

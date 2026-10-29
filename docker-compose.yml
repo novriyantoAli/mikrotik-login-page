@@ -70,6 +70,8 @@ x-backend-env: &backend-env
   SMS_DEVICE: ${SMS_DEVICE:-/dev/ttyUSB0}
   SMS_BAUD: ${SMS_BAUD:-115200}
   SMS_COMMAND_TIMEOUT: ${SMS_COMMAND_TIMEOUT:-10s}
+  # The modem's hand-off of a body to the network; shorter than SMS_LEASE (ADR 0022).
+  SMS_SUBMIT_TIMEOUT: ${SMS_SUBMIT_TIMEOUT:-60s}
   SMS_LEASE: ${SMS_LEASE:-2m}
   SMS_SWEEP_INTERVAL: ${SMS_SWEEP_INTERVAL:-30s}
   SMS_MAX_ATTEMPTS: ${SMS_MAX_ATTEMPTS:-5}
