@@ -132,10 +132,11 @@ failing build.
 ## Login Page (served by RouterOS)
 
 The Hotspot captive portal shows the **Package** list from the backend, sends the
-user to the purchase web app, and logs them in with **Phone Number** + **PIN** by
-default (other credential modes per [ADR 0006](docs/adr/0006-three-hotspot-login-modes.md)).
-The status page shows the remaining **Active Period** and guides **Extend** /
-buy-again.
+user to the purchase web app, and logs them in with one of three credential modes
+a buyer picks from a segmented control: **Kode Akses** (Access Code, the default),
+**Nomor HP** (Phone Number + PIN) and **User** (username + password), per
+[ADR 0006](docs/adr/0006-three-hotspot-login-modes.md). The status page shows the
+remaining **Active Period** and guides **Extend** / buy-again.
 
 The backend answers the two public reads the page needs, with shapes frozen by
 the page and pinned by `contracts/`:
@@ -196,17 +197,22 @@ The hotspot supports three credential schemes (ADR 0006). They are enabled in
 `KOPINETGO-2024/config/data/login.js` (`cfgLogin.modes`), each with a tab label:
 
 ```js
+defaultMode: "accessCode",
 modes: {
-  accessCode: { status: 0, label: "Kode Akses" },
+  accessCode: { status: 1, label: "Kode Akses" },
   phone: { status: 1, label: "Nomor HP" },
-  user: { status: 0, label: "User" },
+  user: { status: 1, label: "User" },
 },
 ```
 
-`status: 1` enables a mode. Only **Phone Number + PIN** is enabled by default,
-so the Login Page behaves exactly as before and no tab is shown; a segmented
-control appears once more than one mode is enabled. The form title, field shape
-and placeholders come from the mode descriptor in
+`status: 1` enables a mode; a site can ship a single one and no tab is shown, or
+enable several and let the buyer pick. This deployment enables all three, so the
+segmented control is always visible. `defaultMode` names the mode the form starts
+in — this deployment starts on **Kode Akses**, because a buyer leaves the purchase
+flow with a code; when it is unset, disabled or unknown the first enabled mode in
+canonical order (`phone`, `accessCode`, `user`) wins. The tab order does not
+change with the default: `Kode Akses` is the second tab while being the selected
+one. The form title, field shape and placeholders come from the mode descriptor in
 `KOPINETGO-2024/assets/voucher-client.js`, not from the page markup.
 
 Each mode derives the hotspot credentials differently:
@@ -220,6 +226,20 @@ Each mode derives the hotspot credentials differently:
 A wrong-credential message follows the active mode (for **Access Code** it reads
 "Kode Akses salah.", for **User** "Username atau password salah."); the
 expired-account message is shared by every mode.
+
+### Package list
+
+The list under the banner is rendered by `KOPINETGO-2024/assets/voucher-client.js`
+into `#paketInternet`, on the Login Page and on the Status page (where it is the
+Extend / buy-again target). Its heading and subtitle come from `cfgIP.label` in
+`KOPINETGO-2024/config/data/internetPackage.js` — the copy the page already
+advertises — and the cards are themed by the block at the end of
+`KOPINETGO-2024/assets/style.css`: `#f8fafc` surfaces with the same indigo shadow
+as the form fields, the `#d21c28` section title, a pill per Package attribute and
+the coral pill of the Login button for "Beli". Those colours are the `--pkg-*`
+variables in that block, so a deployment rethemes the list by editing variables,
+not markup. Bump `assets/style.css?v=` / `assets/voucher-client.js?v=` in the four
+pages when either file changes.
 
 ### Backend contracts (read-only, public)
 

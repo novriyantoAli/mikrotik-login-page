@@ -24,8 +24,13 @@ sequence.
 | [0016](0016-pin-at-rest-and-idempotent-provisioning.md) | PIN is versioned AES-GCM ciphertext on the Transaction; provisioning inputs are persisted once so retries cannot extend the Active Period or rotate the PIN |
 | [0017](0017-account-status-read-surface.md) | Account Status reads a summary, a paginated history and an Extend preview; the backend owns the "almost over" threshold and one shared Extend rule |
 | [0018](0018-hardening-reconciliation-observability.md) | Reconciliation sweeps payable pending Transactions through `settle`; metrics and `/healthz` live on the worker's operator listener; the smoke journey runs with the modem absent and the vendor stubbed |
+| [0019](0019-sms-body-is-one-gsm7-segment.md) | An SMS body is one GSM-7 segment; the outbox refuses a longer or unencodable body before the modem does |
+| [0020](0020-gateway-reference-and-tripay-wire-contract.md) | The adapter follows Tripay's wire contract (signature, nested order items) and the Transaction stores the vendor's reference for status reads |
+| [0021](0021-channel-amount-windows.md) | A channel carries the vendor's amount window; checkout offers only the channels that can take the Package price |
+| [0022](0022-sms-submission-outlasts-an-at-round-trip.md) | The modem's hand-off of a body to the network gets its own budget, longer than an AT round trip |
+| [0023](0023-a-refusal-carries-its-own-cause.md) | A refusal carries the modem's own numeric cause (`AT+CMEE=1`), the step and the elapsed time |
 
 0010 and 0011 were **reserved** (not written) while 0012–0014 were already in
 place, so the numbers record the order the PRD decisions were taken, not the
 order the files were created. No numbers are free: the next decision continues
-at 0019.
+at 0024.
