@@ -29,6 +29,10 @@ func TestLoadAppliesDefaults(t *testing.T) {
 	if cfg.Health.Timeout != 2*time.Second {
 		t.Fatalf("health.timeout = %v", cfg.Health.Timeout)
 	}
+	// A submission is not an AT round trip, so it gets its own budget (ADR 0022).
+	if cfg.SMS.SubmitTimeout != time.Minute {
+		t.Fatalf("sms.submit_timeout = %v, want the one-minute default", cfg.SMS.SubmitTimeout)
+	}
 	if len(cfg.Worker.Queues) != 3 {
 		t.Fatalf("worker.queues = %v", cfg.Worker.Queues)
 	}
@@ -97,6 +101,21 @@ func TestLoadRejectsInvalidConfiguration(t *testing.T) {
 		if !strings.Contains(err.Error(), expected) {
 			t.Fatalf("error %q does not mention %q", err, expected)
 		}
+	}
+}
+
+func TestLoadRejectsASubmissionBudgetLongerThanTheLease(t *testing.T) {
+	loadableEnv(t)
+	// The row's lease is the contract that only one drainer works on it; a send
+	// that outlives the lease breaks that contract (ADR 0010, ADR 0022).
+	t.Setenv("SMS_SUBMIT_TIMEOUT", "5m")
+
+	_, err := config.Load()
+	if err == nil {
+		t.Fatal("expected validation error")
+	}
+	if !strings.Contains(err.Error(), "sms.submit_timeout") {
+		t.Fatalf("error %q does not mention sms.submit_timeout", err)
 	}
 }
 

@@ -236,6 +236,9 @@ type SMSConfig struct {
 	Baud int `mapstructure:"baud"`
 	// CommandTimeout bounds one AT command round trip.
 	CommandTimeout time.Duration `mapstructure:"command_timeout"`
+	// SubmitTimeout bounds the hand-off of a message body to the network, which
+	// outlasts an AT round trip on a slow link (ADR 0022).
+	SubmitTimeout time.Duration `mapstructure:"submit_timeout"`
 	// Lease is how long a claimed outbox row stays owned by one drainer.
 	Lease time.Duration `mapstructure:"lease"`
 	// SweepInterval is how often the drainer looks for due rows even when no
@@ -349,6 +352,7 @@ var defaults = map[string]any{
 	"sms.device":                           "/dev/ttyUSB0",
 	"sms.baud":                             115200,
 	"sms.command_timeout":                  "10s",
+	"sms.submit_timeout":                   "60s",
 	"sms.lease":                            "2m",
 	"sms.sweep_interval":                   "30s",
 	"sms.max_attempts":                     5,
@@ -654,6 +658,14 @@ func (c *Config) validateSMS() []string {
 	}
 	if c.SMS.CommandTimeout <= 0 || c.SMS.Lease <= 0 || c.SMS.SweepInterval <= 0 {
 		problems = append(problems, "sms.command_timeout, sms.lease and sms.sweep_interval must be positive durations")
+	}
+	if c.SMS.SubmitTimeout <= 0 {
+		problems = append(problems, "sms.submit_timeout must be a positive duration")
+	}
+	// A submission that outlives its row's lease would let a second drainer claim
+	// the row while the modem is still working on it (ADR 0010, ADR 0022).
+	if c.SMS.SubmitTimeout > 0 && c.SMS.Lease > 0 && c.SMS.SubmitTimeout >= c.SMS.Lease {
+		problems = append(problems, "sms.submit_timeout must be shorter than sms.lease")
 	}
 	if c.SMS.MaxAttempts <= 0 {
 		problems = append(problems, "sms.max_attempts must be positive")

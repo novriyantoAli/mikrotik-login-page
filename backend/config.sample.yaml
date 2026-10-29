@@ -118,7 +118,11 @@ tripay:
 sms:
   device: /dev/ttyUSB0
   baud: 115200
+  # One AT command round trip: AT, AT+CMGF, AT+CSCS, the AT+CMGS prompt.
   command_timeout: 10s
+  # The modem hands the body to the SMSC before it answers +CMGS, which outlasts
+  # an AT round trip on a slow link (ADR 0022). Must stay shorter than the lease.
+  submit_timeout: 60s
   lease: 2m
   sweep_interval: 30s
   max_attempts: 5

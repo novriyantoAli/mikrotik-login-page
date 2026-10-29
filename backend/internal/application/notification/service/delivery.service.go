@@ -57,6 +57,13 @@ func (d *deliverer) DeliverDue(ctx context.Context, max int) (int, error) {
 		if sendErr := d.sender.Send(ctx, row.PhoneNumber, row.Message); sendErr != nil {
 			// One failure means the modem is unavailable; stop the batch instead
 			// of hammering it, and let the row's backoff schedule the retry.
+			if sms.IsUnsendable(sendErr) {
+				// A body no modem will ever accept is not an outage: retrying spends
+				// the budget on a guaranteed failure and keeps a PIN or token in
+				// Postgres longer than it needs to be (ADR 0016).
+				d.recordUnsendable(ctx, row, sendErr)
+				return delivered, nil
+			}
 			d.recordFailure(ctx, row, sendErr)
 			return delivered, nil
 		}
@@ -71,6 +78,15 @@ func (d *deliverer) DeliverDue(ctx context.Context, max int) (int, error) {
 	return delivered, nil
 }
 
+// recordUnsendable closes a row whose body can never be accepted, without a
+// retry: the next attempt would fail identically.
+func (d *deliverer) recordUnsendable(ctx context.Context, row *entity.SMS, sendErr error) {
+	if !d.markFailed(ctx, row, nil, sendErr) {
+		return
+	}
+	d.logger.Error("sms body is unsendable; not retrying", d.failureFields(row, sendErr)...)
+}
+
 func (d *deliverer) recordFailure(ctx context.Context, row *entity.SMS, sendErr error) {
 	var nextAttemptAt *time.Time
 	if row.Attempts < d.settings.MaxAttempts {
@@ -78,21 +94,43 @@ func (d *deliverer) recordFailure(ctx context.Context, row *entity.SMS, sendErr 
 		nextAttemptAt = &next
 	}
 
-	if err := d.repo.MarkFailed(ctx, row.ID, nextAttemptAt, sendErr.Error(), d.clock.Now()); err != nil {
-		d.logger.Error("record sms failure", zap.Uint("sms_id", row.ID), zap.Error(err))
+	if !d.markFailed(ctx, row, nextAttemptAt, sendErr) {
+		return
 	}
 
-	fields := []zap.Field{
-		zap.Uint("sms_id", row.ID),
-		zap.Int("attempts", row.Attempts),
-		zap.Error(sendErr),
-	}
+	fields := d.failureFields(row, sendErr)
 	if nextAttemptAt == nil {
 		d.logger.Error("sms left failed after its last attempt", fields...)
 		return
 	}
 	d.logger.Warn("sms delivery failed; retry scheduled",
 		append(fields, zap.Time("retry_at", *nextAttemptAt))...)
+}
+
+// markFailed records one failed attempt and reports whether the summary line that
+// follows is still worth writing: a write that did not land is logged here, once,
+// instead of letting a line about the schedule hide it.
+func (d *deliverer) markFailed(
+	ctx context.Context,
+	row *entity.SMS,
+	nextAttemptAt *time.Time,
+	sendErr error,
+) bool {
+	if err := d.repo.MarkFailed(ctx, row.ID, nextAttemptAt, sendErr.Error(), d.clock.Now()); err != nil {
+		d.logger.Error("record sms failure", zap.Uint("sms_id", row.ID), zap.Error(err))
+		return false
+	}
+	return true
+}
+
+// failureFields is what both failure paths report: which row, after how many
+// attempts, and why.
+func (d *deliverer) failureFields(row *entity.SMS, sendErr error) []zap.Field {
+	return []zap.Field{
+		zap.Uint("sms_id", row.ID),
+		zap.Int("attempts", row.Attempts),
+		zap.Error(sendErr),
+	}
 }
 
 // backoff doubles the configured delay per attempt, so a modem that is off for a

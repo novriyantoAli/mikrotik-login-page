@@ -3,6 +3,7 @@ package service_test
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -11,6 +12,7 @@ import (
 	"github.com/novriyantoAli/mikrotik-login-page/backend/internal/application/notification/entity"
 	"github.com/novriyantoAli/mikrotik-login-page/backend/internal/application/notification/repository"
 	"github.com/novriyantoAli/mikrotik-login-page/backend/internal/application/notification/service"
+	"github.com/novriyantoAli/mikrotik-login-page/backend/internal/application/notification/sms"
 	"github.com/novriyantoAli/mikrotik-login-page/backend/internal/pkg/database"
 )
 
@@ -179,6 +181,41 @@ func TestEnqueueRejectsAnEmptyMessage(t *testing.T) {
 	}
 }
 
+// A body over one GSM-7 segment is refused by the modem with a bare ERROR (178
+// characters of Magic Link copy did exactly that in production), so the outbox
+// refuses it before a row exists: nothing to retry, nothing to leave behind.
+func TestEnqueueRejectsABodyLongerThanOneSegment(t *testing.T) {
+	repo := &fakeOutboxRepository{}
+	waker := &recordingWaker{}
+	outbox, _ := newOutbox(repo, waker)
+
+	err := outbox.Enqueue(context.Background(), service.Message{
+		PhoneNumber: "6281234567890",
+		Text:        strings.Repeat("a", 178),
+	})
+	if !errors.Is(err, sms.ErrTooLong) {
+		t.Fatalf("enqueue = %v, want ErrTooLong", err)
+	}
+	if len(repo.rows) != 0 {
+		t.Fatalf("stored %d rows for an undeliverable body, want none", len(repo.rows))
+	}
+	if len(waker.tasks) != 0 {
+		t.Fatalf("woke the worker %d times for an undeliverable body", len(waker.tasks))
+	}
+}
+
+func TestEnqueueRejectsAnUnencodableBody(t *testing.T) {
+	outbox, _ := newOutbox(&fakeOutboxRepository{}, &recordingWaker{})
+
+	err := outbox.Enqueue(context.Background(), service.Message{
+		PhoneNumber: "6281234567890",
+		Text:        "PIN: 123456 \U0001F680",
+	})
+	if !errors.Is(err, sms.ErrUnencodable) {
+		t.Fatalf("enqueue = %v, want ErrUnencodable", err)
+	}
+}
+
 func TestDeliverDueSendsAndClosesTheRow(t *testing.T) {
 	repo := &fakeOutboxRepository{}
 	outbox, clock := newOutbox(repo, &recordingWaker{})
@@ -268,6 +305,42 @@ func TestDeliverDueGivesUpAfterTheLastAttempt(t *testing.T) {
 	}
 	if row.Message != "" {
 		t.Fatalf("a row that will never retry kept its body %q", row.Message)
+	}
+}
+
+func TestDeliverDueDoesNotRetryAnUnsendableBody(t *testing.T) {
+	// The outbox now refuses such a body, but rows written before the rule
+	// existed (a 178-character Magic Link in sms_outbox) still reach the drainer.
+	repo := &fakeOutboxRepository{}
+	_, clock := newOutbox(repo, &recordingWaker{})
+	sender := &fakeSender{err: &sms.Unsendable{Reason: sms.ErrTooLong, Septets: 178}}
+	deliverer := newDeliverer(repo, sender, clock, 5)
+
+	repo.rows = append(repo.rows, entity.SMS{
+		ID:            7,
+		PhoneNumber:   "6281234567890",
+		Message:       strings.Repeat("a", 178),
+		State:         entity.StatePending,
+		NextAttemptAt: clock.now,
+	})
+
+	delivered, err := deliverer.DeliverDue(context.Background(), 10)
+	if err != nil {
+		t.Fatalf("deliver: %v", err)
+	}
+	if delivered != 0 {
+		t.Fatalf("delivered %d messages, want 0", delivered)
+	}
+
+	row := repo.rows[0]
+	if row.State != entity.StateFailed {
+		t.Fatalf("row state = %q, want failed without a retry", row.State)
+	}
+	if row.Message != "" {
+		t.Fatalf("a row that will never be retried kept its body (%d chars)", len(row.Message))
+	}
+	if !strings.Contains(row.LastError, "septets") {
+		t.Fatalf("last_error = %q, want the reason the body is unsendable", row.LastError)
 	}
 }
 

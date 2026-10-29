@@ -17,6 +17,7 @@ func Module() fx.Option {
 					Device:         cfg.SMS.Device,
 					Baud:           cfg.SMS.Baud,
 					CommandTimeout: cfg.SMS.CommandTimeout,
+					SubmitTimeout:  cfg.SMS.SubmitTimeout,
 				}
 			},
 			fx.Annotate(New, fx.As(new(sms.Sender))),

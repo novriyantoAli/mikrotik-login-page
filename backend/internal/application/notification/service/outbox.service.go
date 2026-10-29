@@ -87,6 +87,14 @@ func (o *outbox) pending(message Message) (*entity.SMS, error) {
 		return nil, errors.New("sms needs a Phone Number and a text")
 	}
 
+	// The modem speaks text mode, which has no concatenation: a body over one GSM-7
+	// segment is answered with a bare ERROR and would be retried until the attempt
+	// budget ran out (ADR 0010). Refuse it here, where the caller still gets a
+	// cause it can act on.
+	if err := sms.CheckText(message.Text); err != nil {
+		return nil, err
+	}
+
 	now := o.clock.Now()
 	return &entity.SMS{
 		PhoneNumber:   message.PhoneNumber,

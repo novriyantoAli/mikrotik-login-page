@@ -296,9 +296,12 @@ func (s *service) magicLinkURL(token string) string {
 	return base + path + "?token=" + url.QueryEscape(token)
 }
 
+// magicLinkMessage is one SMS: text mode delivers a single 160-septet segment,
+// so the copy stays short enough for the whole link to fit. A longer body would be
+// refused by the modem with a bare ERROR, and the buyer would never get in.
 func magicLinkMessage(link string, ttl time.Duration) string {
 	return fmt.Sprintf(
-		"Masuk ke Aplikasi Pembelian: %s Berlaku %s. Abaikan pesan ini bila Anda tidak memintanya.",
+		"Tautan masuk: %s (berlaku %s). Abaikan bila bukan Anda.",
 		link,
 		formatDuration(ttl),
 	)
