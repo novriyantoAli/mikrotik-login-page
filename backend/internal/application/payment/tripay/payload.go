@@ -74,8 +74,13 @@ type channelPayload struct {
 	Code        string            `json:"code"`
 	Name        string            `json:"name"`
 	Group       string            `json:"group"`
+	Type        string            `json:"type"`
 	Active      bool              `json:"active"`
 	FeeCustomer channelFeePayload `json:"fee_customer"`
+	// The vendor publishes the amount window per channel; a Package below the
+	// minimum is answered "Minimum payment amount is Rp 10.000" after the fact.
+	MinimumAmount int64 `json:"minimum_amount"`
+	MaximumAmount int64 `json:"maximum_amount"`
 }
 
 type channelsEnvelope struct {
@@ -102,36 +107,59 @@ func parseCreateResponse(data createData, fallbackExpiry time.Time) *payment.Cre
 	}
 
 	return &payment.CreateTransactionResponse{
-		Reference:    data.MerchantRef,
-		ChannelName:  data.PaymentName,
-		PayCode:      data.PayCode,
-		PayURL:       data.PayURL,
-		QRString:     data.QRString,
-		QRURL:        data.QRURL,
-		Instructions: instructions,
-		ExpiresAt:    expiresAt,
+		Reference:        data.MerchantRef,
+		GatewayReference: data.Reference,
+		ChannelName:      data.PaymentName,
+		PayCode:          data.PayCode,
+		PayURL:           data.PayURL,
+		QRString:         data.QRString,
+		QRURL:            data.QRURL,
+		Instructions:     instructions,
+		ExpiresAt:        expiresAt,
 	}
 }
 
-// closedPaymentGroups are the only Tripay groups checkout can render inside the
-// app: a virtual account number or a QRIS code the buyer pays from within the
-// page. Retail and card channels are open payments that need a hosted redirect,
-// which ADR 0008 rejects for this flow, so they are never offered even when the
-// merchant has them active (PRD point 19).
+// closedPaymentGroups are the Tripay groups checkout renders inside the app: a
+// virtual account number the buyer pays from within the page. QRIS is checked by
+// code, not by group, because the vendor files it under "E-Wallet" (verified
+// against the sandbox) while its type is still `direct`. Retail and card channels
+// are open payments that need a hosted redirect, which ADR 0008 rejects for this
+// flow, so they are never offered even when the merchant has them active (PRD
+// point 19).
 var closedPaymentGroups = map[string]bool{
 	"Virtual Account": true,
-	"QRIS":            true,
+}
+
+// qrisCode is the canonical QRIS channel. The vendor also publishes QRISC,
+// QRIS2 and QRIS_SHOPEEPAY: the same rail and the same fee under acquirer-specific
+// names, which are not four different choices for a buyer.
+const qrisCode = "QRIS"
+
+// isClosedPayment reports whether one channel can be paid from inside the app.
+// `type` is the vendor's own answer to that question: `direct` means the app
+// shows a code, `redirect` means the buyer would leave the page.
+func isClosedPayment(row channelPayload) bool {
+	if !row.Active || row.Code == "" || row.Type != "direct" {
+		return false
+	}
+	return closedPaymentGroups[row.Group] ||
+		strings.HasPrefix(strings.ToUpper(row.Code), qrisCode)
 }
 
 // parseChannels keeps the active closed-payment methods only: an inactive
 // channel, or one that would leave the app, is not something checkout may offer.
+// One QRIS rail is enough: the canonical code when the merchant has it, otherwise
+// the first variant.
 func parseChannels(rows []channelPayload) []payment.Channel {
 	channels := make([]payment.Channel, 0, len(rows))
+	var qris *payment.Channel
+
 	for _, row := range rows {
-		if !row.Active || row.Code == "" || !closedPaymentGroups[row.Group] {
+		if !isClosedPayment(row) {
 			continue
 		}
-		channels = append(channels, payment.Channel{
+
+		channel := payment.Channel{
 			Code:  row.Code,
 			Name:  row.Name,
 			Group: row.Group,
@@ -139,7 +167,21 @@ func parseChannels(rows []channelPayload) []payment.Channel {
 				FlatIDR: row.FeeCustomer.Flat,
 				Percent: row.FeeCustomer.Percent,
 			},
-		})
+			MinAmountIDR: row.MinimumAmount,
+			MaxAmountIDR: row.MaximumAmount,
+		}
+
+		if closedPaymentGroups[row.Group] {
+			channels = append(channels, channel)
+			continue
+		}
+		if qris == nil || channel.Code == qrisCode {
+			qris = &channel
+		}
+	}
+
+	if qris != nil {
+		channels = append(channels, *qris)
 	}
 	return channels
 }

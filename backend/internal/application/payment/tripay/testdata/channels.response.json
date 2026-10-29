@@ -4,32 +4,146 @@
   "data": [
     {
       "code": "BRIVA",
-      "name": "BRIVA",
+      "name": "BRI Virtual Account",
       "group": "Virtual Account",
+      "type": "direct",
       "active": true,
-      "fee_merchant": { "flat": 0, "percent": 0 },
-      "fee_customer": { "flat": 2500, "percent": 0 },
-      "total_fee": { "flat": 0, "percent": 0 },
+      "fee_merchant": {
+        "flat": 0,
+        "percent": 0
+      },
+      "fee_customer": {
+        "flat": 4250,
+        "percent": 0
+      },
+      "total_fee": {
+        "flat": 4250,
+        "percent": "0.00"
+      },
+      "minimum_fee": null,
+      "maximum_fee": null,
+      "minimum_amount": 10000,
+      "maximum_amount": 10000000,
       "icon_url": "https://tripay.co.id/icon/briva.png"
     },
     {
-      "code": "QRIS",
-      "name": "QRIS",
-      "group": "QRIS",
+      "code": "QRISC",
+      "name": "QRIS (Customizable)",
+      "group": "E-Wallet",
+      "type": "direct",
       "active": true,
-      "fee_merchant": { "flat": 0, "percent": 0 },
-      "fee_customer": { "flat": 0, "percent": 0.7 },
-      "total_fee": { "flat": 0, "percent": 0 },
+      "fee_merchant": {
+        "flat": 750,
+        "percent": 0.7
+      },
+      "fee_customer": {
+        "flat": 0,
+        "percent": 0.7
+      },
+      "total_fee": {
+        "flat": 750,
+        "percent": "0.70"
+      },
+      "minimum_fee": null,
+      "maximum_fee": null,
+      "minimum_amount": 1000,
+      "maximum_amount": 5000000,
       "icon_url": "https://tripay.co.id/icon/qris.png"
+    },
+    {
+      "code": "QRIS2",
+      "name": "QRIS",
+      "group": "E-Wallet",
+      "type": "direct",
+      "active": true,
+      "fee_merchant": {
+        "flat": 750,
+        "percent": 0.7
+      },
+      "fee_customer": {
+        "flat": 0,
+        "percent": 0.7
+      },
+      "total_fee": {
+        "flat": 750,
+        "percent": "0.70"
+      },
+      "minimum_fee": null,
+      "maximum_fee": null,
+      "minimum_amount": 1000,
+      "maximum_amount": 5000000,
+      "icon_url": "https://tripay.co.id/icon/qris.png"
+    },
+    {
+      "code": "QRIS",
+      "name": "QRIS by ShopeePay",
+      "group": "E-Wallet",
+      "type": "direct",
+      "active": true,
+      "fee_merchant": {
+        "flat": 750,
+        "percent": 0.7
+      },
+      "fee_customer": {
+        "flat": 0,
+        "percent": 0.7
+      },
+      "total_fee": {
+        "flat": 750,
+        "percent": "0.70"
+      },
+      "minimum_fee": null,
+      "maximum_fee": null,
+      "minimum_amount": 1000,
+      "maximum_amount": 5000000,
+      "icon_url": "https://tripay.co.id/icon/qris.png"
+    },
+    {
+      "code": "DANA",
+      "name": "DANA",
+      "group": "E-Wallet",
+      "type": "redirect",
+      "active": true,
+      "fee_merchant": {
+        "flat": 0,
+        "percent": 3
+      },
+      "fee_customer": {
+        "flat": 0,
+        "percent": 0
+      },
+      "total_fee": {
+        "flat": 0,
+        "percent": "3.00"
+      },
+      "minimum_fee": 1000,
+      "maximum_fee": null,
+      "minimum_amount": 1000,
+      "maximum_amount": 10000000,
+      "icon_url": "https://tripay.co.id/icon/dana.png"
     },
     {
       "code": "ALFAMIDI",
       "name": "Alfamidi",
       "group": "Gerai Retail",
+      "type": "direct",
       "active": true,
-      "fee_merchant": { "flat": 0, "percent": 0 },
-      "fee_customer": { "flat": 0, "percent": 0 },
-      "total_fee": { "flat": 0, "percent": 0 },
+      "fee_merchant": {
+        "flat": 0,
+        "percent": 0
+      },
+      "fee_customer": {
+        "flat": 0,
+        "percent": 0
+      },
+      "total_fee": {
+        "flat": 0,
+        "percent": "0.00"
+      },
+      "minimum_fee": null,
+      "maximum_fee": null,
+      "minimum_amount": 5000,
+      "maximum_amount": 2500000,
       "icon_url": "https://tripay.co.id/icon/alfamidi.png"
     }
   ]

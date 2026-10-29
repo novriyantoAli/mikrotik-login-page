@@ -48,14 +48,20 @@ type Instruction struct {
 
 // CreateTransactionResponse carries the instructions the app renders.
 type CreateTransactionResponse struct {
-	Reference    string
-	ChannelName  string
-	PayCode      string
-	PayURL       string
-	QRString     string
-	QRURL        string
-	Instructions []Instruction
-	ExpiresAt    time.Time
+	// Reference is this system's Transaction reference, as the gateway echoed it.
+	Reference string
+	// GatewayReference is the vendor's own id for this payment. It is the only
+	// handle a later status read is accepted with: Tripay rejects a detail query
+	// by merchant_ref ("Undefined parameter: reference"), so reconciliation must
+	// keep this value rather than reusing Reference.
+	GatewayReference string
+	ChannelName      string
+	PayCode          string
+	PayURL           string
+	QRString         string
+	QRURL            string
+	Instructions     []Instruction
+	ExpiresAt        time.Time
 }
 
 // ChannelFee is what the buyer pays on top of the Package price for one channel.
@@ -74,6 +80,24 @@ type Channel struct {
 	Name        string
 	Group       string
 	FeeCustomer ChannelFee
+	// MinAmountIDR and MaxAmountIDR are the vendor's bounds on the payment amount.
+	// Zero means "the vendor published no bound", not "zero rupiah": a 5.000
+	// Package is refused by every virtual account that starts at 10.000, so
+	// checkout has to know before it calls the vendor.
+	MinAmountIDR int64
+	MaxAmountIDR int64
+}
+
+// Accepts reports whether amount can be paid through this channel. A channel with
+// no published bound accepts everything the other bound allows.
+func (c Channel) Accepts(amountIDR int64) bool {
+	if c.MinAmountIDR > 0 && amountIDR < c.MinAmountIDR {
+		return false
+	}
+	if c.MaxAmountIDR > 0 && amountIDR > c.MaxAmountIDR {
+		return false
+	}
+	return true
 }
 
 // PaymentStatus is a polled view of one payment.
@@ -96,7 +120,9 @@ type Callback struct {
 // Gateway is the payment vendor boundary.
 type Gateway interface {
 	CreateTransaction(ctx context.Context, req CreateTransactionRequest) (*CreateTransactionResponse, error)
-	GetStatus(ctx context.Context, reference string) (*PaymentStatus, error)
+	// GetStatus asks about one payment, addressed by the gateway's own reference
+	// (CreateTransactionResponse.GatewayReference), never by ours.
+	GetStatus(ctx context.Context, gatewayReference string) (*PaymentStatus, error)
 	// VerifyCallback returns an error when the signature does not match, so an
 	// unauthenticated caller can never mark a Transaction paid.
 	VerifyCallback(raw []byte, signature string) (*Callback, error)

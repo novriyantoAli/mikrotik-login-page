@@ -34,6 +34,10 @@ var (
 	ErrPackageUnknown = errors.New("package not found")
 	// ErrChannelUnknown means the gateway does not offer that channel.
 	ErrChannelUnknown = errors.New("payment channel is not available")
+	// ErrChannelAmountUnsupported means the Package price is outside the channel's
+	// published bounds (a virtual account that starts at Rp 10.000 cannot take a
+	// Rp 5.000 Package). The buyer has to pick another channel, so it is a 400.
+	ErrChannelAmountUnsupported = errors.New("payment channel cannot carry this amount")
 	// ErrNotFound covers an unknown Transaction and one that belongs to another
 	// Phone Number: the caller must not be able to tell them apart (PRD point 13).
 	ErrNotFound = errors.New("transaction not found")
@@ -58,8 +62,10 @@ type Settings struct {
 // from the `paid` state this service produces and is a separate surface
 // (Provisioner), so checkout never waits for MySQL.
 type Service interface {
-	// Channels lists the closed-payment methods checkout may offer.
-	Channels(ctx context.Context) ([]dto.ChannelResponse, error)
+	// Channels lists the closed-payment methods checkout may offer. When
+	// packageID is set, only the channels whose published amount window contains
+	// the Package price are returned, so the app never offers a dead end.
+	Channels(ctx context.Context, packageID uint) ([]dto.ChannelResponse, error)
 	// Create returns the live pending Transaction for this Package or opens a new
 	// one. A repeated call never charges twice (PRD point 17).
 	Create(ctx context.Context, phoneNumber string, request *dto.CreateTransactionRequest) (
@@ -130,7 +136,12 @@ func NewService(
 	}
 }
 
-func (s *service) Channels(ctx context.Context) ([]dto.ChannelResponse, error) {
+func (s *service) Channels(ctx context.Context, packageID uint) ([]dto.ChannelResponse, error) {
+	amountIDR, err := s.packageAmount(ctx, packageID)
+	if err != nil {
+		return nil, err
+	}
+
 	channels, err := s.channelList(ctx)
 	if err != nil {
 		return nil, err
@@ -138,6 +149,9 @@ func (s *service) Channels(ctx context.Context) ([]dto.ChannelResponse, error) {
 
 	responses := make([]dto.ChannelResponse, 0, len(channels))
 	for _, channel := range channels {
+		if amountIDR > 0 && !channel.Accepts(amountIDR) {
+			continue
+		}
 		responses = append(responses, dto.ChannelResponse{
 			Code:     channel.Code,
 			Name:     channel.Name,
@@ -147,6 +161,23 @@ func (s *service) Channels(ctx context.Context) ([]dto.ChannelResponse, error) {
 		})
 	}
 	return responses, nil
+}
+
+// packageAmount reads the price the channel has to carry. An unset Package means
+// "do not filter", which keeps the endpoint usable on its own.
+func (s *service) packageAmount(ctx context.Context, packageID uint) (int64, error) {
+	if packageID == 0 {
+		return 0, nil
+	}
+
+	pkg, err := s.catalog.GetPackage(ctx, packageID)
+	switch {
+	case errors.Is(err, packageservice.ErrPackageNotFound):
+		return 0, ErrPackageUnknown
+	case err != nil:
+		return 0, fmt.Errorf("read Package: %w", err)
+	}
+	return pkg.PriceIDR, nil
 }
 
 func (s *service) Create(
@@ -364,6 +395,18 @@ func (s *service) resolve(
 	if err != nil {
 		return nil, nil, err
 	}
+	// The vendor refuses an amount outside a channel's window after the fact, with
+	// a 400 this system used to report as 502 "gateway unavailable". Checking here
+	// keeps the answer a buyer can act on and saves the vendor call.
+	if !channel.Accepts(pkg.PriceIDR) {
+		s.logger.Info("checkout channel cannot carry the Package price",
+			zap.String("channel", channel.Code),
+			zap.Int64("amount_idr", pkg.PriceIDR),
+			zap.Int64("channel_min_idr", channel.MinAmountIDR),
+			zap.Int64("channel_max_idr", channel.MaxAmountIDR),
+		)
+		return nil, nil, ErrChannelAmountUnsupported
+	}
 	return pkg, channel, nil
 }
 
@@ -405,21 +448,22 @@ func (s *service) newTransaction(
 	}
 
 	return &entity.Transaction{
-		Reference:    reference,
-		PhoneNumber:  phoneNumber,
-		PackageID:    request.PackageID,
-		PackageName:  packageName,
-		AmountIDR:    amountIDR,
-		Channel:      channel,
-		ChannelName:  created.ChannelName,
-		State:        entity.StatePending,
-		PayCode:      created.PayCode,
-		PayURL:       created.PayURL,
-		QRString:     created.QRString,
-		QRURL:        created.QRURL,
-		Instructions: instructions,
-		ReturnURL:    s.allowedReturn(request.ReturnURL),
-		ExpiresAt:    created.ExpiresAt,
+		Reference:        reference,
+		GatewayReference: created.GatewayReference,
+		PhoneNumber:      phoneNumber,
+		PackageID:        request.PackageID,
+		PackageName:      packageName,
+		AmountIDR:        amountIDR,
+		Channel:          channel,
+		ChannelName:      created.ChannelName,
+		State:            entity.StatePending,
+		PayCode:          created.PayCode,
+		PayURL:           created.PayURL,
+		QRString:         created.QRString,
+		QRURL:            created.QRURL,
+		Instructions:     instructions,
+		ReturnURL:        s.allowedReturn(request.ReturnURL),
+		ExpiresAt:        created.ExpiresAt,
 	}
 }
 

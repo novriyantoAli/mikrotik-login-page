@@ -36,7 +36,7 @@ type stubTransactions struct {
 	err     error
 }
 
-func (s *stubTransactions) Channels(context.Context) ([]transactiondto.ChannelResponse, error) {
+func (s *stubTransactions) Channels(context.Context, uint) ([]transactiondto.ChannelResponse, error) {
 	return nil, nil
 }
 

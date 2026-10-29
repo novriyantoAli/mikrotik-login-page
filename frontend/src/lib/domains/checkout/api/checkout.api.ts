@@ -14,15 +14,23 @@ import {
  * a story can provide a fake without touching a component.
  */
 export interface CheckoutApi {
-  channels(): Promise<Channel[]>;
+  /**
+   * The closed-payment channels the buyer may pick. Given a Package, the backend
+   * leaves out the channels whose amount window cannot carry its price (a virtual
+   * account that starts at Rp 10.000 is not a choice for a Rp 5.000 Package).
+   */
+  channels(packageId?: number): Promise<Channel[]>;
   /** Open the pending Transaction for a Package, or return the one that exists. */
   create(input: CreateTransactionInput): Promise<Transaction>;
   get(id: number): Promise<Transaction>;
 }
 
 export const checkoutApi: CheckoutApi = {
-  async channels(): Promise<Channel[]> {
-    const { data } = await apiClient.get('/transactions/channels');
+  async channels(packageId?: number): Promise<Channel[]> {
+    const { data } = await apiClient.get('/transactions/channels', {
+      // A query parameter, not a path segment: the route is the same list, filtered.
+      params: packageId ? { package_id: packageId } : undefined,
+    });
     return ChannelListEnvelopeSchema.parse(data).data;
   },
 

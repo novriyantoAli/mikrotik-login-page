@@ -25,15 +25,17 @@ const testPhone = "6281200000001"
 // stubService is the whole Transaction surface the handler uses, so these tests
 // never build a repository, a catalog or a gateway.
 type stubService struct {
-	channels    []dto.ChannelResponse
-	err         error
-	transaction *dto.TransactionResponse
-	page        *dto.TransactionPage
-	heard       *dto.CreateTransactionRequest
-	signature   string
+	channels       []dto.ChannelResponse
+	err            error
+	transaction    *dto.TransactionResponse
+	page           *dto.TransactionPage
+	heard          *dto.CreateTransactionRequest
+	heardPackageID uint
+	signature      string
 }
 
-func (s *stubService) Channels(context.Context) ([]dto.ChannelResponse, error) {
+func (s *stubService) Channels(_ context.Context, packageID uint) ([]dto.ChannelResponse, error) {
+	s.heardPackageID = packageID
 	return s.channels, s.err
 }
 
@@ -167,6 +169,24 @@ func TestChannels_ListsTheGatewayChannels(t *testing.T) {
 	}
 }
 
+func TestChannels_PassesThePackageToTheService(t *testing.T) {
+	t.Parallel()
+
+	// The stub records nothing about the argument, so this test pins the wiring:
+	// the query parameter must reach the service instead of being dropped, which is
+	// what keeps unusable channels out of the buyer's list.
+	transactions := &stubService{channels: []dto.ChannelResponse{{Code: "QRIS", Name: "QRIS", Group: "QRIS"}}}
+	recorder := request(newEngine(transactions), http.MethodGet,
+		"/api/transactions/channels?package_id=1", nil, "good", nil)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", recorder.Code, recorder.Body.String())
+	}
+	if transactions.heardPackageID != 1 {
+		t.Fatalf("service heard package_id = %d, want 1", transactions.heardPackageID)
+	}
+}
+
 func TestCreate_AnotherPhoneNumberInTheBodyIsNotFound(t *testing.T) {
 	t.Parallel()
 
@@ -204,6 +224,23 @@ func TestCreate_UnknownChannelIsABadRequest(t *testing.T) {
 	transactions := &stubService{err: service.ErrChannelUnknown}
 	recorder := request(newEngine(transactions), http.MethodPost, "/api/transactions",
 		map[string]any{"package_id": 7, "channel": "KREDIT"}, "good", nil)
+
+	if recorder.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400", recorder.Code)
+	}
+	if code := errorCode(t, recorder); code != "invalid_request" {
+		t.Fatalf("code = %q", code)
+	}
+}
+
+func TestCreate_ChannelWhoseWindowExcludesThePriceIsABadRequest(t *testing.T) {
+	t.Parallel()
+
+	// The vendor would answer "Minimum payment amount is Rp 10.000"; the buyer needs
+	// a choice, not a 502 that blames the gateway.
+	transactions := &stubService{err: service.ErrChannelAmountUnsupported}
+	recorder := request(newEngine(transactions), http.MethodPost, "/api/transactions",
+		map[string]any{"package_id": 1, "channel": "BCAVA"}, "good", nil)
 
 	if recorder.Code != http.StatusBadRequest {
 		t.Fatalf("status = %d, want 400", recorder.Code)

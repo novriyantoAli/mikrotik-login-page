@@ -101,12 +101,23 @@ func (r *reconciler) reconcile(ctx context.Context, id uint, now time.Time) (boo
 		return false, nil
 	}
 
-	status, err := r.gateway.GetStatus(ctx, row.Reference)
+	// A status read is addressed by the vendor's id. A row without one predates
+	// that column and cannot be asked about at all, so it is reported instead of
+	// guessed at: the callback path still settles it.
+	if row.GatewayReference == "" {
+		r.logger.Warn("reconciliation skipped a Transaction without a gateway reference",
+			zap.Uint("transaction_id", row.ID), zap.String("reference", row.Reference))
+		return false, nil
+	}
+
+	status, err := r.gateway.GetStatus(ctx, row.GatewayReference)
 	if err != nil {
 		// A status read is not authoritative, so a failure changes nothing: the
 		// callback path is still open and the deadline still runs (ADR 0018).
 		r.logger.Warn("reconciliation could not read the gateway status",
-			zap.String("reference", row.Reference), zap.Error(err))
+			zap.String("reference", row.Reference),
+			zap.String("gateway_reference", row.GatewayReference),
+			zap.Error(err))
 		return false, nil
 	}
 	if status == nil {

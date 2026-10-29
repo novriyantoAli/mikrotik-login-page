@@ -95,7 +95,8 @@ func (i *Instructions) Scan(value any) error {
 }
 
 // Transaction is one Package purchase. Reference is this system's identity (the
-// gateway echoes it as merchant_ref); the vendor's own reference is never stored.
+// gateway echoes it as merchant_ref); GatewayReference is the vendor's own id,
+// kept because a status read is only accepted with it (ADR 0018 reconciliation).
 //
 // The unique index on (phone_number, package_id) filtered to state='pending' is
 // what makes checkout idempotent under concurrency: two "Bayar" taps can produce
@@ -104,6 +105,11 @@ type Transaction struct {
 	ID uint `gorm:"primaryKey"`
 
 	Reference string `gorm:"column:reference;not null;uniqueIndex"`
+	// GatewayReference is the vendor's id for this payment, handed back by
+	// CreateTransaction. Our own Reference cannot stand in for it: Tripay's detail
+	// endpoint answers "Undefined parameter: reference" for a merchant_ref, which
+	// silently disabled reconciliation (ADR 0018).
+	GatewayReference string `gorm:"column:gateway_reference;not null;default:''"`
 	// PhoneNumber is canonical ("628…") and is both the buyer identity and the
 	// future FreeRADIUS username (CONTEXT.md).
 	PhoneNumber string `gorm:"column:phone_number;not null;uniqueIndex:idx_txn_pending,where:state='pending',priority:1"`

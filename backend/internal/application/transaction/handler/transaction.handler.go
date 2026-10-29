@@ -48,18 +48,28 @@ func (h *Handler) RegisterRoutes(api *gin.RouterGroup) {
 }
 
 // Channels lists the closed-payment methods the buyer may choose, with the fee
-// that applies on top of the Package price.
+// that applies on top of the Package price. With package_id, the channels that
+// cannot carry that Package's amount are left out (a virtual account that starts
+// at Rp 10.000 is not a choice for a Rp 5.000 Package).
 //
 //	@Summary		Payment channels for checkout
-//	@Description	Lists the active closed-payment channels and their fees. Requires a session.
+//	@Description	Closed-payment channels and fees; package_id filters by amount window.
 //	@Tags			transactions
 //	@Produce		json
+//	@Param			package_id	query		int	false	"Package whose price must fit the channel's amount window"
 //	@Success		200	{object}	httpx.Envelope{data=[]dto.ChannelResponse}
+//	@Failure		400	{object}	httpx.ErrorResponse	"package_id is not in the catalog"
 //	@Failure		401	{object}	httpx.ErrorResponse	"no live session"
 //	@Failure		502	{object}	httpx.ErrorResponse	"the payment gateway is unreachable"
 //	@Router			/transactions/channels [get]
 func (h *Handler) Channels(c *gin.Context) {
-	channels, err := h.service.Channels(c.Request.Context())
+	var filter dto.ChannelFilter
+	if err := c.ShouldBindQuery(&filter); err != nil {
+		httpx.Error(c, http.StatusBadRequest, httpx.CodeInvalidRequest, "Package tidak dikenal.")
+		return
+	}
+
+	channels, err := h.service.Channels(c.Request.Context(), filter.PackageID)
 	if err != nil {
 		writeError(c, err)
 		return
@@ -232,6 +242,9 @@ func writeError(c *gin.Context, err error) {
 	case errors.Is(err, service.ErrChannelUnknown):
 		httpx.Error(c, http.StatusBadRequest, httpx.CodeInvalidRequest,
 			"Kanal pembayaran tidak tersedia. Pilih kanal lain.")
+	case errors.Is(err, service.ErrChannelAmountUnsupported):
+		httpx.Error(c, http.StatusBadRequest, httpx.CodeInvalidRequest,
+			"Nominal paket di luar batas kanal pembayaran ini. Pilih kanal lain.")
 	case errors.Is(err, payment.ErrSignatureMismatch):
 		httpx.Error(c, http.StatusUnauthorized, httpx.CodeUnauthorized, "Callback tidak sah.")
 	case errors.Is(err, service.ErrAmountMismatch):

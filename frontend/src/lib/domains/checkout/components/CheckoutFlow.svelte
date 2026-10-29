@@ -24,7 +24,7 @@
 
   const session = createSessionQuery();
   const packagesQuery = createPackageListQuery();
-  const channelsQuery = createChannelsQuery();
+  const channelsQuery = createChannelsQuery(() => packageId);
   const createTransaction = createCreateTransactionMutation();
   const transactionQuery = createTransactionQuery(() => state.transactionId);
 
@@ -154,6 +154,18 @@
             >
               Coba lagi
             </Button>
+          </CardFooter>
+        </Card>
+      {:else if (channelsQuery.data ?? []).length === 0}
+        <Card>
+          <CardHeader>
+            <CardTitle>Tidak ada metode pembayaran</CardTitle>
+            <p class="text-muted-foreground text-sm">
+              Paket ini belum bisa dibayar dengan metode yang tersedia. Pilih paket lain.
+            </p>
+          </CardHeader>
+          <CardFooter>
+            <a class="text-sm underline-offset-4 hover:underline" href={resolve('/')}>Kembali</a>
           </CardFooter>
         </Card>
       {:else}

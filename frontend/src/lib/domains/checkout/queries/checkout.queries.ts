@@ -10,15 +10,19 @@ import {
 /** Query keys for this domain. Components never write literal keys. */
 export const checkoutKeys = {
   all: ['checkout'] as const,
-  channels: () => [...checkoutKeys.all, 'channels'] as const,
+  channels: (packageId: number) => [...checkoutKeys.all, 'channels', packageId] as const,
   transaction: (id: number) => [...checkoutKeys.all, 'transaction', id] as const,
 };
 
-/** The closed-payment channels the buyer may pick, with their fees. */
-export function createChannelsQuery() {
+/**
+ * The closed-payment channels the buyer may pick, with their fees, restricted to
+ * the ones that can carry this Package's price. `packageId` is a thunk so the
+ * query follows the Package the screen was opened for.
+ */
+export function createChannelsQuery(packageId: () => number) {
   return createQuery(() => ({
-    queryKey: checkoutKeys.channels(),
-    queryFn: () => checkoutApi.channels(),
+    queryKey: checkoutKeys.channels(packageId()),
+    queryFn: () => checkoutApi.channels(packageId()),
     staleTime: 5 * 60_000,
   }));
 }

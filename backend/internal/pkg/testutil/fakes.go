@@ -109,6 +109,10 @@ type FakeGateway struct {
 	CreateRequests []payment.CreateTransactionRequest
 	Callbacks      []payment.Callback
 	Statuses       map[string]payment.PaymentStatus
+	// gatewayReferences maps the vendor's own reference (what the adapter hands
+	// back on create) to this system's reference, so a test keeps seeding Statuses
+	// by our reference while reconciliation still has to ask with the vendor's.
+	gatewayReferences map[string]string
 	// StatusReferences records every reference the reconciliation sweep asked
 	// about, in order, so a test can prove a settled row is not polled again.
 	StatusReferences []string
@@ -124,7 +128,8 @@ type FakeGateway struct {
 // buyer can pick: a virtual account and a QRIS code.
 func NewFakeGateway() *FakeGateway {
 	return &FakeGateway{
-		Statuses: make(map[string]payment.PaymentStatus),
+		Statuses:          make(map[string]payment.PaymentStatus),
+		gatewayReferences: make(map[string]string),
 		ChannelList: []payment.Channel{
 			{
 				Code: "BRIVA", Name: "BRIVA", Group: "Virtual Account",
@@ -180,13 +185,20 @@ func (g *FakeGateway) CreateTransaction(
 	}
 
 	g.CreateRequests = append(g.CreateRequests, req)
+	// The fake vendor does not echo our reference the way Tripay's merchant_ref
+	// does: it answers with its own id, and that is the one it must be asked
+	// about later (a real vendor rejects the other one).
+	gatewayReference := "GW-" + req.Reference
+	g.gatewayReferences[gatewayReference] = req.Reference
+
 	return &payment.CreateTransactionResponse{
-		Reference:   req.Reference,
-		ChannelName: req.Channel,
-		PayCode:     "8808812345678901",
-		PayURL:      "https://sandbox.tripay.example/pay/" + req.Reference,
-		QRString:    "00020101021226" + req.Reference,
-		QRURL:       "https://sandbox.tripay.example/qr/" + req.Reference,
+		Reference:        req.Reference,
+		GatewayReference: gatewayReference,
+		ChannelName:      req.Channel,
+		PayCode:          "8808812345678901",
+		PayURL:           "https://sandbox.tripay.example/pay/" + req.Reference,
+		QRString:         "00020101021226" + req.Reference,
+		QRURL:            "https://sandbox.tripay.example/qr/" + req.Reference,
 		Instructions: []payment.Instruction{
 			{Title: "Cara pembayaran", Steps: []string{"Buka aplikasi bank", "Masukkan kode bayar"}},
 		},
@@ -194,7 +206,8 @@ func (g *FakeGateway) CreateTransaction(
 	}, nil
 }
 
-// GetStatus implements payment.Gateway.
+// GetStatus implements payment.Gateway. The argument is the gateway's own
+// reference, as CreateTransactionResponse.GatewayReference returned it.
 func (g *FakeGateway) GetStatus(_ context.Context, reference string) (*payment.PaymentStatus, error) {
 	g.mu.Lock()
 	defer g.mu.Unlock()
@@ -202,6 +215,9 @@ func (g *FakeGateway) GetStatus(_ context.Context, reference string) (*payment.P
 	g.StatusReferences = append(g.StatusReferences, reference)
 	if g.StatusErr != nil {
 		return nil, g.StatusErr
+	}
+	if own, ok := g.gatewayReferences[reference]; ok {
+		reference = own
 	}
 	status, ok := g.Statuses[reference]
 	if !ok {
