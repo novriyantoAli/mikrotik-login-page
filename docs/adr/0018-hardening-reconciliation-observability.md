@@ -200,7 +200,10 @@ vendor edges test-controlled without a line of fake-mode code in production:
   cost a paid buyer the **PIN**.
 - `TRIPAY_BASE_URL` points at a stub that speaks only the two endpoints this
   journey needs and posts its own settlement callback, signed with the same test
-  private key the backend verifies.
+  private key the backend verifies. Its channel list carries what the vendor's
+  carries — `type: direct`, and the `minimum_amount`/`maximum_amount` window — so
+  checkout's closed-payment selector and its price filter run on the real path
+  rather than on a simplified fixture (ADR 0021).
 
 The Playwright test then walks the real stack: Login Page (the existing static
 server, given an optional API-proxy origin so the same page talks to the compose

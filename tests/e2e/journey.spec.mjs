@@ -50,7 +50,11 @@ test.describe('perjalanan penuh', () => {
     });
     await page.goto('/login.html');
 
-    const packageCard = page.locator('.package-card').filter({ hasText: 'Paket Harian' });
+    // Paket Mingguan (Rp 25.000), not the cheapest Package: a virtual account
+    // starts at Rp 10.000, so the Rp 5.000 Package is offered QRIS only
+    // (ADR 0021). The journey pays through a virtual account, and the window is
+    // asserted on both prices below.
+    const packageCard = page.locator('.package-card').filter({ hasText: 'Paket Mingguan' });
     await expect(packageCard).toBeVisible();
     await expect(packageCard.locator('.package-card__buy')).toBeVisible();
     await expectNoHorizontalScroll(page, 'Login Page');
@@ -85,8 +89,26 @@ test.describe('perjalanan penuh', () => {
     await page.goto(magicLink);
     expect((await exchange).status()).toBe(200);
 
-    // 6. Checkout: the real channel list, then a pending Transaction.
+    // 6. Checkout: the real channel list, then a pending Transaction. The app
+    //    asks for the list filtered by the Package it was opened for, so the
+    //    buyer never sees a channel that cannot take this price (ADR 0021).
+    const channelsRequest = page.waitForResponse((response) =>
+      response.url().includes('/api/transactions/channels'),
+    );
     await page.goto(`${app}/beli?package=${packageId}&return=${encodeURIComponent(loginPage)}`);
+    expect(new URL((await channelsRequest).url()).searchParams.get('package_id')).toBe(packageId);
+
+    // The window is also enforced server-side, on both prices: the same filter is
+    // what keeps a Rp 5.000 Package off a Rp 10.000 channel even when the request
+    // does not come from this screen.
+    const catalog = await (await page.request.get(`${app}/api/packages`)).json();
+    const cheap = catalog.data.find((pkg) => pkg.nama === 'Paket Harian');
+    expect(cheap, 'the seed no longer carries a Package below the VA minimum').toBeTruthy();
+    const cheapChannels = await (
+      await page.request.get(`${app}/api/transactions/channels?package_id=${cheap.id}`)
+    ).json();
+    expect(cheapChannels.data.map((channel) => channel.code)).toEqual(['QRIS']);
+
     await expect(page.getByText('Kanal pembayaran', { exact: true })).toBeVisible();
     await expectNoHorizontalScroll(page, 'layar checkout');
 
