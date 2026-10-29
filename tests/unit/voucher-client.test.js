@@ -31,6 +31,7 @@ describe("voucher client seam", () => {
   beforeEach(() => {
     delete globalThis.cfgVoucher;
     delete globalThis.cfgLogin;
+    delete globalThis.cfgIP;
   });
 
   it("exposes a single public interface", () => {
@@ -220,9 +221,40 @@ describe("voucher client seam", () => {
       expect(first).toContain("1 Hari");
       expect(first).toContain("10M");
 
+      // The theme block in style.css hangs off these hooks: name and price on one
+      // line, the Package attributes as pills, then the Buy pill.
+      expect(cards[0].querySelector(".package-card__head .package-card__name")).not.toBeNull();
+      expect(cards[0].querySelector(".package-card__head .package-card__price")).not.toBeNull();
+      const meta = cards[0].querySelectorAll(".package-card__meta .package-card__period, .package-card__meta .package-card__speed");
+      expect(meta).toHaveLength(2);
+
       const buyButtons = container.querySelectorAll("button");
       expect(buyButtons).toHaveLength(2);
       expect(buyButtons[0].textContent).toBe("Beli");
+      expect(buyButtons[0].classList.contains("package-card__buy")).toBe(true);
+    });
+
+    it("titles the section with the deployment's own Package copy", () => {
+      globalThis.cfgIP = { label: { title: "Paket Internet", sub_title: "Pilih yang paling cocok" } };
+      const { createVoucherClient } = loadModule();
+      const client = createVoucherClient({ config: { appBaseUrl: "https://app.example/beli" }, document });
+      const container = document.createElement("div");
+
+      client.renderPackages(container, packages);
+
+      expect(container.querySelector(".package-list__title").textContent).toBe("Paket Internet");
+      expect(container.querySelector(".package-list__subtitle").textContent).toBe("Pilih yang paling cocok");
+    });
+
+    it("keeps its own heading when the deployment has no Package labels", () => {
+      const { createVoucherClient } = loadModule();
+      const client = createVoucherClient({ config: { appBaseUrl: "https://app.example/beli" }, document });
+      const container = document.createElement("div");
+
+      client.renderPackages(container, packages);
+
+      expect(container.querySelector(".package-list__title").textContent).toMatch(/paket internet/i);
+      expect(container.querySelector(".package-list__subtitle")).not.toBeNull();
     });
 
     it("shows an informative empty state when there are no Packages", () => {
@@ -600,6 +632,59 @@ describe("voucher client seam", () => {
       expect(modes.map((mode) => mode.id)).toEqual(["phone", "user"]);
       expect(modes[0].label).toBe("Nomor HP");
       expect(modes[1].label).toBe("Pengguna");
+    });
+
+    it("starts in the mode the deployment names, even when it is not the first", () => {
+      // A voucher hotspot lands the buyer on Kode Akses; the tab order stays
+      // canonical, so the default is chosen explicitly (cfgLogin.defaultMode).
+      globalThis.cfgLogin = {
+        defaultMode: "accessCode",
+        modes: { phone: { status: 1 }, accessCode: { status: 1 }, user: { status: 1 } },
+      };
+      const { createVoucherClient } = loadModule();
+      const client = createVoucherClient({ document });
+      const form = buildLoginForm(document);
+      form.title.textContent = "Masuk";
+
+      expect(client.loginModes().map((mode) => mode.id)).toEqual(["phone", "accessCode", "user"]);
+      expect(client.defaultLoginMode()).toBe("accessCode");
+
+      const control = client.renderLoginModes(form.container, { fields: form.fields });
+      expect(control.mode).toBe("accessCode");
+      expect(form.title.textContent).toBe("Login");
+      expect(form.primaryInput.getAttribute("placeholder")).toBe("Kode Akses");
+      expect(form.secondaryGroup.classList.contains("hidden")).toBe(true);
+
+      const tabs = form.container.querySelectorAll(".login-modes__tab");
+      expect(tabs[0].getAttribute("aria-selected")).toBe("false");
+      expect(tabs[1].getAttribute("aria-selected")).toBe("true");
+    });
+
+    it("ignores a default mode that is disabled or unknown", () => {
+      globalThis.cfgLogin = {
+        defaultMode: "accessCode",
+        modes: { phone: { status: 1 }, accessCode: { status: 0 }, user: { status: 1 } },
+      };
+      const { createVoucherClient } = loadModule();
+      expect(createVoucherClient().defaultLoginMode()).toBe("phone");
+
+      globalThis.cfgLogin = { defaultMode: "magic", modes: { phone: { status: 0 }, user: { status: 1 } } };
+      expect(createVoucherClient().defaultLoginMode()).toBe("user");
+
+      globalThis.cfgLogin = { defaultMode: "accessCode", modes: { phone: { status: 0 }, accessCode: { status: 0 }, user: { status: 0 } } };
+      expect(createVoucherClient().defaultLoginMode()).toBe("phone");
+    });
+
+    it("takes the default mode from explicit config as well as cfgLogin", () => {
+      const { createVoucherClient, resolveLoginConfig } = loadModule();
+
+      expect(resolveLoginConfig({ defaultMode: "user", modes: { user: { status: 1 } } }).defaultMode).toBe("user");
+
+      const client = createVoucherClient({
+        login: { defaultMode: "user", modes: { phone: { status: 1 }, user: { status: 1 } } },
+      });
+      expect(client.defaultLoginMode()).toBe("user");
+      expect(client.loginModeDescriptor().id).toBe("user");
     });
 
     it("falls back to the default mode when every toggle is off", () => {

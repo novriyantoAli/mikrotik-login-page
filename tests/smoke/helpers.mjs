@@ -6,18 +6,24 @@ export const PACKAGE_FIXTURE = {
   batasKecepatan: "10M",
 };
 
-/** Point the deployment config at stubbed backend/purchase URLs for this page load. */
+/**
+ * Point the deployment config at stubbed backend/purchase URLs for this page load.
+ * The overrides are appended as assignments instead of rewriting the deployment's
+ * own values: `config/data/voucher.js` is a tracked file a site is expected to
+ * edit (backend URL, app URL), and a literal replacement silently stops working
+ * the moment that file is configured — which made the suite fail on a machine
+ * that had simply filled in its deployment URLs.
+ */
 export async function configureDeployment(page, overrides) {
   await page.route("**/config/data/voucher.js*", async (route) => {
     const response = await route.fetch();
-    let body = await response.text();
-    if (overrides.backendBaseUrl !== undefined) {
-      body = body.replace('backendBaseUrl: ""', `backendBaseUrl: "${overrides.backendBaseUrl}"`);
-    }
-    if (overrides.appBaseUrl !== undefined) {
-      body = body.replace('appBaseUrl: ""', `appBaseUrl: "${overrides.appBaseUrl}"`);
-    }
-    await route.fulfill({ response, body });
+    const body = await response.text();
+    const assignments = Object.entries(overrides)
+      .filter(([, value]) => value !== undefined)
+      .map(([key, value]) => `cfgVoucher.${key} = ${JSON.stringify(value)};`)
+      .join("\n");
+
+    await route.fulfill({ response, body: body + "\n" + assignments + "\n" });
   });
 }
 
