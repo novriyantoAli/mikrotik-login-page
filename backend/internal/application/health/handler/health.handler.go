@@ -6,9 +6,17 @@ import (
 	"github.com/gin-gonic/gin"
 	"go.uber.org/zap"
 
+	healthdto "github.com/novriyantoAli/mikrotik-login-page/backend/internal/application/health/dto"
 	"github.com/novriyantoAli/mikrotik-login-page/backend/internal/application/health/service"
 	"github.com/novriyantoAli/mikrotik-login-page/backend/internal/pkg/httpx"
 )
+
+// Health is the health report this handler answers with. It is an alias, not a
+// second shape: the DTO owns the fields and the service returns it, so this file
+// never constructs one. The alias exists because swag resolves an annotation's
+// type names against the annotated file's own imports, and a handler that only
+// forwards service output imports none of them.
+type Health = healthdto.Health
 
 // Handler serves the health endpoint.
 type Handler struct {
@@ -34,8 +42,8 @@ func (h *Handler) RegisterRoutes(api *gin.RouterGroup) {
 //	@Description	Returns the status of the backend, Postgres, MySQL FreeRADIUS and Redis.
 //	@Tags			health
 //	@Produce		json
-//	@Success		200	{object}	dto.Health	"every dependency is up"
-//	@Failure		503	{object}	dto.Health	"at least one dependency is down"
+//	@Success		200	{object}	Health	"every dependency is up"
+//	@Failure		503	{object}	Health	"at least one dependency is down"
 //	@Router			/health [get]
 func (h *Handler) GetHealth(c *gin.Context) {
 	report := h.service.Report(c.Request.Context())

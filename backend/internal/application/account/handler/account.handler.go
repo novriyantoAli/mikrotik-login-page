@@ -10,10 +10,22 @@ import (
 
 	"github.com/gin-gonic/gin"
 
+	accountdto "github.com/novriyantoAli/mikrotik-login-page/backend/internal/application/account/dto"
 	"github.com/novriyantoAli/mikrotik-login-page/backend/internal/application/account/service"
 	"github.com/novriyantoAli/mikrotik-login-page/backend/internal/middleware"
 	"github.com/novriyantoAli/mikrotik-login-page/backend/internal/pkg/httpx"
 )
+
+// AccountResponse is the Account Status summary this handler answers with. It is an
+// alias, not a second shape: the DTO owns the fields (ADR 0017) and the service
+// returns it, so this file never constructs one. The alias exists because swag
+// resolves an annotation's type names against the annotated file's own imports,
+// and a handler that only forwards service output imports none of them.
+type AccountResponse = accountdto.AccountResponse
+
+// ExtendPreviewResponse is the Extend preview this handler answers with, aliased
+// for the same reason.
+type ExtendPreviewResponse = accountdto.ExtendPreviewResponse
 
 // Handler serves the Account Status reads.
 type Handler struct {
@@ -45,7 +57,7 @@ func (h *Handler) RegisterRoutes(api *gin.RouterGroup) {
 //	@Tags			account
 //	@Produce		json
 //	@Param			phone_number	query		string	false	"Optional cross-check; a foreign number answers 404"
-//	@Success		200				{object}	httpx.Envelope{data=dto.AccountResponse}
+//	@Success		200				{object}	httpx.Envelope{data=AccountResponse}
 //	@Failure		401				{object}	httpx.ErrorResponse	"no live session"
 //	@Failure		404				{object}	httpx.ErrorResponse	"the Phone Number in the query is not the session's"
 //	@Router			/account [get]
@@ -78,7 +90,7 @@ func (h *Handler) Summary(c *gin.Context) {
 //	@Produce		json
 //	@Param			package_id		query		int		true	"Package the buyer is about to purchase"
 //	@Param			phone_number	query		string	false	"Optional cross-check; a foreign number answers 404"
-//	@Success		200				{object}	httpx.Envelope{data=dto.ExtendPreviewResponse}
+//	@Success		200				{object}	httpx.Envelope{data=ExtendPreviewResponse}
 //	@Failure		400				{object}	httpx.ErrorResponse	"missing or unknown Package"
 //	@Failure		401				{object}	httpx.ErrorResponse	"no live session"
 //	@Failure		404				{object}	httpx.ErrorResponse	"the Phone Number in the query is not the session's"

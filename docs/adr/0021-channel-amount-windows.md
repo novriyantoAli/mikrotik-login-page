@@ -80,7 +80,11 @@ entries are not four choices.
 - The window is enforced twice on purpose: the listing hides what cannot work and
   the checkout refuses it anyway, because a cached or hand-made request can still
   ask for it.
-- `make swagger-gen` is broken independently of this change (swag cannot resolve
-  `dto.AccountResponse` at HEAD), so `docs/api` does not yet show the new query
-  parameter; the annotation in the handler is the source of truth until that is
-  fixed.
+- `make swagger-gen` was broken independently of this change when this decision
+  was taken: three annotations named a `dto.*` type in files that never import
+  their domain's `dto` package (`account/handler` and `health/handler`), so swag
+  aborted and produced nothing. `docs/api/` is build output — it is gitignored, so
+  nothing tracked was going stale — but the generated docs, and with them this
+  route's new `package_id` parameter, only exist once the target runs. A follow-up
+  made each of those annotations name a handler-local alias of the DTO, and CI now
+  runs `make -C backend swagger-gen`, so the target cannot rot silently again.
