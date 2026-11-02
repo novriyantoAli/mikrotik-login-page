@@ -29,8 +29,13 @@ sequence.
 | [0021](0021-channel-amount-windows.md) | A channel carries the vendor's amount window; checkout offers only the channels that can take the Package price |
 | [0022](0022-sms-submission-outlasts-an-at-round-trip.md) | The modem's hand-off of a body to the network gets its own budget, longer than an AT round trip |
 | [0023](0023-a-refusal-carries-its-own-cause.md) | A refusal carries the modem's own numeric cause (`AT+CMEE=1`), the step and the elapsed time |
+| [0024](0024-admin-identity-sessions-and-roles.md) | Admin identity, sessions and three roles are separate from the buyer's Phone Number |
+| [0025](0025-a-package-is-retired-not-deleted.md) | A Package is retired (`is_active`), never deleted; edits are versioned |
+| [0026](0026-a-transaction-records-the-catalog-terms-it-was-sold-at.md) | A Transaction records the catalog terms it was sold at; provisioning reads the snapshot |
+| [0027](0027-audit-is-append-only-and-transactional.md) | Every panel write and PIN reveal leaves one append-only audit row, written in the same transaction |
+| [0028](0028-admin-panel-is-a-separate-app.md) | The Admin Panel is its own app, image and service behind `/admin` |
 
 0010 and 0011 were **reserved** (not written) while 0012–0014 were already in
 place, so the numbers record the order the PRD decisions were taken, not the
 order the files were created. No numbers are free: the next decision continues
-at 0024.
+at 0029.

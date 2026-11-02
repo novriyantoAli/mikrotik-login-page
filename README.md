@@ -20,11 +20,12 @@ purchase app (Magic Link, payment, provisioning, Account Status and Extend, then
 the hardening slice of ADR 0018). No slice of either PRD remains unstarted.
 
 The **Admin Panel** — managing the Package catalog, listing Transactions, and
-listing active hotspot users — is the only remaining area, and it has no PRD
-yet, so it starts with requirements rather than with code (ADR 0018). Until it
-exists the catalog is the deployment seed plus whatever an operator changed by
-hand in SQL, and a Package deleted by hand comes back on the next deploy
-(ADR 0012, `backend/README.md` § Deployment migration).
+listing active hotspot users — is the only remaining area. It now has a PRD and
+the five ADRs it needed (0024–0028), split into two slices and not yet started:
+[`docs/prd/admin-panel.md`](docs/prd/admin-panel.md). Until slice 1 ships the
+catalog is the deployment seed plus whatever an operator changed by hand in SQL,
+and a Package deleted by hand comes back on the next deploy (ADR 0012,
+`backend/README.md` § Deployment migration).
 
 One known gap is budgeted outside that plan: the smoke journey runs with the
 modem absent, so a pty AT emulator for the modem edge is separate work, not a
