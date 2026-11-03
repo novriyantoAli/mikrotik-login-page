@@ -14,8 +14,10 @@ import (
 )
 
 // publicRoutes are the only routes that do not answer for one buyer: the two
-// Login Page reads, the health check, the signed gateway callback, and the two
-// steps of the Magic Link itself (the token is the credential there, ADR 0011).
+// Login Page reads, the health check, the signed gateway callback, the two steps
+// of the Magic Link itself (the token is the credential there, ADR 0011), and the
+// panel's own sign-in, which is bounded by its rate limits instead of a session
+// (ADR 0024 §4).
 var publicRoutes = []string{
 	"GET /api/packages",
 	"GET /api/active-period",
@@ -23,6 +25,21 @@ var publicRoutes = []string{
 	"POST /api/payments/callback",
 	"POST /api/auth/magic-link",
 	"POST /api/auth/magic-link/exchange",
+	"POST /api/admin/auth/login",
+}
+
+// adminRoutes answer for one admin, never for one buyer (ADR 0024 §2), so the
+// buyer isolation table must not claim them. Their own isolation — cookie
+// separation, the role matrix, revocation — is proven in admin_auth_test.go; this
+// list keeps the coverage guard below honest about every route existing.
+var adminRoutes = []string{
+	"GET /api/admin/auth/session",
+	"POST /api/admin/auth/logout",
+	"POST /api/admin/auth/password",
+	"GET /api/admin/admins",
+	"POST /api/admin/admins",
+	"POST /api/admin/admins/:id/password",
+	"POST /api/admin/admins/:id/active",
 }
 
 // bodyAssertedRoutes are the routes the subtests below cover by asserting what the
@@ -277,11 +294,13 @@ func assertIsolationTableCoversEverySessionRoute(t *testing.T, engine *gin.Engin
 		registered[route.Method+" "+route.Path] = true
 	}
 
-	expected := make(map[string]bool, len(publicRoutes))
-	for _, route := range publicRoutes {
+	// Routes owned by another identity (the panel) are covered by their own tests;
+	// everything else answers for a buyer and belongs in the table above.
+	expected := make(map[string]bool, len(publicRoutes)+len(adminRoutes))
+	for _, route := range append(append([]string{}, publicRoutes...), adminRoutes...) {
 		expected[route] = true
 		if !registered[route] {
-			t.Fatalf("%q is listed as public but the router does not register it", route)
+			t.Fatalf("%q is listed as not buyer-scoped but the router does not register it", route)
 		}
 	}
 

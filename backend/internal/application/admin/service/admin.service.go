@@ -17,6 +17,7 @@ import (
 	"github.com/novriyantoAli/mikrotik-login-page/backend/internal/application/admin/entity"
 	"github.com/novriyantoAli/mikrotik-login-page/backend/internal/application/admin/repository"
 	"github.com/novriyantoAli/mikrotik-login-page/backend/internal/pkg/audit"
+	"github.com/novriyantoAli/mikrotik-login-page/backend/internal/pkg/clock"
 )
 
 // PasswordCost is the bcrypt cost every admin password is hashed with (ADR
@@ -70,6 +71,14 @@ var (
 	// Refusing is the point: an audited action with no actor is a trail row that
 	// cannot answer the question it exists for (ADR 0027 §3).
 	ErrActorRequired = errors.New("an audited action needs its actor")
+	// ErrAdminNotFound means the admin a management write named does not exist; the
+	// transport answers 404.
+	ErrAdminNotFound = errors.New("admin not found")
+	// ErrRequestInvalid means a write body is missing a value the service needs,
+	// even when a transport's binding tag would have refused it first. The rules are
+	// enforced here too, because a rule only the form knows is a rule the next
+	// transport forgets.
+	ErrRequestInvalid = errors.New("admin request is invalid")
 )
 
 // Service is the admin domain's public surface.
@@ -83,18 +92,32 @@ type Service interface {
 	// in the same database transaction (ADR 0027 §2). The actor is the owner who
 	// performed the write, never the admin being created.
 	CreateAdmin(ctx context.Context, actor audit.Actor, request *dto.CreateAdminRequest) (*dto.AdminResponse, error)
+	// ListAdmins returns every admin, so an owner can see the team they manage.
+	ListAdmins(ctx context.Context) ([]dto.AdminResponse, error)
+	// ResetPassword sets a colleague's password and revokes every session that
+	// admin has, in the same transaction as the trail row (ADR 0024 §5).
+	ResetPassword(ctx context.Context, actor audit.Actor, adminID uint, request *dto.ResetPasswordRequest) error
+	// SetActive enables or disables one admin. Deactivating revokes every session
+	// of that admin at once, so the old cookie stops working immediately.
+	SetActive(ctx context.Context, actor audit.Actor, adminID uint, request *dto.SetActiveRequest) error
 }
 
 type service struct {
 	repo     repository.Repository
 	settings BootstrapSettings
+	clock    clock.Clock
 	logger   *zap.Logger
 }
 
-// NewService builds the admin service; Fx injects the repository and the
-// deployment's bootstrap pair.
-func NewService(repo repository.Repository, settings BootstrapSettings, logger *zap.Logger) Service {
-	return &service{repo: repo, settings: settings, logger: logger}
+// NewService builds the admin service; Fx injects the repository, the
+// deployment's bootstrap pair and the clock the revocations are stamped with.
+func NewService(
+	repo repository.Repository,
+	settings BootstrapSettings,
+	clock clock.Clock,
+	logger *zap.Logger,
+) Service {
+	return &service{repo: repo, settings: settings, clock: clock, logger: logger}
 }
 
 func (s *service) BootstrapOwner(ctx context.Context) (int64, error) {
@@ -146,14 +169,14 @@ func (s *service) ownerFromSettings() (*entity.Admin, error) {
 		return nil, fmt.Errorf("%w: %v", ErrBootstrapPasswordWeak, err)
 	}
 
-	hash, err := bcrypt.GenerateFromPassword([]byte(password), PasswordCost)
+	hash, err := hashPassword(password)
 	if err != nil {
-		return nil, fmt.Errorf("hash admin password: %w", err)
+		return nil, err
 	}
 
 	return &entity.Admin{
 		Email:        canonical,
-		PasswordHash: string(hash),
+		PasswordHash: hash,
 		Role:         entity.RoleOwner,
 		IsActive:     true,
 	}, nil
@@ -168,8 +191,8 @@ func (s *service) CreateAdmin(
 	actor audit.Actor,
 	request *dto.CreateAdminRequest,
 ) (*dto.AdminResponse, error) {
-	if actor.ID == 0 || strings.TrimSpace(actor.Email) == "" {
-		return nil, ErrActorRequired
+	if err := requireActor(actor); err != nil {
+		return nil, err
 	}
 
 	role, err := parseRole(request.Role)
@@ -185,15 +208,15 @@ func (s *service) CreateAdmin(
 		return nil, fmt.Errorf("%w: %v", ErrPasswordWeak, err)
 	}
 
-	hash, err := bcrypt.GenerateFromPassword([]byte(request.Password), PasswordCost)
+	hash, err := hashPassword(request.Password)
 	if err != nil {
 		s.logger.Error("hash admin password", zap.Error(err))
-		return nil, fmt.Errorf("hash admin password: %w", err)
+		return nil, err
 	}
 
 	admin := &entity.Admin{
 		Email:        email,
-		PasswordHash: string(hash),
+		PasswordHash: hash,
 		Role:         role,
 		IsActive:     true,
 	}
@@ -274,4 +297,148 @@ func checkPassword(email, password string) error {
 		return errors.New("password must not be the admin's email")
 	}
 	return nil
+}
+
+// ListAdmins returns every admin, active or not. It has no actor argument because
+// reading the team is not an audited act: the middleware already refused the roles
+// that may not ask (ADR 0024 §3).
+func (s *service) ListAdmins(ctx context.Context) ([]dto.AdminResponse, error) {
+	admins, err := s.repo.ListAdmins(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("list admins: %w", err)
+	}
+
+	responses := make([]dto.AdminResponse, 0, len(admins))
+	for _, admin := range admins {
+		responses = append(responses, *adminToResponse(admin))
+	}
+	return responses, nil
+}
+
+// ResetPassword sets a colleague's password. The revocation of that admin's
+// sessions is part of the same repository transaction as the new hash and the
+// trail row: a reset that leaves a live session behind is a reset that did not
+// happen (ADR 0024 §5).
+func (s *service) ResetPassword(
+	ctx context.Context,
+	actor audit.Actor,
+	adminID uint,
+	request *dto.ResetPasswordRequest,
+) error {
+	if err := requireActor(actor); err != nil {
+		return err
+	}
+
+	target, err := requireAdmin(ctx, s.repo, adminID)
+	if err != nil {
+		return err
+	}
+	if err := checkPassword(target.Email, request.Password); err != nil {
+		return fmt.Errorf("%w: %v", ErrPasswordWeak, err)
+	}
+
+	hash, err := hashPassword(request.Password)
+	if err != nil {
+		s.logger.Error("hash admin password", zap.Error(err))
+		return err
+	}
+
+	entry := audit.Entry{
+		Actor:   actor,
+		Action:  audit.ActionAdminPasswordReset,
+		Payload: map[string]any{"email": target.Email},
+	}
+	if err := s.repo.ResetPassword(ctx, adminID, hash, s.clock.Now(), entry); err != nil {
+		if errors.Is(err, repository.ErrAdminNotFound) {
+			return fmt.Errorf("%w: %d", ErrAdminNotFound, adminID)
+		}
+		return err
+	}
+
+	s.logger.Info("admin password reset",
+		zap.Uint("admin_id", adminID),
+		zap.String("email", target.Email),
+		zap.String("actor", actor.Email),
+	)
+	return nil
+}
+
+// SetActive enables or disables one admin. Deactivating answers with a revocation
+// of every session of that admin, in the same transaction (ADR 0024 §5).
+func (s *service) SetActive(
+	ctx context.Context,
+	actor audit.Actor,
+	adminID uint,
+	request *dto.SetActiveRequest,
+) error {
+	if err := requireActor(actor); err != nil {
+		return err
+	}
+	if request == nil || request.Active == nil {
+		// A second transport may not validate the pointer a first one did, and a nil
+		// dereference is a 500 where the caller deserved a 422.
+		return fmt.Errorf("%w: active is required", ErrRequestInvalid)
+	}
+
+	target, err := requireAdmin(ctx, s.repo, adminID)
+	if err != nil {
+		return err
+	}
+
+	action := audit.ActionAdminUpdate
+	if !*request.Active {
+		action = audit.ActionAdminDeactivate
+	}
+	entry := audit.Entry{
+		Actor:   actor,
+		Action:  action,
+		Payload: map[string]any{"email": target.Email, "is_active": *request.Active},
+	}
+	if err := s.repo.SetActive(ctx, adminID, *request.Active, s.clock.Now(), entry); err != nil {
+		if errors.Is(err, repository.ErrAdminNotFound) {
+			return fmt.Errorf("%w: %d", ErrAdminNotFound, adminID)
+		}
+		return err
+	}
+
+	s.logger.Info("admin active flag changed",
+		zap.Uint("admin_id", adminID),
+		zap.String("email", target.Email),
+		zap.Bool("active", *request.Active),
+		zap.String("actor", actor.Email),
+	)
+	return nil
+}
+
+// hashPassword is the one place the panel's work factor is applied, so a login, a
+// reset and a self-service change can never drift to different costs (ADR 0024 §1).
+func hashPassword(password string) (string, error) {
+	hash, err := bcrypt.GenerateFromPassword([]byte(password), PasswordCost)
+	if err != nil {
+		return "", fmt.Errorf("hash admin password: %w", err)
+	}
+	return string(hash), nil
+}
+
+// requireActor is the one gate every audited write shares: no actor, no trail row,
+// no write (ADR 0027 §3).
+func requireActor(actor audit.Actor) error {
+	if actor.ID == 0 || strings.TrimSpace(actor.Email) == "" {
+		return ErrActorRequired
+	}
+	return nil
+}
+
+// requireAdmin resolves the row a management write targets, so an unknown id is a
+// 404 before anything is written rather than a silent no-op. It is a free function
+// because both services in this package need the same gate.
+func requireAdmin(ctx context.Context, repo repository.Repository, adminID uint) (*entity.Admin, error) {
+	admin, err := repo.AdminByID(ctx, adminID)
+	if err != nil {
+		return nil, err
+	}
+	if admin == nil {
+		return nil, fmt.Errorf("%w: %d", ErrAdminNotFound, adminID)
+	}
+	return admin, nil
 }

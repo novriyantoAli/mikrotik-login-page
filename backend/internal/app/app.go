@@ -111,6 +111,9 @@ func routerWithBase(base fx.Option, extra ...fx.Option) fx.Option {
 func Migrate(extra ...fx.Option) fx.Option {
 	return fx.Options(
 		Core(),
+		// The admin domain stamps session revocations with the injected clock, and
+		// this process builds that domain to seed the first owner (ADR 0024 §5).
+		fx.Provide(clock.New),
 		auditBindings(),
 		database.PostgresModule(),
 		packages.Module(),

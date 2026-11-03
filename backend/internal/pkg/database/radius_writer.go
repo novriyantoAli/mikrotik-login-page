@@ -78,8 +78,10 @@ func (w *RadiusWriter) Apply(ctx context.Context, account provisioning.Account) 
 
 	writes := []accountWrite{
 		{radcheckUpsert, attributePassword, opAssignment, account.PIN},
-		{radcheckUpsert, attributeExpiration, opAssignment,
-			strconv.FormatInt(account.Expiration.Unix(), 10)},
+		{
+			radcheckUpsert, attributeExpiration, opAssignment,
+			strconv.FormatInt(account.Expiration.Unix(), 10),
+		},
 		{radreplyUpsert, attributeRateLimit, opReply, account.RateLimit},
 	}
 	for _, write := range writes {

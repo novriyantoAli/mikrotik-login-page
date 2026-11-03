@@ -76,6 +76,7 @@ func TestAdminSchemaAndOwnerSeed(t *testing.T) {
 			bootstrap := adminservice.NewService(
 				adminrepository.NewRepository(harness.Postgres, adminrepository.NewAuditRecorder(zap.NewNop()), zap.NewNop()),
 				settings,
+				harness.Doubles.Clock,
 				zap.NewNop(),
 			)
 			inserted, err := bootstrap.BootstrapOwner(ctx)

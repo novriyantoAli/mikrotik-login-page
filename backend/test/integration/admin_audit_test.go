@@ -160,7 +160,7 @@ func TestCreateAdminLeavesExactlyOneAuditRow(t *testing.T) {
 		adminrepository.NewAuditRecorder(zap.NewNop()),
 		zap.NewNop(),
 	)
-	panel := adminservice.NewService(repo, adminservice.BootstrapSettings{}, zap.NewNop())
+	panel := adminservice.NewService(repo, adminservice.BootstrapSettings{}, harness.Doubles.Clock, zap.NewNop())
 	actor := panelActor(t, harness)
 
 	created, err := panel.CreateAdmin(ctx, actor, &dto.CreateAdminRequest{
@@ -228,7 +228,7 @@ func TestCreateAdminRollsBackWhenTheTrailCannotBeWritten(t *testing.T) {
 		adminrepository.NewAuditRecorder(zap.NewNop()),
 		zap.NewNop(),
 	)
-	panel := adminservice.NewService(repo, adminservice.BootstrapSettings{}, zap.NewNop())
+	panel := adminservice.NewService(repo, adminservice.BootstrapSettings{}, harness.Doubles.Clock, zap.NewNop())
 	actor := panelActor(t, harness)
 
 	if err := harness.Postgres.Exec(`ALTER TABLE admin_audit_log RENAME TO admin_audit_log_gone`).Error; err != nil {

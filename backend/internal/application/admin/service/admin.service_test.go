@@ -6,6 +6,7 @@ import (
 	"errors"
 	"strings"
 	"testing"
+	"time"
 
 	"go.uber.org/zap"
 	"golang.org/x/crypto/bcrypt"
@@ -29,6 +30,17 @@ type fakeRepository struct {
 	createErr error
 	written   []entity.Admin
 	entries   []audit.Entry
+
+	// The management and sign-in side: rows a test seeds, what the service asked to
+	// write, and the failures it must pass through.
+	storedAdmins    []entity.Admin
+	sessions        []entity.Session
+	revokedHashes   []string
+	revokedAdminIDs []uint
+	passwordHashes  []string
+	lookupErr       error
+	listErr         error
+	sessionErr      error
 }
 
 func (r *fakeRepository) CountAdmins(context.Context) (int64, error) {
@@ -58,8 +70,16 @@ func (r *fakeRepository) CreateAdmin(_ context.Context, admin *entity.Admin, ent
 	return nil
 }
 
+// fixedClock is the time every service test writes with. Domain code may not call
+// time.Now, so the tests hand it one instant they can reason about.
+type fixedClock struct{ now time.Time }
+
+func (c fixedClock) Now() time.Time { return c.now }
+
+var testClock = fixedClock{now: time.Date(2026, time.November, 3, 9, 0, 0, 0, time.UTC)}
+
 func newService(repo *fakeRepository, settings service.BootstrapSettings) service.Service {
-	return service.NewService(repo, settings, zap.NewNop())
+	return service.NewService(repo, settings, testClock, zap.NewNop())
 }
 
 // TestBootstrapOwnerSeedsTheFirstOwner is the acceptance criterion: a deployment
@@ -477,5 +497,253 @@ func TestCreateAdminPropagatesRepositoryFailures(t *testing.T) {
 	})
 	if !errors.Is(err, failure) {
 		t.Fatalf("error = %v, want the repository failure", err)
+	}
+}
+
+// The rest of the Repository interface, so one fake serves both the bootstrap /
+// management tests here and the sign-in tests next door.
+func (r *fakeRepository) AdminByEmail(_ context.Context, email string) (*entity.Admin, error) {
+	if r.lookupErr != nil {
+		return nil, r.lookupErr
+	}
+	for index := range r.storedAdmins {
+		if r.storedAdmins[index].Email == email {
+			return &r.storedAdmins[index], nil
+		}
+	}
+	return nil, nil
+}
+
+func (r *fakeRepository) AdminByID(_ context.Context, id uint) (*entity.Admin, error) {
+	if r.lookupErr != nil {
+		return nil, r.lookupErr
+	}
+	for index := range r.storedAdmins {
+		if r.storedAdmins[index].ID == id {
+			return &r.storedAdmins[index], nil
+		}
+	}
+	return nil, nil
+}
+
+func (r *fakeRepository) ListAdmins(context.Context) ([]entity.Admin, error) {
+	if r.listErr != nil {
+		return nil, r.listErr
+	}
+	return r.storedAdmins, nil
+}
+
+func (r *fakeRepository) CreateSession(_ context.Context, session *entity.Session) error {
+	if r.sessionErr != nil {
+		return r.sessionErr
+	}
+	r.sessions = append(r.sessions, *session)
+	return nil
+}
+
+func (r *fakeRepository) Session(
+	_ context.Context,
+	tokenHash string,
+	now time.Time,
+) (*adminrepository.LiveSession, error) {
+	for _, session := range r.sessions {
+		if session.TokenHash != tokenHash || session.RevokedAt != nil || !session.ExpiresAt.After(now) {
+			continue
+		}
+		for index := range r.storedAdmins {
+			if r.storedAdmins[index].ID != session.AdminID || !r.storedAdmins[index].IsActive {
+				continue
+			}
+			return &adminrepository.LiveSession{Session: session, Admin: r.storedAdmins[index]}, nil
+		}
+	}
+	return nil, nil
+}
+
+func (r *fakeRepository) RevokeSession(_ context.Context, tokenHash string, now time.Time) error {
+	r.revokedHashes = append(r.revokedHashes, tokenHash)
+	for index := range r.sessions {
+		if r.sessions[index].TokenHash == tokenHash {
+			revokedAt := now
+			r.sessions[index].RevokedAt = &revokedAt
+		}
+	}
+	return nil
+}
+
+func (r *fakeRepository) RevokeAllForAdmin(_ context.Context, adminID uint, _ time.Time) error {
+	r.revokedAdminIDs = append(r.revokedAdminIDs, adminID)
+	return nil
+}
+
+func (r *fakeRepository) ChangePassword(_ context.Context, adminID uint, passwordHash string) error {
+	if !r.hasAdmin(adminID) {
+		return adminrepository.ErrAdminNotFound
+	}
+	r.passwordHashes = append(r.passwordHashes, passwordHash)
+	return nil
+}
+
+func (r *fakeRepository) ResetPassword(
+	_ context.Context,
+	adminID uint,
+	passwordHash string,
+	_ time.Time,
+	entry audit.Entry,
+) error {
+	if !r.hasAdmin(adminID) {
+		return adminrepository.ErrAdminNotFound
+	}
+	r.passwordHashes = append(r.passwordHashes, passwordHash)
+	r.revokedAdminIDs = append(r.revokedAdminIDs, adminID)
+	r.entries = append(r.entries, entry)
+	return nil
+}
+
+func (r *fakeRepository) SetActive(
+	_ context.Context,
+	adminID uint,
+	active bool,
+	_ time.Time,
+	entry audit.Entry,
+) error {
+	if !r.hasAdmin(adminID) {
+		return adminrepository.ErrAdminNotFound
+	}
+	for index := range r.storedAdmins {
+		if r.storedAdmins[index].ID == adminID {
+			r.storedAdmins[index].IsActive = active
+		}
+	}
+	if !active {
+		r.revokedAdminIDs = append(r.revokedAdminIDs, adminID)
+	}
+	r.entries = append(r.entries, entry)
+	return nil
+}
+
+func (r *fakeRepository) hasAdmin(adminID uint) bool {
+	for index := range r.storedAdmins {
+		if r.storedAdmins[index].ID == adminID {
+			return true
+		}
+	}
+	return false
+}
+
+// TestResetPasswordRevokesEverySessionAndLeavesOneRow is ADR 0024 §5 with ADR 0027
+// §2: the new hash, the revocation and the trail row are one write.
+func TestResetPasswordRevokesEverySessionAndLeavesOneRow(t *testing.T) {
+	support := activeAdmin(t, panelPassword, entity.RoleSupport)
+	support.ID = 9
+	support.Email = "support@example.test"
+	repo := &fakeRepository{storedAdmins: []entity.Admin{support}}
+	svc := newService(repo, service.BootstrapSettings{})
+
+	actor := audit.Actor{ID: 7, Email: "owner@example.test", IP: "203.0.113.12"}
+	err := svc.ResetPassword(context.Background(), actor, 9, &dto.ResetPasswordRequest{
+		Password: "kata-sandi-baru-yang-panjang",
+	})
+	if err != nil {
+		t.Fatalf("reset password: %v", err)
+	}
+
+	if len(repo.revokedAdminIDs) != 1 || repo.revokedAdminIDs[0] != 9 {
+		t.Fatalf("revoked admins = %v, want exactly the reset admin", repo.revokedAdminIDs)
+	}
+	if len(repo.entries) != 1 {
+		t.Fatalf("audit entries = %d, want exactly 1", len(repo.entries))
+	}
+	entry := repo.entries[0]
+	if entry.Action != audit.ActionAdminPasswordReset {
+		t.Fatalf("action = %q, want %q", entry.Action, audit.ActionAdminPasswordReset)
+	}
+	if entry.Actor.Email != "owner@example.test" {
+		t.Fatalf("actor = %q, want the owner from the session", entry.Actor.Email)
+	}
+	if len(repo.passwordHashes) != 1 || strings.Contains(entry.Payload["email"].(string), "sandi") {
+		t.Fatal("the trail payload carries something other than the target's email")
+	}
+}
+
+// TestSetActiveRevokesOnDeactivationOnly: disabling an admin must kill the session
+// at once, while re-enabling one creates no session to kill.
+func TestSetActiveRevokesOnDeactivationOnly(t *testing.T) {
+	support := activeAdmin(t, panelPassword, entity.RoleSupport)
+	support.ID = 9
+	support.Email = "support@example.test"
+	owner := activeAdmin(t, panelPassword, entity.RoleOwner)
+	repo := &fakeRepository{storedAdmins: []entity.Admin{owner, support}}
+	svc := newService(repo, service.BootstrapSettings{})
+	actor := audit.Actor{ID: 7, Email: "owner@example.test", IP: "203.0.113.13"}
+
+	inactive := false
+	if err := svc.SetActive(context.Background(), actor, 9, &dto.SetActiveRequest{Active: &inactive}); err != nil {
+		t.Fatalf("deactivate admin: %v", err)
+	}
+	if len(repo.revokedAdminIDs) != 1 || repo.revokedAdminIDs[0] != 9 {
+		t.Fatalf("revoked admins = %v, want the deactivated admin", repo.revokedAdminIDs)
+	}
+	if repo.entries[0].Action != audit.ActionAdminDeactivate {
+		t.Fatalf("action = %q, want %q", repo.entries[0].Action, audit.ActionAdminDeactivate)
+	}
+
+	active := true
+	if err := svc.SetActive(context.Background(), actor, 9, &dto.SetActiveRequest{Active: &active}); err != nil {
+		t.Fatalf("reactivate admin: %v", err)
+	}
+	if len(repo.revokedAdminIDs) != 1 {
+		t.Fatalf("reactivation revoked %d sessions, want none", len(repo.revokedAdminIDs)-1)
+	}
+	if repo.entries[1].Action != audit.ActionAdminUpdate {
+		t.Fatalf("reactivation action = %q, want %q", repo.entries[1].Action, audit.ActionAdminUpdate)
+	}
+}
+
+// TestManagementWritesNeedAnActorAndAKnownTarget keeps both refusals where they
+// belong: no actor means no trail row, no target means no write.
+func TestManagementWritesNeedAnActorAndAKnownTarget(t *testing.T) {
+	repo := &fakeRepository{}
+	svc := newService(repo, service.BootstrapSettings{})
+	actor := audit.Actor{ID: 7, Email: "owner@example.test"}
+	active := false
+
+	if err := svc.ResetPassword(context.Background(), audit.Actor{}, 9, &dto.ResetPasswordRequest{
+		Password: "kata-sandi-baru-yang-panjang",
+	}); !errors.Is(err, service.ErrActorRequired) {
+		t.Fatalf("actorless reset error = %v, want ErrActorRequired", err)
+	}
+	if err := svc.SetActive(context.Background(), audit.Actor{}, 9, &dto.SetActiveRequest{Active: &active}); !errors.Is(err, service.ErrActorRequired) {
+		t.Fatalf("actorless set-active error = %v, want ErrActorRequired", err)
+	}
+
+	if err := svc.ResetPassword(context.Background(), actor, 99, &dto.ResetPasswordRequest{
+		Password: "kata-sandi-baru-yang-panjang",
+	}); !errors.Is(err, service.ErrAdminNotFound) {
+		t.Fatalf("unknown reset target error = %v, want ErrAdminNotFound", err)
+	}
+	if err := svc.SetActive(context.Background(), actor, 99, &dto.SetActiveRequest{Active: &active}); !errors.Is(err, service.ErrAdminNotFound) {
+		t.Fatalf("unknown set-active target error = %v, want ErrAdminNotFound", err)
+	}
+
+	if len(repo.entries) != 0 || len(repo.passwordHashes) != 0 {
+		t.Fatal("a refused management write left something behind")
+	}
+}
+
+// TestSetActiveRefusesAMissingFlag keeps the service honest when a transport
+// forgets to validate: a nil pointer is a 422, not a panic.
+func TestSetActiveRefusesAMissingFlag(t *testing.T) {
+	owner := activeAdmin(t, panelPassword, entity.RoleOwner)
+	repo := &fakeRepository{storedAdmins: []entity.Admin{owner}}
+	svc := newService(repo, service.BootstrapSettings{})
+	actor := audit.Actor{ID: owner.ID, Email: owner.Email}
+
+	err := svc.SetActive(context.Background(), actor, owner.ID, &dto.SetActiveRequest{})
+	if !errors.Is(err, service.ErrRequestInvalid) {
+		t.Fatalf("missing active flag error = %v, want ErrRequestInvalid", err)
+	}
+	if len(repo.entries) != 0 {
+		t.Fatal("a refused write left an audit row")
 	}
 }

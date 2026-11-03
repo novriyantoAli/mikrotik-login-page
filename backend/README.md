@@ -19,6 +19,7 @@ Documentation: [`../docs/adr/`](../docs/adr), [`../CONTEXT.md`](../CONTEXT.md),
 | `internal/application/activeperiod` | Public `GET /active-period`, read through the provisioning port |
 | `internal/application/transaction` | Transaction state machine, idempotent checkout, gateway callback, expiry sweep, Transaction history (ADR 0015) |
 | `internal/application/account` | Account Status read composition: summary, current PIN, active Package and Extend preview (ADR 0017); no entity, no table |
+| `internal/application/admin` | The Admin Panel's identity, sessions and audit trail: sign-in, the role matrix guard and admin management (ADR 0024, ADR 0027) |
 | `internal/application/payment` | The `Gateway` port and its Tripay adapter (`payment/tripay`), the only code that knows the vendor |
 | `internal/application/{notification,provisioning}` | Vendor ports (SMS sender, FreeRADIUS writer and expiration reader) |
 | `internal/pkg` | Infrastructure and shared vocabulary: `database`, `logger`, `clock`, `httpx`, `testutil`, `audit` |
