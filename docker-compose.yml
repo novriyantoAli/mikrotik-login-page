@@ -61,6 +61,20 @@ x-backend-env: &backend-env
   AUTH_RATE_LIMIT_PHONE_LIMIT: ${AUTH_RATE_LIMIT_PHONE_LIMIT:-1}
   AUTH_RATE_LIMIT_IP_WINDOW: ${AUTH_RATE_LIMIT_IP_WINDOW:-5m}
   AUTH_RATE_LIMIT_IP_LIMIT: ${AUTH_RATE_LIMIT_IP_LIMIT:-10}
+  # The Admin Panel's own session, cookie and login budget (ADR 0024).
+  ADMIN_SESSION_TTL: ${ADMIN_SESSION_TTL:-12h}
+  ADMIN_COOKIE_SECURE: ${ADMIN_COOKIE_SECURE:-true}
+  ADMIN_COOKIE_NAME: ${ADMIN_COOKIE_NAME:-hotspot_admin}
+  ADMIN_RATE_LIMIT_IP_WINDOW: ${ADMIN_RATE_LIMIT_IP_WINDOW:-5m}
+  ADMIN_RATE_LIMIT_IP_LIMIT: ${ADMIN_RATE_LIMIT_IP_LIMIT:-10}
+  ADMIN_RATE_LIMIT_EMAIL_WINDOW: ${ADMIN_RATE_LIMIT_EMAIL_WINDOW:-5m}
+  ADMIN_RATE_LIMIT_EMAIL_LIMIT: ${ADMIN_RATE_LIMIT_EMAIL_LIMIT:-5}
+  # The first owner's bootstrap pair (ADR 0024 §6). `migrate` grows the seed that
+  # reads it in the admin slice (#29); once an owner exists it is ignored, so an
+  # empty value is the normal steady state. The API and worker load the keys into
+  # the config and never read them.
+  ADMIN_EMAIL: ${ADMIN_EMAIL:-}
+  ADMIN_PASSWORD: ${ADMIN_PASSWORD:-}
   # PIN encryption keys (ADR 0016): "version=base64(32 bytes)", comma separated.
   PIN_ENCRYPTION_KEYS: ${PIN_ENCRYPTION_KEYS:?PIN_ENCRYPTION_KEYS is required}
   PIN_ACTIVE_KEY_VERSION: ${PIN_ACTIVE_KEY_VERSION:-1}

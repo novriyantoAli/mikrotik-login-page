@@ -50,6 +50,27 @@ The API starts even when a dependency is unreachable: `GET /api/health` then
 reports which one is down (503, `{"data": {"status": "degraded", ...}}`) instead
 of the process crash-looping out of reach of the operator.
 
+### Admin Panel keys (`admin.*`, ADR 0024)
+
+The panel's identity, session and login budget are their own section, never
+`auth.*`: `ADMIN_SESSION_TTL` (default 12h, absolute), `ADMIN_COOKIE_NAME`
+(default `hotspot_admin`, scoped to `/api/admin`) and `ADMIN_COOKIE_SECURE`
+(`true` in compose, `false` only for local plain-HTTP) — plus
+`ADMIN_RATE_LIMIT_{IP,EMAIL}_WINDOW/_LIMIT`, which reuse the Magic Link
+limiter's fixed-window shape. Rejecting `0`/negative windows and limits at
+startup is what stops a panel with no lock on the door; rejecting an
+`ADMIN_COOKIE_NAME` that equals `AUTH_COOKIE_NAME` is what stops one sign-in from
+overwriting the other identity's session (ADR 0024 §2).
+
+`ADMIN_EMAIL` and `ADMIN_PASSWORD` are the first owner's bootstrap pair, and they
+are read **only** by `migrate`: while the `admins` table is empty the seed inserts
+that one owner and fails loudly when either value is missing, and once an owner
+exists it ignores them completely so a deploy can never reset a password. That
+seed is the admin slice's work (#29); until it lands nothing reads the pair —
+every process loads it into `Config` and leaves it alone, which is also why both
+are optional at startup, why a half-filled pair is not a startup error, and why
+both are empty in a steady-state deployment.
+
 ## Deployment migration (ADR 0012)
 
 `migrate` applies the Postgres schema (`packages`, later the other tables from
