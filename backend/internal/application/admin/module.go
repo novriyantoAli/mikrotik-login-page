@@ -8,16 +8,19 @@ import (
 	"go.uber.org/fx"
 
 	"github.com/novriyantoAli/mikrotik-login-page/backend/internal/application/admin/entity"
+	"github.com/novriyantoAli/mikrotik-login-page/backend/internal/application/admin/handler"
 	"github.com/novriyantoAli/mikrotik-login-page/backend/internal/application/admin/repository"
 	"github.com/novriyantoAli/mikrotik-login-page/backend/internal/application/admin/service"
 	"github.com/novriyantoAli/mikrotik-login-page/backend/internal/config"
+	"github.com/novriyantoAli/mikrotik-login-page/backend/internal/middleware"
 )
 
-// Module provides the admin repository and the service. The append-only audit
-// adapter is provided by the composition root instead, because a process that
-// builds one of its consumers (the worker builds the catalog) must be able to
-// record without building this domain. The HTTP handler is registered with the API
-// transport, like every other domain route.
+// Module provides the admin repository, the bootstrap/management service, the
+// sign-in surface and the guard. The append-only audit adapter is provided by the
+// composition root instead, because a process that builds one of its consumers
+// (the worker builds the catalog) must be able to record without building this
+// domain. The HTTP handler is registered with the API transport, like every other
+// domain route.
 func Module() fx.Option {
 	return fx.Options(
 		fx.Provide(
@@ -30,7 +33,29 @@ func Module() fx.Option {
 					Password: cfg.Admin.Password,
 				}
 			},
+			func(cfg *config.Config) service.AuthSettings {
+				return service.AuthSettings{
+					SessionTTL:  cfg.Admin.SessionTTL,
+					IPWindow:    cfg.Admin.RateLimit.IPWindow,
+					IPLimit:     cfg.Admin.RateLimit.IPLimit,
+					EmailWindow: cfg.Admin.RateLimit.EmailWindow,
+					EmailLimit:  cfg.Admin.RateLimit.EmailLimit,
+				}
+			},
+			func(cfg *config.Config) middleware.AdminCookieSettings {
+				return middleware.AdminCookieSettings{
+					Name:   cfg.Admin.CookieName,
+					Secure: cfg.Admin.CookieSecure,
+					TTL:    cfg.Admin.SessionTTL,
+				}
+			},
 			service.NewService,
+			service.NewAuth,
+			// Fx matches concrete interface types, so the narrow resolver the guard
+			// depends on is bridged explicitly from the auth service.
+			func(auth service.Auth) middleware.AdminSessionResolver { return auth },
+			middleware.NewAdminGuard,
+			handler.NewHandler,
 		),
 	)
 }

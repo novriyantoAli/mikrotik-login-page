@@ -95,3 +95,27 @@ func ClearSessionCookie(c *gin.Context, name string, secure bool) {
 	c.SetSameSite(http.SameSiteLaxMode)
 	c.SetCookie(name, "", -1, "/", "", secure, true)
 }
+
+// AdminCookiePath is the only path the admin cookie travels to. Scoping it here,
+// instead of "/", is half of the buyer/admin isolation: the browser itself never
+// attaches an operator's cookie to a purchase-app route (ADR 0024 §2).
+const AdminCookiePath = "/api/admin"
+
+// SetAdminSessionCookie writes the panel's own session cookie. It is deliberately
+// not SetSessionCookie with arguments: the buyer's helper locks SameSite=Lax and
+// Path=/, and reusing it would quietly undo the separation this cookie exists for.
+//
+// SameSite=Strict is affordable because the panel has no cross-site entry point —
+// the login form is served by the panel itself (ADR 0024 §2).
+func SetAdminSessionCookie(c *gin.Context, name, value string, maxAgeSeconds int, secure bool) {
+	c.SetSameSite(http.SameSiteStrictMode)
+	c.SetCookie(name, value, maxAgeSeconds, AdminCookiePath, "", secure, true)
+}
+
+// ClearAdminSessionCookie removes the admin cookie. It must use the same path and
+// attributes the cookie was set with: a mismatch leaves the browser holding a
+// cookie the panel "cleared" but keeps sending (ADR 0024 §2).
+func ClearAdminSessionCookie(c *gin.Context, name string, secure bool) {
+	c.SetSameSite(http.SameSiteStrictMode)
+	c.SetCookie(name, "", -1, AdminCookiePath, "", secure, true)
+}

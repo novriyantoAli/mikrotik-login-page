@@ -10,6 +10,7 @@ import (
 
 	accounthandler "github.com/novriyantoAli/mikrotik-login-page/backend/internal/application/account/handler"
 	activeperiodhandler "github.com/novriyantoAli/mikrotik-login-page/backend/internal/application/activeperiod/handler"
+	adminhandler "github.com/novriyantoAli/mikrotik-login-page/backend/internal/application/admin/handler"
 	authhandler "github.com/novriyantoAli/mikrotik-login-page/backend/internal/application/auth/handler"
 	authservice "github.com/novriyantoAli/mikrotik-login-page/backend/internal/application/auth/service"
 	healthhandler "github.com/novriyantoAli/mikrotik-login-page/backend/internal/application/health/handler"
@@ -71,6 +72,11 @@ func RouterModule() fx.Option {
 			),
 			fx.Annotate(
 				accounthandler.NewHandler,
+				fx.As(new(RouteRegistrar)),
+				fx.ResultTags(routesGroup),
+			),
+			fx.Annotate(
+				adminhandler.NewHandler,
 				fx.As(new(RouteRegistrar)),
 				fx.ResultTags(routesGroup),
 			),
