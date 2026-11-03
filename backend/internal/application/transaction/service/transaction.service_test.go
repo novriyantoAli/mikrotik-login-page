@@ -546,7 +546,6 @@ func newFixtureWithLogger(logger *zap.Logger) *fixture {
 	f.outbox = &fakeSMSOutbox{}
 	f.provisioner = service.NewProvisioner(
 		f.repo,
-		f.catalog,
 		f.writer,
 		f.reader,
 		f.outbox,

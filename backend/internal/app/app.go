@@ -149,7 +149,10 @@ func WorkerWithBase(base fx.Option, extra ...fx.Option) fx.Option {
 		// plus one check no probe can see: are the sweeps still running (ADR 0018).
 		database.CheckersModule(),
 		health.Module(),
-		packages.Module(),
+		// The worker never reads the catalog: provisioning uses the terms frozen on
+		// the Transaction, and the backfill that copied them runs in `migrate`
+		// (ADR 0026). Keeping the domain out is what makes that a fact rather than a
+		// convention.
 		notification.WorkerModule(),
 		transaction.WorkerModule(),
 		tripay.Module(),

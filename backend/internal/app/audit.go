@@ -24,9 +24,10 @@ var (
 // domain's own port.
 //
 // It is part of every composition root on purpose: a process that builds a
-// consumer must be able to record, and the worker builds the catalog without
-// building the admin domain. Adding a consumer is therefore a change to that
-// domain, never a second wiring edit here.
+// consumer must be able to record without building the admin domain. The worker no
+// longer consumes a catalog port — provisioning reads the terms frozen on the
+// Transaction (ADR 0026 §5) — but the binding stays because the graph, not a
+// process list, decides who may record.
 func auditBindings() fx.Option {
 	return fx.Options(
 		fx.Provide(
