@@ -49,6 +49,7 @@ type Config struct {
 	Health          HealthConfig      `mapstructure:"health"`
 	Account         AccountConfig     `mapstructure:"account"`
 	Auth            AuthConfig        `mapstructure:"auth"`
+	Admin           AdminConfig       `mapstructure:"admin"`
 	PIN             PINConfig         `mapstructure:"pin"`
 	SMS             SMSConfig         `mapstructure:"sms"`
 	Transaction     TransactionConfig `mapstructure:"transaction"`
@@ -228,6 +229,42 @@ type AuthRateLimitConfig struct {
 	IPLimit     int           `mapstructure:"ip_limit"`
 }
 
+// AdminConfig configures the Admin Panel's own identity (ADR 0024). It is a
+// separate section from auth on purpose: the panel's session cookie, lifetime
+// and login budget must never be shared with the buyer's Magic Link path, so a
+// deployment cannot silently inherit the buyer's settings.
+type AdminConfig struct {
+	// Email is the first owner's address, read only by `migrate` while the admins
+	// table is empty. Empty in every steady-state deployment.
+	Email string `mapstructure:"email"`
+	// Password is the first owner's password, read only by `migrate` together
+	// with Email. A deploy never resets a password that already exists.
+	Password string `mapstructure:"password"`
+	// SessionTTL is the absolute lifetime of an admin session: no sliding
+	// renewal, so a forgotten laptop closes itself.
+	SessionTTL time.Duration `mapstructure:"session_ttl"`
+	// CookieSecure sets the Secure attribute on the admin cookie; off only for
+	// local plain-HTTP deployments behind the reverse proxy.
+	CookieSecure bool `mapstructure:"cookie_secure"`
+	// CookieName is the name of the admin session cookie; it is scoped to
+	// /api/admin and must never collide with the buyer's cookie.
+	CookieName string `mapstructure:"cookie_name"`
+	// RateLimit bounds login attempts per IP and per email. There is no lockout:
+	// locking the operator out during an incident is the worse failure.
+	RateLimit AdminRateLimitConfig `mapstructure:"rate_limit"`
+}
+
+// AdminRateLimitConfig is one fixed window per dimension, both counted in Redis
+// (the same limiter shape the Magic Link path uses). It is deliberately its own
+// type rather than a shared one: the dimensions differ (no phone, an email
+// instead) and ADR 0024 keeps the two configurations distinct.
+type AdminRateLimitConfig struct {
+	IPWindow    time.Duration `mapstructure:"ip_window"`
+	IPLimit     int           `mapstructure:"ip_limit"`
+	EmailWindow time.Duration `mapstructure:"email_window"`
+	EmailLimit  int           `mapstructure:"email_limit"`
+}
+
 // SMSConfig configures the modem adapter and the outbox drainer (ADR 0010).
 type SMSConfig struct {
 	// Device is the serial device the Wavecom modem is attached to.
@@ -346,6 +383,15 @@ var defaults = map[string]any{
 	"auth.rate_limit.phone_limit":          1,
 	"auth.rate_limit.ip_window":            "5m",
 	"auth.rate_limit.ip_limit":             10,
+	"admin.email":                          "",
+	"admin.password":                       "",
+	"admin.session_ttl":                    "12h",
+	"admin.cookie_secure":                  false,
+	"admin.cookie_name":                    "hotspot_admin",
+	"admin.rate_limit.ip_window":           "5m",
+	"admin.rate_limit.ip_limit":            10,
+	"admin.rate_limit.email_window":        "5m",
+	"admin.rate_limit.email_limit":         5,
 	"pin.encryption_keys":                  "",
 	"pin.active_key_version":               1,
 	"pin.sweep_interval":                   "30s",
@@ -468,6 +514,7 @@ func (c *Config) Validate() error {
 	problems = append(problems, c.validateHealth()...)
 	problems = append(problems, c.validateAccount()...)
 	problems = append(problems, c.validateAuth()...)
+	problems = append(problems, c.validateAdmin()...)
 	problems = append(problems, c.validatePIN()...)
 	problems = append(problems, c.validateSMS()...)
 	problems = append(problems, c.validateTransaction()...)
@@ -625,6 +672,44 @@ func (c *Config) validateAuth() []string {
 		if err != nil || parsed.Scheme == "" || parsed.Host == "" {
 			problems = append(problems,
 				fmt.Sprintf("auth.login_page_allowlist entry %q must be an absolute URL", allowed))
+		}
+	}
+	return problems
+}
+
+// validateAdmin keeps the panel's session and its login budget usable (ADR
+// 0024 §2 and §4): a session with no lifetime and a limiter that never counts
+// are both a door with no lock. The bootstrap pair is not checked here — only
+// `migrate` reads it, and it is what refuses to seed an owner without both
+// (ADR 0024 §6), so a deployment that has one and not the other still boots and
+// simply has no owner to create.
+func (c *Config) validateAdmin() []string {
+	var problems []string
+
+	if c.Admin.SessionTTL <= 0 {
+		problems = append(problems, "admin.session_ttl must be a positive duration")
+	}
+	if c.Admin.CookieName == "" {
+		problems = append(problems, "admin.cookie_name must be set")
+	}
+	// One cookie per identity: a shared name would let a buyer sign-in overwrite
+	// the operator's session (ADR 0024 §2).
+	if c.Admin.CookieName != "" && c.Admin.CookieName == c.Auth.CookieName {
+		problems = append(problems, fmt.Sprintf(
+			"admin.cookie_name must differ from auth.cookie_name, both are %q", c.Admin.CookieName))
+	}
+	for _, window := range []struct {
+		name   string
+		window time.Duration
+		limit  int
+	}{
+		{"ip", c.Admin.RateLimit.IPWindow, c.Admin.RateLimit.IPLimit},
+		{"email", c.Admin.RateLimit.EmailWindow, c.Admin.RateLimit.EmailLimit},
+	} {
+		if window.window <= 0 || window.limit <= 0 {
+			problems = append(problems, fmt.Sprintf(
+				"admin.rate_limit.%s_window and admin.rate_limit.%s_limit must be positive",
+				window.name, window.name))
 		}
 	}
 	return problems

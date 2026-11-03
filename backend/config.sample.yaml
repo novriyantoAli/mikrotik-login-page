@@ -83,6 +83,23 @@ auth:
     ip_window: 5m
     ip_limit: 10
 
+# The Admin Panel's own identity (ADR 0024): its own session cookie and login
+# budget, never the buyer's. The bootstrap pair is the first owner, which `migrate`
+# inserts once the admin seed lands (#29); nothing reads it yet.
+admin:
+  email: ""
+  password: ""
+  session_ttl: 12h
+  cookie_secure: false
+  # Scoped to /api/admin; a name shared with the buyer's cookie is rejected.
+  cookie_name: hotspot_admin
+  # Login attempts allowed per IP and per email in each window. No lockout.
+  rate_limit:
+    ip_window: 5m
+    ip_limit: 10
+    email_window: 5m
+    email_limit: 5
+
 transaction:
   # How long a buyer has to pay before the worker expires the Transaction.
   payment_ttl: 1h

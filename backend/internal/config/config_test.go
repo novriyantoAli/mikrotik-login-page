@@ -134,6 +134,9 @@ func TestValidateRejectsAnEmptyConfiguration(t *testing.T) {
 		"redis.addr",
 		"worker.queues",
 		"health.timeout",
+		"admin.session_ttl",
+		"admin.cookie_name",
+		"admin.rate_limit.email_window",
 		"pin.encryption_keys",
 	} {
 		if !strings.Contains(err.Error(), expected) {
@@ -153,6 +156,118 @@ func TestEveryKeyHasAnEnvironmentName(t *testing.T) {
 		if envName != strings.ToUpper(envName) || strings.Contains(envName, ".") {
 			t.Fatalf("key %q maps to unusable env name %q", key, envName)
 		}
+	}
+}
+
+// The panel's own identity (ADR 0024): a separate cookie, twelve hours by
+// default, and a login budget per IP and per email. No bootstrap credential
+// ships as a default, so an untouched checkout cannot boot an owner.
+func TestLoadAppliesAdminDefaults(t *testing.T) {
+	loadableEnv(t)
+
+	cfg, err := config.Load()
+	if err != nil {
+		t.Fatalf("load config: %v", err)
+	}
+
+	if cfg.Admin.SessionTTL != 12*time.Hour {
+		t.Fatalf("admin.session_ttl = %v, want the twelve-hour default", cfg.Admin.SessionTTL)
+	}
+	if cfg.Admin.CookieName != "hotspot_admin" {
+		t.Fatalf("admin.cookie_name = %q, want its own cookie, not the buyer's", cfg.Admin.CookieName)
+	}
+	if cfg.Admin.CookieSecure {
+		t.Fatal("admin.cookie_secure must default to false; compose turns it on")
+	}
+	if cfg.Admin.Email != "" || cfg.Admin.Password != "" {
+		t.Fatalf("admin bootstrap must have no default, got %q/%q", cfg.Admin.Email, cfg.Admin.Password)
+	}
+	if cfg.Admin.RateLimit.IPWindow != 5*time.Minute || cfg.Admin.RateLimit.IPLimit != 10 {
+		t.Fatalf("admin.rate_limit.ip_* = %v/%d", cfg.Admin.RateLimit.IPWindow, cfg.Admin.RateLimit.IPLimit)
+	}
+	if cfg.Admin.RateLimit.EmailWindow != 5*time.Minute || cfg.Admin.RateLimit.EmailLimit != 5 {
+		t.Fatalf("admin.rate_limit.email_* = %v/%d",
+			cfg.Admin.RateLimit.EmailWindow, cfg.Admin.RateLimit.EmailLimit)
+	}
+}
+
+func TestLoadAppliesAdminEnvironmentOverrides(t *testing.T) {
+	loadableEnv(t)
+	t.Setenv("ADMIN_EMAIL", "owner@example.com")
+	t.Setenv("ADMIN_PASSWORD", "correct horse battery staple")
+	t.Setenv("ADMIN_SESSION_TTL", "1h")
+	t.Setenv("ADMIN_COOKIE_SECURE", "true")
+	t.Setenv("ADMIN_COOKIE_NAME", "panel")
+	t.Setenv("ADMIN_RATE_LIMIT_IP_WINDOW", "1m")
+	t.Setenv("ADMIN_RATE_LIMIT_IP_LIMIT", "3")
+	t.Setenv("ADMIN_RATE_LIMIT_EMAIL_WINDOW", "10m")
+	t.Setenv("ADMIN_RATE_LIMIT_EMAIL_LIMIT", "2")
+
+	cfg, err := config.Load()
+	if err != nil {
+		t.Fatalf("load config: %v", err)
+	}
+
+	if cfg.Admin.Email != "owner@example.com" {
+		t.Fatalf("admin.email = %q", cfg.Admin.Email)
+	}
+	if cfg.Admin.Password != "correct horse battery staple" {
+		t.Fatalf("admin.password = %q", cfg.Admin.Password)
+	}
+	if cfg.Admin.SessionTTL != time.Hour {
+		t.Fatalf("admin.session_ttl = %v", cfg.Admin.SessionTTL)
+	}
+	if !cfg.Admin.CookieSecure {
+		t.Fatal("admin.cookie_secure = false, want the ADMIN_COOKIE_SECURE override")
+	}
+	if cfg.Admin.CookieName != "panel" {
+		t.Fatalf("admin.cookie_name = %q", cfg.Admin.CookieName)
+	}
+	if cfg.Admin.RateLimit.IPWindow != time.Minute || cfg.Admin.RateLimit.IPLimit != 3 {
+		t.Fatalf("admin.rate_limit.ip_* = %v/%d", cfg.Admin.RateLimit.IPWindow, cfg.Admin.RateLimit.IPLimit)
+	}
+	if cfg.Admin.RateLimit.EmailWindow != 10*time.Minute || cfg.Admin.RateLimit.EmailLimit != 2 {
+		t.Fatalf("admin.rate_limit.email_* = %v/%d",
+			cfg.Admin.RateLimit.EmailWindow, cfg.Admin.RateLimit.EmailLimit)
+	}
+}
+
+// A session with no lifetime and a limiter that never counts are both a door
+// with no lock, so startup rejects them (ADR 0024 §2, §4).
+func TestLoadRejectsAnUnusableAdminConfiguration(t *testing.T) {
+	loadableEnv(t)
+	t.Setenv("ADMIN_SESSION_TTL", "0s")
+	t.Setenv("ADMIN_RATE_LIMIT_IP_LIMIT", "0")
+	t.Setenv("ADMIN_RATE_LIMIT_EMAIL_WINDOW", "0s")
+
+	_, err := config.Load()
+	if err == nil {
+		t.Fatal("expected validation error")
+	}
+
+	for _, expected := range []string{
+		"admin.session_ttl",
+		"admin.rate_limit.ip_limit",
+		"admin.rate_limit.email_window",
+	} {
+		if !strings.Contains(err.Error(), expected) {
+			t.Fatalf("error %q does not mention %q", err, expected)
+		}
+	}
+}
+
+// A shared cookie name would let a buyer sign-in overwrite the operator's
+// session, so the two identities may not answer to one cookie (ADR 0024 §2).
+func TestLoadRejectsAnAdminCookieSharingTheBuyersName(t *testing.T) {
+	loadableEnv(t)
+	t.Setenv("ADMIN_COOKIE_NAME", "session")
+
+	_, err := config.Load()
+	if err == nil {
+		t.Fatal("expected validation error")
+	}
+	if !strings.Contains(err.Error(), "admin.cookie_name") {
+		t.Fatalf("error %q does not mention admin.cookie_name", err)
 	}
 }
 
