@@ -8,8 +8,10 @@ import (
 	"time"
 
 	notificationservice "github.com/novriyantoAli/mikrotik-login-page/backend/internal/application/notification/service"
+	packagesentity "github.com/novriyantoAli/mikrotik-login-page/backend/internal/application/packages/entity"
 	"github.com/novriyantoAli/mikrotik-login-page/backend/internal/application/provisioning"
 	"github.com/novriyantoAli/mikrotik-login-page/backend/internal/application/transaction/entity"
+	"github.com/novriyantoAli/mikrotik-login-page/backend/internal/application/transaction/service"
 	"github.com/novriyantoAli/mikrotik-login-page/backend/internal/pkg/database"
 	"github.com/novriyantoAli/mikrotik-login-page/backend/internal/pkg/pin"
 )
@@ -70,18 +72,20 @@ func (f *fixture) addPaid(t *testing.T) *entity.Transaction {
 
 	paidAt := f.clock.now
 	row := entity.Transaction{
-		ID:          uint(len(f.repo.rows) + 1),
-		Reference:   "TRX-PROVISION-TEST",
-		PhoneNumber: testPhone,
-		PackageID:   7,
-		PackageName: "Paket Mingguan",
-		AmountIDR:   25000,
-		Channel:     "BRIVA",
-		State:       entity.StatePaid,
-		ExpiresAt:   paidAt.Add(time.Hour),
-		PaidAt:      &paidAt,
-		CreatedAt:   paidAt,
-		UpdatedAt:   paidAt,
+		ID:              uint(len(f.repo.rows) + 1),
+		Reference:       "TRX-PROVISION-TEST",
+		PhoneNumber:     testPhone,
+		PackageID:       7,
+		PackageName:     "Paket Mingguan",
+		AmountIDR:       25000,
+		DurationMinutes: int(packageDuration / time.Minute),
+		RateLimit:       "10M/10M",
+		Channel:         "BRIVA",
+		State:           entity.StatePaid,
+		ExpiresAt:       paidAt.Add(time.Hour),
+		PaidAt:          &paidAt,
+		CreatedAt:       paidAt,
+		UpdatedAt:       paidAt,
 	}
 	f.repo.rows = append(f.repo.rows, row)
 
@@ -127,6 +131,71 @@ func TestProvision_FirstPurchaseWritesTheAccountAndQueuesThePIN(t *testing.T) {
 	}
 	if f.outbox.messages[0].PhoneNumber != testPhone {
 		t.Fatalf("SMS goes to %q, want the buyer", f.outbox.messages[0].PhoneNumber)
+	}
+}
+
+// TestProvision_UsesTheSnapshotRatherThanTheEditedCatalog is the defect ADR 0026
+// closes: an owner edits the Package between payment and provisioning, and the
+// buyer still receives the Active Period and rate limit they paid for.
+func TestProvision_UsesTheSnapshotRatherThanTheEditedCatalog(t *testing.T) {
+	t.Parallel()
+
+	f := newFixture()
+	paidAt := f.clock.now
+	row := f.addPaid(t)
+
+	// The catalog now says five days at 5M; the Transaction says seven days at 10M.
+	f.catalog.packages[7] = packagesentity.Package{
+		ID: 7, Name: "Paket Mingguan", PriceIDR: 25000,
+		DurationMinutes: 5 * 24 * 60, RateLimit: "5M/5M",
+	}
+	f.catalog.getCalls = 0
+
+	if err := f.provisioner.Provision(context.Background(), row.ID); err != nil {
+		t.Fatalf("Provision: %v", err)
+	}
+
+	account := f.writer.accounts[0]
+	if want := paidAt.Add(packageDuration); !account.Expiration.Equal(want) {
+		t.Fatalf("expiration = %s, want the bought terms (%s)", account.Expiration, want)
+	}
+	if account.RateLimit != "10M/10M" {
+		t.Fatalf("rate limit = %q, want the bought terms", account.RateLimit)
+	}
+	if f.catalog.getCalls != 0 {
+		t.Fatalf("provisioning read the catalog %d times, want the Transaction snapshot",
+			f.catalog.getCalls)
+	}
+}
+
+// TestProvision_EmptySnapshotFallsBackToTheCatalogAndWarns covers the one deploy
+// boundary ADR 0026 tolerates: a pending row that predates the columns.
+func TestProvision_EmptySnapshotFallsBackToTheCatalogAndWarns(t *testing.T) {
+	t.Parallel()
+
+	f, logs := observedFixture(t)
+	paidAt := f.clock.now
+	row := f.addPaid(t)
+	f.repo.rows[0].DurationMinutes = 0
+	f.repo.rows[0].RateLimit = ""
+	f.catalog.packages[7] = packagesentity.Package{
+		ID: 7, Name: "Paket Mingguan", PriceIDR: 25000,
+		DurationMinutes: 2 * 24 * 60, RateLimit: "2M/2M",
+	}
+
+	if err := f.provisioner.Provision(context.Background(), row.ID); err != nil {
+		t.Fatalf("Provision: %v", err)
+	}
+
+	account := f.writer.accounts[0]
+	if want := paidAt.Add(2 * 24 * time.Hour); !account.Expiration.Equal(want) {
+		t.Fatalf("expiration = %s, want the catalog fallback (%s)", account.Expiration, want)
+	}
+	if account.RateLimit != "2M/2M" {
+		t.Fatalf("rate limit = %q, want the catalog fallback", account.RateLimit)
+	}
+	if matched := entriesFor(logs, service.EventSnapshotFallback); len(matched) != 1 {
+		t.Fatalf("snapshot fallback logged %d times, want exactly 1", len(matched))
 	}
 }
 
@@ -186,6 +255,12 @@ func TestProvision_RetryKeepsTheDurationAndThePIN(t *testing.T) {
 		t.Fatalf("state after the failed attempt = %q, want paid", f.repo.rows[0].State)
 	}
 
+	// The catalog changes while the retry is pending. The stored snapshot must win,
+	// not just the stored expiration (ADR 0026).
+	f.catalog.packages[7] = packagesentity.Package{
+		ID: 7, Name: "Paket Mingguan", PriceIDR: 25000,
+		DurationMinutes: 5 * 24 * 60, RateLimit: "5M/5M",
+	}
 	f.outbox.err = nil
 	if err := f.provisioner.Provision(ctx, row.ID); err != nil {
 		t.Fatalf("retry Provision: %v", err)
@@ -203,6 +278,10 @@ func TestProvision_RetryKeepsTheDurationAndThePIN(t *testing.T) {
 	}
 	if f.repo.rows[0].State != entity.StateProvisioned {
 		t.Fatalf("state = %q, want provisioned", f.repo.rows[0].State)
+	}
+	if f.catalog.getCalls != 0 {
+		t.Fatalf("the retry read the catalog %d times, want the Transaction snapshot",
+			f.catalog.getCalls)
 	}
 }
 
@@ -273,16 +352,18 @@ func TestProvisionDue_ProvisionsEveryPaidTransaction(t *testing.T) {
 	f := newFixture()
 	first := f.addPaid(t)
 	f.repo.rows = append(f.repo.rows, entity.Transaction{
-		ID:          first.ID + 1,
-		Reference:   "TRX-PROVISION-SECOND",
-		PhoneNumber: "6281200000002",
-		PackageID:   7,
-		PackageName: "Paket Mingguan",
-		AmountIDR:   25000,
-		Channel:     "BRIVA",
-		State:       entity.StatePaid,
-		ExpiresAt:   f.clock.now.Add(time.Hour),
-		PaidAt:      &f.clock.now,
+		ID:              first.ID + 1,
+		Reference:       "TRX-PROVISION-SECOND",
+		PhoneNumber:     "6281200000002",
+		PackageID:       7,
+		PackageName:     "Paket Mingguan",
+		AmountIDR:       25000,
+		DurationMinutes: int(packageDuration / time.Minute),
+		RateLimit:       "10M/10M",
+		Channel:         "BRIVA",
+		State:           entity.StatePaid,
+		ExpiresAt:       f.clock.now.Add(time.Hour),
+		PaidAt:          &f.clock.now,
 	})
 
 	done, err := f.provisioner.ProvisionDue(context.Background())

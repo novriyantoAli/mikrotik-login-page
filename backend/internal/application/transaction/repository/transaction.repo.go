@@ -30,6 +30,15 @@ type ListParams struct {
 	PageSize int
 }
 
+// SnapshotTarget is a pending Transaction whose catalog snapshot is still
+// missing, reduced to the two fields the backfill needs. It belongs to
+// persistence rather than to a DTO: it is a migration query result, not an HTTP
+// body.
+type SnapshotTarget struct {
+	ID        uint
+	PackageID uint
+}
+
 // Repository persists Transactions.
 type Repository interface {
 	// Create stores a new Transaction. When another pending Transaction already
@@ -83,6 +92,14 @@ type Repository interface {
 	// plus the total number of rows, so Account Status can paginate its history
 	// (ADR 0017).
 	ListByPhone(ctx context.Context, phoneNumber string, params ListParams) ([]entity.Transaction, int64, error)
+	// PendingWithoutSnapshot returns the pending Transactions created before the
+	// catalog terms were stored on the row, so `migrate` can fill them once
+	// (ADR 0026).
+	PendingWithoutSnapshot(ctx context.Context) ([]SnapshotTarget, error)
+	// FillSnapshot writes the catalog terms onto a pending Transaction that still
+	// lacks them and reports whether this call wrote them. The state guard keeps a
+	// provisioned or settled row's history untouched.
+	FillSnapshot(ctx context.Context, id uint, durationMinutes int, rateLimit string) (bool, error)
 	// ExpireOverdue moves every pending Transaction whose deadline has passed to
 	// expired and returns the rows it changed, so the caller can log one
 	// transition per Transaction without reading them again (ADR 0018). The clock
@@ -350,6 +367,44 @@ func (r *transactionRepository) ListByPhone(
 		return nil, 0, fmt.Errorf("list transaction history: %w", err)
 	}
 	return rows, total, nil
+}
+
+func (r *transactionRepository) PendingWithoutSnapshot(
+	ctx context.Context,
+) ([]SnapshotTarget, error) {
+	var targets []SnapshotTarget
+	err := r.db.WithContext(ctx).
+		Model(&entity.Transaction{}).
+		Select("id", "package_id").
+		Where("state = ? AND (duration_minutes = 0 OR rate_limit = '')", entity.StatePending).
+		Order("id").
+		Scan(&targets).Error
+	if err != nil {
+		r.logger.Error("read pending transactions without a catalog snapshot", zap.Error(err))
+		return nil, fmt.Errorf("read pending transactions without a catalog snapshot: %w", err)
+	}
+	return targets, nil
+}
+
+func (r *transactionRepository) FillSnapshot(
+	ctx context.Context,
+	id uint,
+	durationMinutes int,
+	rateLimit string,
+) (bool, error) {
+	result := r.db.WithContext(ctx).
+		Model(&entity.Transaction{}).
+		Where("id = ? AND state = ? AND (duration_minutes = 0 OR rate_limit = '')",
+			id, entity.StatePending).
+		Updates(map[string]any{
+			"duration_minutes": durationMinutes,
+			"rate_limit":       rateLimit,
+		})
+	if result.Error != nil {
+		r.logger.Error("fill transaction snapshot", zap.Uint("transaction_id", id), zap.Error(result.Error))
+		return false, fmt.Errorf("fill transaction snapshot for %d: %w", id, result.Error)
+	}
+	return result.RowsAffected > 0, nil
 }
 
 func (r *transactionRepository) ExpirePending(

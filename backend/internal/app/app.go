@@ -109,6 +109,7 @@ func Migrate(extra ...fx.Option) fx.Option {
 		Core(),
 		database.PostgresModule(),
 		packages.Module(),
+		transaction.MigrationModule(),
 		servermigration.Module(),
 		fx.Options(extra...),
 	)

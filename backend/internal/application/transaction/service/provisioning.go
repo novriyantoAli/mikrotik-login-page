@@ -9,7 +9,6 @@ import (
 	"go.uber.org/zap"
 
 	notificationservice "github.com/novriyantoAli/mikrotik-login-page/backend/internal/application/notification/service"
-	packagesentity "github.com/novriyantoAli/mikrotik-login-page/backend/internal/application/packages/entity"
 	packageservice "github.com/novriyantoAli/mikrotik-login-page/backend/internal/application/packages/service"
 	"github.com/novriyantoAli/mikrotik-login-page/backend/internal/application/provisioning"
 	"github.com/novriyantoAli/mikrotik-login-page/backend/internal/application/transaction/entity"
@@ -121,15 +120,16 @@ func (p *provisioner) beginAttempt(ctx context.Context, id uint) int {
 	return attempt
 }
 
-// provision does the work of one attempt: read the Package, persist the plan once,
-// write the account, then record the result and its SMS together.
+// provision does the work of one attempt: read the terms the buyer paid for,
+// persist the plan once, write the account, then record the result and its SMS
+// together.
 func (p *provisioner) provision(ctx context.Context, row *entity.Transaction) error {
-	pkg, err := p.catalog.GetPackage(ctx, row.PackageID)
+	terms, err := p.terms(ctx, row)
 	if err != nil {
-		return fmt.Errorf("read Package %d: %w", row.PackageID, err)
+		return err
 	}
 
-	row, err = p.ensurePlan(ctx, row, pkg)
+	row, err = p.ensurePlan(ctx, row, terms.duration)
 	if err != nil {
 		return err
 	}
@@ -151,12 +151,47 @@ func (p *provisioner) provision(ctx context.Context, row *entity.Transaction) er
 		PhoneNumber: row.PhoneNumber,
 		PIN:         pinValue,
 		Expiration:  row.ProvisionTargetExpiration.UTC(),
-		RateLimit:   pkg.RateLimit,
+		RateLimit:   terms.rateLimit,
 	}); err != nil {
 		return fmt.Errorf("apply hotspot account: %w", err)
 	}
 
 	return p.complete(ctx, row, pinValue)
+}
+
+// provisionTerms are the catalog terms frozen on the Transaction at checkout:
+// the Active Period length and the Mikrotik-Rate-Limit the buyer paid for.
+type provisionTerms struct {
+	duration  time.Duration
+	rateLimit string
+}
+
+// terms reads the snapshot, not the catalog, so an edit between payment and
+// provisioning cannot change what the buyer receives (ADR 0026). A snapshot that
+// predates the columns is tolerated for one deploy boundary: the catalog is read
+// and the fallback is logged, but the state is not supported (ADR 0026).
+func (p *provisioner) terms(ctx context.Context, row *entity.Transaction) (provisionTerms, error) {
+	if row.DurationMinutes > 0 && row.RateLimit != "" {
+		return provisionTerms{
+			duration:  time.Duration(row.DurationMinutes) * time.Minute,
+			rateLimit: row.RateLimit,
+		}, nil
+	}
+
+	p.logger.Warn("provisioning snapshot missing; falling back to the catalog",
+		zap.String("event", EventSnapshotFallback),
+		zap.Uint("transaction_id", row.ID),
+		zap.Uint("package_id", row.PackageID),
+	)
+	pkg, err := p.catalog.GetPackage(ctx, row.PackageID)
+	if err != nil {
+		return provisionTerms{}, fmt.Errorf("read Package %d for a missing snapshot: %w",
+			row.PackageID, err)
+	}
+	return provisionTerms{
+		duration:  time.Duration(pkg.DurationMinutes) * time.Minute,
+		rateLimit: pkg.RateLimit,
+	}, nil
 }
 
 // ensurePlan stores the target Active Period end and the encrypted PIN exactly
@@ -166,13 +201,13 @@ func (p *provisioner) provision(ctx context.Context, row *entity.Transaction) er
 func (p *provisioner) ensurePlan(
 	ctx context.Context,
 	row *entity.Transaction,
-	pkg *packagesentity.Package,
+	duration time.Duration,
 ) (*entity.Transaction, error) {
 	if row.ProvisionTargetExpiration != nil && len(row.PINCiphertext) > 0 {
 		return row, nil
 	}
 
-	target, err := p.targetExpiration(ctx, row, pkg)
+	target, err := p.targetExpiration(ctx, row, duration)
 	if err != nil {
 		return nil, err
 	}
@@ -201,9 +236,8 @@ func (p *provisioner) ensurePlan(
 func (p *provisioner) targetExpiration(
 	ctx context.Context,
 	row *entity.Transaction,
-	pkg *packagesentity.Package,
+	duration time.Duration,
 ) (time.Time, error) {
-	duration := time.Duration(pkg.DurationMinutes) * time.Minute
 	now := p.clock.Now()
 
 	current, err := p.reader.Expiration(ctx, row.PhoneNumber)

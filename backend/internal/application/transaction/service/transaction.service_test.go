@@ -315,6 +315,39 @@ func (r *fakeRepository) ListByPhone(
 	return matched[start:end], total, nil
 }
 
+func (r *fakeRepository) PendingWithoutSnapshot(
+	_ context.Context,
+) ([]repository.SnapshotTarget, error) {
+	targets := make([]repository.SnapshotTarget, 0, len(r.rows))
+	for index := range r.rows {
+		row := r.rows[index]
+		if row.State != entity.StatePending || (row.DurationMinutes > 0 && row.RateLimit != "") {
+			continue
+		}
+		targets = append(targets, repository.SnapshotTarget{ID: row.ID, PackageID: row.PackageID})
+	}
+	return targets, nil
+}
+
+func (r *fakeRepository) FillSnapshot(
+	_ context.Context,
+	id uint,
+	durationMinutes int,
+	rateLimit string,
+) (bool, error) {
+	for index := range r.rows {
+		row := &r.rows[index]
+		if row.ID != id || row.State != entity.StatePending ||
+			(row.DurationMinutes > 0 && row.RateLimit != "") {
+			continue
+		}
+		row.DurationMinutes = durationMinutes
+		row.RateLimit = rateLimit
+		return true, nil
+	}
+	return false, nil
+}
+
 func (r *fakeRepository) LatestProvisioned(
 	_ context.Context,
 	phoneNumber string,
@@ -335,6 +368,7 @@ func (r *fakeRepository) LatestProvisioned(
 
 type fakeCatalog struct {
 	packages map[uint]packagesentity.Package
+	getCalls int
 }
 
 func (c *fakeCatalog) ListPackages(context.Context) ([]packagesdto.PackageResponse, error) {
@@ -342,6 +376,7 @@ func (c *fakeCatalog) ListPackages(context.Context) ([]packagesdto.PackageRespon
 }
 
 func (c *fakeCatalog) GetPackage(_ context.Context, id uint) (*packagesentity.Package, error) {
+	c.getCalls++
 	pkg, ok := c.packages[id]
 	if !ok {
 		return nil, packageservice.ErrPackageNotFound
@@ -460,6 +495,7 @@ type fixture struct {
 	service     service.Service
 	provisioner service.Provisioner
 	reconciler  service.Reconciler
+	backfiller  service.SnapshotBackfiller
 	logger      *zap.Logger
 }
 
@@ -529,6 +565,7 @@ func newFixtureWithLogger(logger *zap.Logger) *fixture {
 		service.SweepSettings{Reconcile: service.SweepCadence{Interval: time.Minute, Batch: 50}},
 		logger,
 	)
+	f.backfiller = service.NewSnapshotBackfiller(f.repo, f.catalog, logger)
 	return f
 }
 

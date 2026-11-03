@@ -114,10 +114,14 @@ type Transaction struct {
 	// future FreeRADIUS username (CONTEXT.md).
 	PhoneNumber string `gorm:"column:phone_number;not null;uniqueIndex:idx_txn_pending,where:state='pending',priority:1"`
 	PackageID   uint   `gorm:"column:package_id;not null;uniqueIndex:idx_txn_pending,where:state='pending',priority:2"`
-	// PackageName and AmountIDR are snapshotted at checkout: the amount the buyer
-	// was shown must not change if the catalog is edited later.
-	PackageName string `gorm:"column:package_name;not null"`
-	AmountIDR   int64  `gorm:"column:amount_idr;not null"`
+	// PackageName, AmountIDR, DurationMinutes and RateLimit are snapshotted at
+	// checkout: the terms the buyer was shown and paid for must not change if the
+	// catalog is edited later. Provisioning reads them from this row, never from
+	// the catalog (ADR 0026).
+	PackageName     string `gorm:"column:package_name;not null"`
+	AmountIDR       int64  `gorm:"column:amount_idr;not null"`
+	DurationMinutes int    `gorm:"column:duration_minutes;not null;default:0"`
+	RateLimit       string `gorm:"column:rate_limit;not null;default:''"`
 
 	Channel     string `gorm:"column:channel;not null"`
 	ChannelName string `gorm:"column:channel_name;not null;default:''"`

@@ -16,6 +16,9 @@ const (
 	EventStateChanged = "transaction.state_changed"
 	// EventProvisioningAttempt is emitted once per provisioning attempt.
 	EventProvisioningAttempt = "provisioning.attempt"
+	// EventSnapshotFallback is emitted when a Transaction predates its catalog
+	// snapshot and provisioning has to read the catalog instead (ADR 0026).
+	EventSnapshotFallback = "provisioning.snapshot_fallback"
 
 	// ReasonGatewayCallback is a settlement that arrived as a signed callback.
 	ReasonGatewayCallback = "gateway_callback"
