@@ -231,7 +231,7 @@ func (s *service) Create(
 		return nil, fmt.Errorf("%w: %w", ErrGatewayUnavailable, err)
 	}
 
-	row := s.newTransaction(phoneNumber, request, pkg.Name, pkg.PriceIDR, channel.Code, reference, created)
+	row := s.newTransaction(phoneNumber, request, pkg, channel.Code, reference, created)
 	if err := s.repo.Create(ctx, row); err != nil {
 		// The partial unique index is the real idempotency guard. Losing that race
 		// means another request already opened the pending Transaction: return it
@@ -427,8 +427,7 @@ func (s *service) findChannel(ctx context.Context, code string) (*payment.Channe
 func (s *service) newTransaction(
 	phoneNumber string,
 	request *dto.CreateTransactionRequest,
-	packageName string,
-	amountIDR int64,
+	pkg *packagesentity.Package,
 	channel string,
 	reference string,
 	created *payment.CreateTransactionResponse,
@@ -452,8 +451,10 @@ func (s *service) newTransaction(
 		GatewayReference: created.GatewayReference,
 		PhoneNumber:      phoneNumber,
 		PackageID:        request.PackageID,
-		PackageName:      packageName,
-		AmountIDR:        amountIDR,
+		PackageName:      pkg.Name,
+		AmountIDR:        pkg.PriceIDR,
+		DurationMinutes:  pkg.DurationMinutes,
+		RateLimit:        pkg.RateLimit,
 		Channel:          channel,
 		ChannelName:      created.ChannelName,
 		State:            entity.StatePending,

@@ -56,9 +56,9 @@ curl http://localhost:8080/api/health   # backend + Postgres + MySQL + Redis
 make down
 ```
 
-The one-shot `migrate` service applies the Postgres schema and the Package
-catalog seed before the API starts (ADR 0012); `make -C backend run-migrate`
-does the same against a local database.
+The one-shot `migrate` service applies the Postgres schema, seeds the Package
+catalog and backfills old Transaction snapshots before the API starts (ADR 0012,
+ADR 0026); `make -C backend run-migrate` does the same against a local database.
 
 The proxy serves the app at `/` and the API at `/api` on one origin (ADR 0009,
 ADR 0013). `GET /api/health` answers 200 when every dependency is reachable and

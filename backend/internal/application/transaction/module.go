@@ -34,6 +34,19 @@ func Module() fx.Option {
 			service.NewExpiry,
 			service.NewProvisioner,
 			service.NewReconciler,
+			service.NewSnapshotBackfiller,
+		),
+	)
+}
+
+// MigrationModule provides only what the deployment's one-shot migrate step
+// needs for the catalog snapshot: the repository and the backfiller, without
+// building checkout or the worker surfaces (ADR 0026).
+func MigrationModule() fx.Option {
+	return fx.Options(
+		fx.Provide(
+			repository.NewRepository,
+			service.NewSnapshotBackfiller,
 		),
 	)
 }

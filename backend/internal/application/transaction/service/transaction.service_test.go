@@ -315,6 +315,49 @@ func (r *fakeRepository) ListByPhone(
 	return matched[start:end], total, nil
 }
 
+func (r *fakeRepository) UnprovisionedWithoutSnapshot(
+	_ context.Context,
+	afterID uint,
+	limit int,
+) ([]repository.SnapshotTarget, error) {
+	targets := make([]repository.SnapshotTarget, 0, len(r.rows))
+	for index := range r.rows {
+		row := r.rows[index]
+		if row.ID <= afterID || (row.State != entity.StatePending && row.State != entity.StatePaid) ||
+			(row.DurationMinutes > 0 && row.RateLimit != "") {
+			continue
+		}
+		targets = append(targets, repository.SnapshotTarget{ID: row.ID, PackageID: row.PackageID})
+		if limit > 0 && len(targets) == limit {
+			break
+		}
+	}
+	return targets, nil
+}
+
+func (r *fakeRepository) FillSnapshot(
+	_ context.Context,
+	id uint,
+	durationMinutes int,
+	rateLimit string,
+) (bool, error) {
+	for index := range r.rows {
+		row := &r.rows[index]
+		if row.ID != id || (row.State != entity.StatePending && row.State != entity.StatePaid) ||
+			(row.DurationMinutes > 0 && row.RateLimit != "") {
+			continue
+		}
+		if row.DurationMinutes == 0 {
+			row.DurationMinutes = durationMinutes
+		}
+		if row.RateLimit == "" {
+			row.RateLimit = rateLimit
+		}
+		return true, nil
+	}
+	return false, nil
+}
+
 func (r *fakeRepository) LatestProvisioned(
 	_ context.Context,
 	phoneNumber string,
@@ -335,6 +378,7 @@ func (r *fakeRepository) LatestProvisioned(
 
 type fakeCatalog struct {
 	packages map[uint]packagesentity.Package
+	getCalls int
 }
 
 func (c *fakeCatalog) ListPackages(context.Context) ([]packagesdto.PackageResponse, error) {
@@ -342,6 +386,7 @@ func (c *fakeCatalog) ListPackages(context.Context) ([]packagesdto.PackageRespon
 }
 
 func (c *fakeCatalog) GetPackage(_ context.Context, id uint) (*packagesentity.Package, error) {
+	c.getCalls++
 	pkg, ok := c.packages[id]
 	if !ok {
 		return nil, packageservice.ErrPackageNotFound
@@ -460,6 +505,7 @@ type fixture struct {
 	service     service.Service
 	provisioner service.Provisioner
 	reconciler  service.Reconciler
+	backfiller  service.SnapshotBackfiller
 	logger      *zap.Logger
 }
 
@@ -529,6 +575,7 @@ func newFixtureWithLogger(logger *zap.Logger) *fixture {
 		service.SweepSettings{Reconcile: service.SweepCadence{Interval: time.Minute, Batch: 50}},
 		logger,
 	)
+	f.backfiller = service.NewSnapshotBackfiller(f.repo, f.catalog, logger)
 	return f
 }
 
@@ -595,6 +642,15 @@ func TestCreate_SnapshotsTheTypedPackagePrice(t *testing.T) {
 	want := "GW-" + f.repo.rows[0].Reference
 	if got := f.repo.rows[0].GatewayReference; got != want {
 		t.Fatalf("gateway reference = %q, want the vendor's own id %q", got, want)
+	}
+
+	// The terms the buyer paid for are frozen in the same row, not re-read at
+	// provisioning time (ADR 0026).
+	if got := f.repo.rows[0].DurationMinutes; got != 10080 {
+		t.Fatalf("duration snapshot = %d, want the Package's 10080 minutes", got)
+	}
+	if got := f.repo.rows[0].RateLimit; got != "10M/10M" {
+		t.Fatalf("rate limit snapshot = %q, want the Package's 10M/10M", got)
 	}
 }
 

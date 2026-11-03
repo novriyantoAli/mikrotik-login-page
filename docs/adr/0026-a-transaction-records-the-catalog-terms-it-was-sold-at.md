@@ -45,9 +45,11 @@ computed from is frozen in the same row.
 
 **4. Rows that predate the columns are backfilled by `migrate`**, the one-shot
 command deployment already runs before the API (ADR 0012), filling from the
-catalog for Transactions that are still `pending`. Rows that are already
-`provisioned` need no backfill: their effect is in FreeRADIUS, and rewriting
-their history would be inventing data.
+catalog for Transactions that are still `pending` or `paid`. Rows that are
+already `provisioned` need no backfill: their effect is in FreeRADIUS, and
+rewriting their history would be inventing data. `paid` is included because its
+effect is not in FreeRADIUS yet, so it is still exposed to the drift this ADR
+closes.
 
 **5. A missing snapshot is tolerated, not trusted.** If a checkout somehow stored
 an empty duration, provisioning falls back to the catalog and logs it. The
@@ -77,6 +79,6 @@ fallback exists for one deploy boundary, not as a supported state.
   what was actually granted rather than what the catalog says now — the two
   agree, which is the point, and a disagreement becomes visible instead of
   invisible.
-- The backfill runs inside the same `migrate` step that adds `packages.is_active`
-  and `version` (ADR 0025), so one deploy carries every schema change this PRD
-  needs.
+- When ADR 0025 lands, the backfill runs inside the same `migrate` step that adds
+  `packages.is_active` and `version`, so one deploy carries every schema change
+  this PRD needs.

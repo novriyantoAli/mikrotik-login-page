@@ -40,8 +40,9 @@ run-api: ## CONFIG_FILE=config.yaml or config.yml; env overrides still apply
 run-worker:
 	$(GOCMD) run ./cmd/worker
 
-# Applies the schema and the idempotent Package seed, then exits (ADR 0012).
-# Deployment runs the same command as a one-shot container before the API.
+# Applies the schema, seeds the idempotent Package catalog and backfills old
+# Transaction snapshots, then exits (ADR 0012, ADR 0026). Deployment runs the
+# same command as a one-shot container before the API.
 run-migrate:
 	$(GOCMD) run ./cmd/migrate
 
