@@ -32,6 +32,12 @@ func StarterCatalog() []entity.Package {
 			PriceIDR:        row.priceIDR,
 			DurationMinutes: row.durationMinutes,
 			RateLimit:       row.rateLimit,
+			// A seeded Package is on sale from the start and at its first
+			// revision. Both are spelled out instead of relying on the columns'
+			// defaults, so the row this process writes is the same row Postgres
+			// would have filled in (ADR 0025).
+			IsActive: true,
+			Version:  1,
 		})
 	}
 	return packages

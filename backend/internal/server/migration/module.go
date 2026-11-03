@@ -12,6 +12,8 @@ import (
 	"go.uber.org/zap"
 	"gorm.io/gorm"
 
+	"github.com/novriyantoAli/mikrotik-login-page/backend/internal/application/admin"
+	adminservice "github.com/novriyantoAli/mikrotik-login-page/backend/internal/application/admin/service"
 	"github.com/novriyantoAli/mikrotik-login-page/backend/internal/application/auth"
 	"github.com/novriyantoAli/mikrotik-login-page/backend/internal/application/notification"
 	"github.com/novriyantoAli/mikrotik-login-page/backend/internal/application/packages"
@@ -28,25 +30,28 @@ const upTimeout = 60 * time.Second
 type Migrator struct {
 	db        *gorm.DB
 	catalog   service.Service
+	admins    adminservice.Service
 	snapshots transactionservice.SnapshotBackfiller
 	logger    *zap.Logger
 }
 
 // NewMigrator builds the migrator; Fx injects the Postgres handle, the Package
-// catalog service and the Transaction snapshot backfiller.
+// catalog service, the admin bootstrap and the Transaction snapshot backfiller.
 func NewMigrator(
 	db *gorm.DB,
 	catalog service.Service,
+	admins adminservice.Service,
 	snapshots transactionservice.SnapshotBackfiller,
 	logger *zap.Logger,
 ) *Migrator {
-	return &Migrator{db: db, catalog: catalog, snapshots: snapshots, logger: logger}
+	return &Migrator{db: db, catalog: catalog, admins: admins, snapshots: snapshots, logger: logger}
 }
 
 // Up creates or updates every table the domains declare, seeds the Package
-// catalog, then backfills the catalog snapshot on pending or paid Transactions
-// that predate it. Every step is idempotent: running the command again changes
-// nothing and inserts no duplicate Package (ADR 0012, ADR 0026).
+// catalog, seeds the first admin owner, then backfills the catalog snapshot on
+// pending or paid Transactions that predate it. Every step is idempotent: running
+// the command again changes nothing, inserts no duplicate Package and never
+// rewrites an existing admin password (ADR 0012, ADR 0024, ADR 0026).
 func (m *Migrator) Up(ctx context.Context) error {
 	if err := m.db.WithContext(ctx).AutoMigrate(migrations()...); err != nil {
 		m.logger.Error("apply schema", zap.Error(err))
@@ -59,6 +64,15 @@ func (m *Migrator) Up(ctx context.Context) error {
 		return fmt.Errorf("seed package catalog: %w", err)
 	}
 
+	// The panel must have a way in after a fresh deploy, and a deploy must never
+	// reset a password that already exists, so this step refuses to finish when
+	// the table is empty and the bootstrap pair is missing (ADR 0024 §6).
+	admins, err := m.admins.BootstrapOwner(ctx)
+	if err != nil {
+		m.logger.Error("seed first admin", zap.Error(err))
+		return fmt.Errorf("seed first admin: %w", err)
+	}
+
 	// Filled after the seed, so a catalog this deployment just created is what
 	// the pending and paid rows copy from (ADR 0026).
 	backfilled, err := m.snapshots.BackfillSnapshots(ctx)
@@ -69,6 +83,7 @@ func (m *Migrator) Up(ctx context.Context) error {
 
 	m.logger.Info("migration complete",
 		zap.Int64("packages_inserted", inserted),
+		zap.Int64("admins_inserted", admins),
 		zap.Int64("transactions_backfilled", backfilled),
 	)
 	return nil
@@ -77,8 +92,9 @@ func (m *Migrator) Up(ctx context.Context) error {
 // migrations collects every table the domains declare, so a new domain only has
 // to add itself here.
 func migrations() []any {
-	tables := make([]any, 0, 5)
+	tables := make([]any, 0, 8)
 	tables = append(tables, packages.Migrations()...)
+	tables = append(tables, admin.Migrations()...)
 	tables = append(tables, auth.Migrations()...)
 	tables = append(tables, notification.Migrations()...)
 	tables = append(tables, transaction.Migrations()...)

@@ -1,8 +1,8 @@
 # Backend (Go + Fx + Gin + GORM + Asynq)
 
 The API serves the purchase app and the Login Page contracts; the worker runs
-background jobs; `migrate` applies the schema and the Package seed. All three
-come from one image with different commands.
+background jobs; `migrate` applies the schema, the Package seed and the first
+admin owner. All three come from one image with different commands.
 
 Documentation: [`../docs/adr/`](../docs/adr), [`../CONTEXT.md`](../CONTEXT.md),
 [`../docs/prd/transaction-purchase-app-backend.md`](../docs/prd/transaction-purchase-app-backend.md).
@@ -64,26 +64,31 @@ overwriting the other identity's session (ADR 0024 §2).
 
 `ADMIN_EMAIL` and `ADMIN_PASSWORD` are the first owner's bootstrap pair, and they
 are read **only** by `migrate`: while the `admins` table is empty the seed inserts
-that one owner and fails loudly when either value is missing, and once an owner
-exists it ignores them completely so a deploy can never reset a password. That
-seed is the admin slice's work (#29); until it lands nothing reads the pair —
-every process loads it into `Config` and leaves it alone, which is also why both
-are optional at startup, why a half-filled pair is not a startup error, and why
-both are empty in a steady-state deployment.
+that one owner (email lowercased, `role=owner`, bcrypt cost 12) and fails loudly
+when either value is missing — naming the variable to set, because a deploy that
+finished without an owner leaves a panel nobody can enter. Once any admin exists
+the pair is ignored completely, so a deploy can never reset a password. That is
+also why both are optional at startup, why a half-filled pair is not a startup
+error, and why both are empty in a steady-state deployment.
 
 ## Deployment migration (ADR 0012)
 
-`migrate` applies the Postgres schema (`packages`, later the other tables from
-the PRD), seeds the starter Package catalog, and backfills `duration_minutes` /
-`rate_limit` on pending or paid Transactions that predate those columns, then
-exits. Deployment runs it as a one-shot compose service and the API waits for it
-(`service_completed_successfully`); the API and worker never migrate
-themselves.
+`migrate` applies the Postgres schema (`packages` with its `is_active`/`version`
+columns, the admin Panel's `admins`/`admin_sessions`/`admin_audit_log`, and the
+rest of the PRD's tables), seeds the starter Package catalog, seeds the first
+admin owner from `ADMIN_EMAIL`/`ADMIN_PASSWORD`, and backfills
+`duration_minutes` / `rate_limit` on pending or paid Transactions that predate
+those columns, then exits. Deployment runs it as a one-shot compose service and
+the API waits for it (`service_completed_successfully`); the API and worker never
+migrate themselves.
 
 The seed keys on `packages.code` with `ON CONFLICT DO NOTHING`, so running the
 command twice inserts nothing, and a price an operator changed by hand survives
-a redeploy. Until the Admin Panel exists, SQL is the only way to edit the
-catalog, and changing a starter value in code does not rewrite existing rows.
+a redeploy. A Package is retired, never deleted (ADR 0025): the row keeps its
+`code` and its history, so the seed finds it and inserts nothing — the "deleted
+Package comes back on Tuesday" problem is gone by construction. Until the Admin
+Panel's write endpoints land, SQL is still the only way to edit the catalog, and
+changing a starter value in code does not rewrite existing rows.
 
 ## Public read contract (Login Page)
 
@@ -267,7 +272,7 @@ make deps            # go mod download + tidy
 make build           # bin/api + bin/worker + bin/migrate
 make run-api         # API on SERVER_HOST:SERVER_PORT
 make run-worker      # Asynq worker
-make run-migrate     # schema + Package seed + snapshot backfill (ADR 0012/0026)
+make run-migrate     # schema + Package seed + first admin + snapshot backfill
 make test            # unit + integration (real Postgres, real Redis)
 make test-unit       # internal/... only
 make test-integration# test/integration only

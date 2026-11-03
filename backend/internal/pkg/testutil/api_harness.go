@@ -15,6 +15,7 @@ import (
 	"gorm.io/gorm"
 
 	appfx "github.com/novriyantoAli/mikrotik-login-page/backend/internal/app"
+	adminservice "github.com/novriyantoAli/mikrotik-login-page/backend/internal/application/admin/service"
 	"github.com/novriyantoAli/mikrotik-login-page/backend/internal/application/notification/sms"
 	"github.com/novriyantoAli/mikrotik-login-page/backend/internal/application/packages/service"
 	"github.com/novriyantoAli/mikrotik-login-page/backend/internal/application/payment"
@@ -61,6 +62,9 @@ type APIHarness struct {
 	// TransactionService is the buyer-facing surface, so a test can read the
 	// current PIN the way Account Status (#16) will.
 	TransactionService transactionservice.Service
+	// AdminBootstrap is the panel's first-owner seed, built from the harness's
+	// bootstrap pair, so a test can re-run it without rebuilding the domain.
+	AdminBootstrap adminservice.Service
 }
 
 // HarnessOption adjusts one harness before it starts.
@@ -114,6 +118,9 @@ func NewAPIHarness(t *testing.T, options ...HarnessOption) *APIHarness {
 	ApplyRedisEnv(t, *settings.redisAddr)
 	ApplyMySQLEnv(t, *settings.freeRADIUSMySQLDSN)
 	ApplyPINEnv(t)
+	// Every test schema is a fresh deployment, so `migrate` needs the first-owner
+	// pair to finish (ADR 0024 §6); a test that proves the refusal overrides it.
+	ApplyAdminBootstrapEnv(t)
 
 	// Production keeps the graph and Gin mode identical to the deployed process.
 	t.Setenv("APP_ENVIRONMENT", config.EnvironmentProduction)
@@ -175,6 +182,7 @@ func bindSurfaces(harness *APIHarness) fx.Option {
 		provisioning transactionservice.Provisioner,
 		reconciliation transactionservice.Reconciler,
 		transactionService transactionservice.Service,
+		adminBootstrap adminservice.Service,
 	) {
 		harness.Config = cfg
 		harness.Engine = router.Engine
@@ -187,11 +195,13 @@ func bindSurfaces(harness *APIHarness) fx.Option {
 		harness.TransactionProvisioning = provisioning
 		harness.TransactionReconciliation = reconciliation
 		harness.TransactionService = transactionService
+		harness.AdminBootstrap = adminBootstrap
 	})
 }
 
-// Migrate re-runs the deployment migration (schema plus Package seed) against
-// this test's schema, so a test can prove it is idempotent.
+// Migrate re-runs the deployment migration (schema, Package seed, first admin
+// owner and snapshot backfill) against this test's schema, so a test can prove it
+// is idempotent.
 func (h *APIHarness) Migrate(t *testing.T) {
 	t.Helper()
 

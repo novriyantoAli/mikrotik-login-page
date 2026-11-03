@@ -21,11 +21,15 @@ the hardening slice of ADR 0018). No slice of either PRD remains unstarted.
 
 The **Admin Panel** — managing the Package catalog, listing Transactions, and
 listing active hotspot users — is the only remaining area. It now has a PRD and
-the five ADRs it needed (0024–0028), split into two slices and not yet started:
-[`docs/prd/admin-panel.md`](docs/prd/admin-panel.md). Until slice 1 ships the
-catalog is the deployment seed plus whatever an operator changed by hand in SQL,
-and a Package deleted by hand comes back on the next deploy (ADR 0012,
-`backend/README.md` § Deployment migration).
+the five ADRs it needed (0024–0028), split into two slices and in progress:
+[`docs/prd/admin-panel.md`](docs/prd/admin-panel.md). Slice 1 has landed its
+foundation — the `admins`/`admin_sessions`/`admin_audit_log` tables, the first
+owner seeded by `migrate`, and `packages.is_active`/`version` — but the catalog
+write endpoints and the panel itself are still to come, so the catalog still
+starts from the deployment seed. Retirement is now representable in the schema
+(`packages.is_active`), so once the catalog write endpoints land a Package will be
+retired rather than deleted and will no longer come back on the next deploy
+(ADR 0025).
 
 One known gap is budgeted outside that plan: the smoke journey runs with the
 modem absent, so a pty AT emulator for the modem edge is separate work, not a
@@ -49,7 +53,7 @@ sibling `~/Projects/mikrotik-login` monorepo is prior art only.
 ## Quick start
 
 ```bash
-cp .env.example .env      # fill in the secrets
+cp .env.example .env      # fill in the secrets; ADMIN_EMAIL/ADMIN_PASSWORD seed the first owner
 make up                   # docker compose up -d --build (runs the migrate step first)
 open http://localhost:8080/            # purchase app (status screen)
 curl http://localhost:8080/api/health   # backend + Postgres + MySQL + Redis
@@ -57,8 +61,14 @@ make down
 ```
 
 The one-shot `migrate` service applies the Postgres schema, seeds the Package
-catalog and backfills old Transaction snapshots before the API starts (ADR 0012,
+catalog, seeds the first Admin Panel owner from `ADMIN_EMAIL`/`ADMIN_PASSWORD` and
+backfills old Transaction snapshots before the API starts (ADR 0012, ADR 0024,
 ADR 0026); `make -C backend run-migrate` does the same against a local database.
+On a fresh database — or the first deploy of this release against an existing
+one, where the `admins` table is still empty — it refuses to finish until the
+bootstrap pair is set, naming the variable to fill in; a deployment that got past
+it would come up with a panel nobody can enter. Once any owner exists the pair is
+ignored, so a later deploy never resets a password.
 
 The proxy serves the app at `/` and the API at `/api` on one origin (ADR 0009,
 ADR 0013). `GET /api/health` answers 200 when every dependency is reachable and

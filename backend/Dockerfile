@@ -1,8 +1,8 @@
 # syntax=docker/dockerfile:1
 
 # One image, three commands: `api` serves HTTP, `worker` runs background jobs,
-# `migrate` applies the schema and the Package seed before the API starts.
-# All three commands share the same binary set and configuration.
+# `migrate` applies the schema, the Package seed and the first admin owner before
+# the API starts. All three commands share the same binary set and configuration.
 FROM golang:1.26-alpine AS builder
 
 WORKDIR /src

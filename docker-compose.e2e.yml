@@ -23,6 +23,14 @@ x-e2e-tripay: &e2e-tripay
   TRIPAY_PRIVATE_KEY: ${TRIPAY_PRIVATE_KEY:?TRIPAY_PRIVATE_KEY is required}
 
 services:
+  # A fresh compose volume is a fresh deployment, and `migrate` refuses to finish
+  # with an empty admins table and no bootstrap pair (ADR 0024 §6). The panel is
+  # not part of this journey yet, so any long-enough password will do.
+  migrate:
+    environment:
+      ADMIN_EMAIL: ${ADMIN_EMAIL:-owner@e2e.test}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:-kata-sandi-e2e-yang-panjang}
+
   api:
     environment:
       <<: *e2e-tripay

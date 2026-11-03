@@ -84,8 +84,9 @@ auth:
     ip_limit: 10
 
 # The Admin Panel's own identity (ADR 0024): its own session cookie and login
-# budget, never the buyer's. The bootstrap pair is the first owner, which `migrate`
-# inserts once the admin seed lands (#29); nothing reads it yet.
+# budget, never the buyer's. The bootstrap pair is the first owner: while the
+# admins table is empty `migrate` inserts it, and once an admin exists it is
+# ignored so a deploy can never reset a password.
 admin:
   email: ""
   password: ""

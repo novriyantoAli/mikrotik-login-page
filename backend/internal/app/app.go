@@ -14,6 +14,7 @@ import (
 
 	"github.com/novriyantoAli/mikrotik-login-page/backend/internal/application/account"
 	"github.com/novriyantoAli/mikrotik-login-page/backend/internal/application/activeperiod"
+	"github.com/novriyantoAli/mikrotik-login-page/backend/internal/application/admin"
 	"github.com/novriyantoAli/mikrotik-login-page/backend/internal/application/auth"
 	"github.com/novriyantoAli/mikrotik-login-page/backend/internal/application/health"
 	healthservice "github.com/novriyantoAli/mikrotik-login-page/backend/internal/application/health/service"
@@ -94,6 +95,7 @@ func routerWithBase(base fx.Option, extra ...fx.Option) fx.Option {
 		activeperiod.Module(),
 		notification.Module(),
 		auth.Module(),
+		admin.Module(),
 		tripay.Module(),
 		transaction.Module(),
 		serverapi.RouterModule(),
@@ -101,14 +103,16 @@ func routerWithBase(base fx.Option, extra ...fx.Option) fx.Option {
 	)
 }
 
-// Migrate is the deployment migration process: Postgres, the Package catalog
-// domain and the migration runner. It applies the schema and the seed, then
-// exits; the API and worker never migrate themselves (ADR 0012).
+// Migrate is the deployment migration process: Postgres, the Package catalog and
+// admin domains and the migration runner. It applies the schema, the Package seed
+// and the first admin owner, then exits; the API and worker never migrate
+// themselves (ADR 0012, ADR 0024).
 func Migrate(extra ...fx.Option) fx.Option {
 	return fx.Options(
 		Core(),
 		database.PostgresModule(),
 		packages.Module(),
+		admin.Module(),
 		transaction.MigrationModule(),
 		servermigration.Module(),
 		fx.Options(extra...),
