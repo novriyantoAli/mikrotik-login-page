@@ -146,6 +146,9 @@ func openGorm(t *testing.T, dsn string) *gorm.DB {
 
 	db, err := gorm.Open(postgres.Open(dsn), &gorm.Config{
 		Logger: gormlogger.Discard,
+		// The same translation the production handle enables: a test repository
+		// must see gorm.ErrDuplicatedKey, not the vendor's SQLSTATE text.
+		TranslateError: true,
 	})
 	if err != nil {
 		t.Fatalf("connect postgres: %v", err)

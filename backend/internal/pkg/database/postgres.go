@@ -34,6 +34,10 @@ func NewPostgres(lc fx.Lifecycle, cfg *config.Config, logger *zap.Logger) (*Post
 		// Postgres is down. The explicit ping below decides what to log, and
 		// the health endpoint decides what to report.
 		DisableAutomaticPing: true,
+		// A repository branches on gorm.ErrDuplicatedKey instead of parsing the
+		// vendor's SQLSTATE text: the admin panel answers a taken email address or
+		// a stale catalog version as a conflict, not as an internal failure.
+		TranslateError: true,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("connect postgres: %w", err)

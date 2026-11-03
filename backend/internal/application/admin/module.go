@@ -13,8 +13,11 @@ import (
 	"github.com/novriyantoAli/mikrotik-login-page/backend/internal/config"
 )
 
-// Module provides the admin repository and service. The HTTP handler is
-// registered with the API transport, like every other domain route.
+// Module provides the admin repository and the service. The append-only audit
+// adapter is provided by the composition root instead, because a process that
+// builds one of its consumers (the worker builds the catalog) must be able to
+// record without building this domain. The HTTP handler is registered with the API
+// transport, like every other domain route.
 func Module() fx.Option {
 	return fx.Options(
 		fx.Provide(

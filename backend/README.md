@@ -21,7 +21,7 @@ Documentation: [`../docs/adr/`](../docs/adr), [`../CONTEXT.md`](../CONTEXT.md),
 | `internal/application/account` | Account Status read composition: summary, current PIN, active Package and Extend preview (ADR 0017); no entity, no table |
 | `internal/application/payment` | The `Gateway` port and its Tripay adapter (`payment/tripay`), the only code that knows the vendor |
 | `internal/application/{notification,provisioning}` | Vendor ports (SMS sender, FreeRADIUS writer and expiration reader) |
-| `internal/pkg` | Infrastructure: `database`, `logger`, `clock`, `httpx`, `testutil` |
+| `internal/pkg` | Infrastructure and shared vocabulary: `database`, `logger`, `clock`, `httpx`, `testutil`, `audit` |
 | `internal/server/{api,worker,migration}` | Transports, the migration step, Fx wiring |
 | `test/integration` | HTTP-contract integration tests, process tests, deployment tests |
 | `../contracts` | Response fixtures shared by the Go tests and the Login Page tests |

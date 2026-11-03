@@ -2,6 +2,7 @@ package service_test
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"strings"
 	"testing"
@@ -9,8 +10,11 @@ import (
 	"go.uber.org/zap"
 	"golang.org/x/crypto/bcrypt"
 
+	"github.com/novriyantoAli/mikrotik-login-page/backend/internal/application/admin/dto"
 	"github.com/novriyantoAli/mikrotik-login-page/backend/internal/application/admin/entity"
+	adminrepository "github.com/novriyantoAli/mikrotik-login-page/backend/internal/application/admin/repository"
 	"github.com/novriyantoAli/mikrotik-login-page/backend/internal/application/admin/service"
+	"github.com/novriyantoAli/mikrotik-login-page/backend/internal/pkg/audit"
 )
 
 type fakeRepository struct {
@@ -19,6 +23,12 @@ type fakeRepository struct {
 	inserted  int64
 	insertErr error
 	created   []entity.Admin
+
+	// CreateAdmin's side: what the service asked to write, and the trail facts it
+	// asked to record with it.
+	createErr error
+	written   []entity.Admin
+	entries   []audit.Entry
 }
 
 func (r *fakeRepository) CountAdmins(context.Context) (int64, error) {
@@ -34,6 +44,18 @@ func (r *fakeRepository) InsertOwner(_ context.Context, admin *entity.Admin) (in
 	}
 	r.created = append(r.created, *admin)
 	return r.inserted, nil
+}
+
+// CreateAdmin captures the write and its audit fact, and hands back an id the way
+// the real insert does, so the service can build its response.
+func (r *fakeRepository) CreateAdmin(_ context.Context, admin *entity.Admin, entry audit.Entry) error {
+	if r.createErr != nil {
+		return r.createErr
+	}
+	admin.ID = uint(len(r.written) + 1)
+	r.written = append(r.written, *admin)
+	r.entries = append(r.entries, entry)
+	return nil
 }
 
 func newService(repo *fakeRepository, settings service.BootstrapSettings) service.Service {
@@ -242,5 +264,218 @@ func TestBootstrapOwnerPropagatesRepositoryFailures(t *testing.T) {
 		Password: "kata-sandi-yang-cukup-panjang",
 	}).BootstrapOwner(context.Background()); err == nil {
 		t.Fatal("a failing insert must not look like a seed")
+	}
+}
+
+// panelOwner is the actor every audited write in these tests comes from: the
+// owner who is signed in, never the admin being created.
+func panelOwner() audit.Actor {
+	return audit.Actor{ID: 7, Email: "owner@example.test", IP: "203.0.113.9"}
+}
+
+// TestCreateAdminWritesOneActiveAdminAndExactlyOneAuditRow is #30's acceptance
+// criterion at the service boundary: one write, one trail row, and the row carries
+// the actor, the action and no credential.
+func TestCreateAdminWritesOneActiveAdminAndExactlyOneAuditRow(t *testing.T) {
+	repo := &fakeRepository{}
+	svc := newService(repo, service.BootstrapSettings{})
+
+	response, err := svc.CreateAdmin(context.Background(), panelOwner(), &dto.CreateAdminRequest{
+		Email:    " Support@Example.TEST ",
+		Role:     " Support ",
+		Password: "kata-sandi-yang-cukup-panjang",
+	})
+	if err != nil {
+		t.Fatalf("CreateAdmin: %v", err)
+	}
+
+	if len(repo.written) != 1 {
+		t.Fatalf("repository wrote %d admins, want 1", len(repo.written))
+	}
+	written := repo.written[0]
+	if written.Email != "support@example.test" {
+		t.Fatalf("email = %q, want the canonical lowercase form", written.Email)
+	}
+	if written.Role != entity.RoleSupport {
+		t.Fatalf("role = %q, want support", written.Role)
+	}
+	if !written.IsActive {
+		t.Fatal("a newly created admin must be active")
+	}
+	cost, err := bcrypt.Cost([]byte(written.PasswordHash))
+	if err != nil {
+		t.Fatalf("the stored value is not a bcrypt hash: %v", err)
+	}
+	if cost != service.PasswordCost {
+		t.Fatalf("bcrypt cost = %d, want %d", cost, service.PasswordCost)
+	}
+
+	if response.Email != written.Email || response.Role != string(written.Role) || !response.IsActive {
+		t.Fatalf("response = %+v, want the admin that was written", response)
+	}
+	if response.ID == 0 {
+		t.Fatal("response carries no id")
+	}
+
+	if len(repo.entries) != 1 {
+		t.Fatalf("audit rows = %d, want exactly 1", len(repo.entries))
+	}
+	entry := repo.entries[0]
+	if entry.Action != audit.ActionAdminCreate {
+		t.Fatalf("action = %q, want %q", entry.Action, audit.ActionAdminCreate)
+	}
+	if entry.TargetType != audit.TargetAdmin {
+		t.Fatalf("target type = %q, want %q", entry.TargetType, audit.TargetAdmin)
+	}
+	if entry.Actor != panelOwner() {
+		t.Fatalf("actor = %+v, want %+v", entry.Actor, panelOwner())
+	}
+	if entry.Payload["email"] != "support@example.test" || entry.Payload["role"] != string(entity.RoleSupport) {
+		t.Fatalf("payload = %v, want the fields the owner chose", entry.Payload)
+	}
+	assertNoCredentialInPayload(t, entry.Payload)
+}
+
+// assertNoCredentialInPayload keeps a trail row from becoming a place a password
+// or its hash can leak (ADR 0027 §4).
+func assertNoCredentialInPayload(t *testing.T, payload map[string]any) {
+	t.Helper()
+
+	for _, forbidden := range []string{"password", "password_hash", "hash"} {
+		if _, found := payload[forbidden]; found {
+			t.Fatalf("payload carries %q", forbidden)
+		}
+	}
+
+	encoded, err := json.Marshal(payload)
+	if err != nil {
+		t.Fatalf("encode payload: %v", err)
+	}
+	if strings.Contains(strings.ToLower(string(encoded)), "kata-sandi") {
+		t.Fatalf("payload %s carries the plaintext password", encoded)
+	}
+}
+
+// TestCreateAdminRefusesBeforeAnyWrite keeps every rule in the service: a refused
+// request reaches the database neither as an admin nor as a trail row.
+func TestCreateAdminRefusesBeforeAnyWrite(t *testing.T) {
+	cases := map[string]struct {
+		request *dto.CreateAdminRequest
+		want    error
+	}{
+		"role the matrix does not know": {
+			request: &dto.CreateAdminRequest{
+				Email:    "new@example.test",
+				Role:     "superuser",
+				Password: "kata-sandi-yang-cukup-panjang",
+			},
+			want: service.ErrRoleInvalid,
+		},
+		"empty role": {
+			request: &dto.CreateAdminRequest{
+				Email:    "new@example.test",
+				Password: "kata-sandi-yang-cukup-panjang",
+			},
+			want: service.ErrRoleInvalid,
+		},
+		"email without a domain": {
+			request: &dto.CreateAdminRequest{
+				Email:    "new@",
+				Role:     "support",
+				Password: "kata-sandi-yang-cukup-panjang",
+			},
+			want: service.ErrEmailInvalid,
+		},
+		"short password": {
+			request: &dto.CreateAdminRequest{
+				Email:    "new@example.test",
+				Role:     "support",
+				Password: "pendek",
+			},
+			want: service.ErrPasswordWeak,
+		},
+		"password longer than bcrypt accepts": {
+			request: &dto.CreateAdminRequest{
+				Email:    "new@example.test",
+				Role:     "support",
+				Password: strings.Repeat("a", 73),
+			},
+			want: service.ErrPasswordWeak,
+		},
+		"password is the email": {
+			request: &dto.CreateAdminRequest{
+				Email:    "new@example.test",
+				Role:     "support",
+				Password: "New@Example.test",
+			},
+			want: service.ErrPasswordWeak,
+		},
+	}
+
+	for name, testCase := range cases {
+		t.Run(name, func(t *testing.T) {
+			repo := &fakeRepository{}
+			svc := newService(repo, service.BootstrapSettings{})
+
+			if _, err := svc.CreateAdmin(context.Background(), panelOwner(), testCase.request); !errors.Is(err, testCase.want) {
+				t.Fatalf("error = %v, want %v", err, testCase.want)
+			}
+			if len(repo.written) != 0 || len(repo.entries) != 0 {
+				t.Fatalf("a refused write stored %d admins and %d audit rows, want none",
+					len(repo.written), len(repo.entries))
+			}
+		})
+	}
+}
+
+// TestCreateAdminNeedsItsActor refuses an unattributed write: a row with no actor
+// cannot answer the question the trail exists for.
+func TestCreateAdminNeedsItsActor(t *testing.T) {
+	repo := &fakeRepository{}
+	svc := newService(repo, service.BootstrapSettings{})
+
+	_, err := svc.CreateAdmin(context.Background(), audit.Actor{}, &dto.CreateAdminRequest{
+		Email:    "new@example.test",
+		Role:     "support",
+		Password: "kata-sandi-yang-cukup-panjang",
+	})
+	if !errors.Is(err, service.ErrActorRequired) {
+		t.Fatalf("error = %v, want ErrActorRequired", err)
+	}
+	if len(repo.written) != 0 || len(repo.entries) != 0 {
+		t.Fatal("an anonymous write must not reach the repository")
+	}
+}
+
+// TestCreateAdminReportsATakenEmailAsConflict is what the panel's 409 is built on:
+// the unique index answers, the service names it, and no second audit row appears.
+func TestCreateAdminReportsATakenEmailAsConflict(t *testing.T) {
+	repo := &fakeRepository{createErr: adminrepository.ErrDuplicateEmail}
+	svc := newService(repo, service.BootstrapSettings{})
+
+	_, err := svc.CreateAdmin(context.Background(), panelOwner(), &dto.CreateAdminRequest{
+		Email:    "taken@example.test",
+		Role:     "support",
+		Password: "kata-sandi-yang-cukup-panjang",
+	})
+	if !errors.Is(err, service.ErrEmailTaken) {
+		t.Fatalf("error = %v, want ErrEmailTaken", err)
+	}
+}
+
+// TestCreateAdminPropagatesRepositoryFailures keeps a database blip from looking
+// like a created admin.
+func TestCreateAdminPropagatesRepositoryFailures(t *testing.T) {
+	failure := errors.New("postgres is down")
+	repo := &fakeRepository{createErr: failure}
+	svc := newService(repo, service.BootstrapSettings{})
+
+	_, err := svc.CreateAdmin(context.Background(), panelOwner(), &dto.CreateAdminRequest{
+		Email:    "new@example.test",
+		Role:     "support",
+		Password: "kata-sandi-yang-cukup-panjang",
+	})
+	if !errors.Is(err, failure) {
+		t.Fatalf("error = %v, want the repository failure", err)
 	}
 }

@@ -9,6 +9,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"time"
+
+	"github.com/novriyantoAli/mikrotik-login-page/backend/internal/pkg/audit"
 )
 
 // Role is what an admin may do. The strings travel to the panel and into the
@@ -69,22 +71,10 @@ type Session struct {
 // TableName pins the plural snake_case table name.
 func (Session) TableName() string { return "admin_sessions" }
 
-// Action names one audited act. The strings are the vocabulary of the trail, so
-// they are stable: a report written today must still match rows written next year.
-type Action string
-
-// Every action the panel can leave behind (ADR 0027 §3).
-const (
-	ActionPackageCreate      Action = "package.create"
-	ActionPackageUpdate      Action = "package.update"
-	ActionPackageActivate    Action = "package.activate"
-	ActionPackageDeactivate  Action = "package.deactivate"
-	ActionPINReveal          Action = "pin.reveal"
-	ActionAdminCreate        Action = "admin.create"
-	ActionAdminUpdate        Action = "admin.update"
-	ActionAdminPasswordReset Action = "admin.password_reset"
-	ActionAdminDeactivate    Action = "admin.deactivate"
-)
+// Action names one audited act. The vocabulary lives in pkg/audit, so a domain
+// that records an action never has to import this one (ADR 0027 §1); this alias is
+// the same value under the name the persisted row uses.
+type Action = audit.Action
 
 // Payload is the small JSONB document an audit row carries: the before/after of
 // the catalog fields it changed, or the Transaction reference for a PIN reveal.
