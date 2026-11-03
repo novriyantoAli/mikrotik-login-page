@@ -168,30 +168,35 @@ type provisionTerms struct {
 
 // terms reads the snapshot, not the catalog, so an edit between payment and
 // provisioning cannot change what the buyer receives (ADR 0026). A snapshot that
-// predates the columns is tolerated for one deploy boundary: the catalog is read
-// and the fallback is logged, but the state is not supported (ADR 0026).
+// predates the columns is tolerated for one deploy boundary: only the missing
+// field is read from the catalog, and the fallback is logged. A frozen duration
+// is never overwritten because the rate limit alone is empty.
 func (p *provisioner) terms(ctx context.Context, row *entity.Transaction) (provisionTerms, error) {
-	if row.DurationMinutes > 0 && row.RateLimit != "" {
-		return provisionTerms{
-			duration:  time.Duration(row.DurationMinutes) * time.Minute,
-			rateLimit: row.RateLimit,
-		}, nil
+	duration := time.Duration(row.DurationMinutes) * time.Minute
+	rateLimit := row.RateLimit
+	if row.DurationMinutes > 0 && rateLimit != "" {
+		return provisionTerms{duration: duration, rateLimit: rateLimit}, nil
 	}
 
 	p.logger.Warn("provisioning snapshot missing; falling back to the catalog",
 		zap.String("event", EventSnapshotFallback),
 		zap.Uint("transaction_id", row.ID),
 		zap.Uint("package_id", row.PackageID),
+		zap.Bool("duration_missing", row.DurationMinutes <= 0),
+		zap.Bool("rate_limit_missing", rateLimit == ""),
 	)
 	pkg, err := p.catalog.GetPackage(ctx, row.PackageID)
 	if err != nil {
 		return provisionTerms{}, fmt.Errorf("read Package %d for a missing snapshot: %w",
 			row.PackageID, err)
 	}
-	return provisionTerms{
-		duration:  time.Duration(pkg.DurationMinutes) * time.Minute,
-		rateLimit: pkg.RateLimit,
-	}, nil
+	if row.DurationMinutes <= 0 {
+		duration = time.Duration(pkg.DurationMinutes) * time.Minute
+	}
+	if rateLimit == "" {
+		rateLimit = pkg.RateLimit
+	}
+	return provisionTerms{duration: duration, rateLimit: rateLimit}, nil
 }
 
 // ensurePlan stores the target Active Period end and the encrypted PIN exactly

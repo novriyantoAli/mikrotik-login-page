@@ -92,13 +92,19 @@ type Repository interface {
 	// plus the total number of rows, so Account Status can paginate its history
 	// (ADR 0017).
 	ListByPhone(ctx context.Context, phoneNumber string, params ListParams) ([]entity.Transaction, int64, error)
-	// PendingWithoutSnapshot returns the pending Transactions created before the
-	// catalog terms were stored on the row, so `migrate` can fill them once
-	// (ADR 0026).
-	PendingWithoutSnapshot(ctx context.Context) ([]SnapshotTarget, error)
-	// FillSnapshot writes the catalog terms onto a pending Transaction that still
-	// lacks them and reports whether this call wrote them. The state guard keeps a
-	// provisioned or settled row's history untouched.
+	// UnprovisionedWithoutSnapshot returns paid and pending Transactions created
+	// before the catalog terms were stored on the row, oldest first and after the
+	// given id, so `migrate` can fill them in bounded batches (ADR 0026). A
+	// provisioned row has no missing terms to fill: its effect is already in
+	// FreeRADIUS.
+	UnprovisionedWithoutSnapshot(
+		ctx context.Context, afterID uint, limit int,
+	) ([]SnapshotTarget, error)
+	// FillSnapshot writes the catalog terms that are still missing on a pending or
+	// paid Transaction and reports whether this call wrote them. Each column is
+	// filled only when absent, so a valid duration is never overwritten because the
+	// rate limit is empty. The state guard keeps a provisioned row's history
+	// untouched.
 	FillSnapshot(ctx context.Context, id uint, durationMinutes int, rateLimit string) (bool, error)
 	// ExpireOverdue moves every pending Transaction whose deadline has passed to
 	// expired and returns the rows it changed, so the caller can log one
@@ -369,19 +375,25 @@ func (r *transactionRepository) ListByPhone(
 	return rows, total, nil
 }
 
-func (r *transactionRepository) PendingWithoutSnapshot(
+func (r *transactionRepository) UnprovisionedWithoutSnapshot(
 	ctx context.Context,
+	afterID uint,
+	limit int,
 ) ([]SnapshotTarget, error) {
-	var targets []SnapshotTarget
-	err := r.db.WithContext(ctx).
+	query := r.db.WithContext(ctx).
 		Model(&entity.Transaction{}).
 		Select("id", "package_id").
-		Where("state = ? AND (duration_minutes = 0 OR rate_limit = '')", entity.StatePending).
-		Order("id").
-		Scan(&targets).Error
-	if err != nil {
-		r.logger.Error("read pending transactions without a catalog snapshot", zap.Error(err))
-		return nil, fmt.Errorf("read pending transactions without a catalog snapshot: %w", err)
+		Where("state IN (?, ?) AND id > ? AND (duration_minutes = 0 OR rate_limit = '')",
+			entity.StatePending, entity.StatePaid, afterID).
+		Order("id")
+	if limit > 0 {
+		query = query.Limit(limit)
+	}
+
+	var targets []SnapshotTarget
+	if err := query.Scan(&targets).Error; err != nil {
+		r.logger.Error("read transactions without a catalog snapshot", zap.Error(err))
+		return nil, fmt.Errorf("read transactions without a catalog snapshot: %w", err)
 	}
 	return targets, nil
 }
@@ -394,11 +406,13 @@ func (r *transactionRepository) FillSnapshot(
 ) (bool, error) {
 	result := r.db.WithContext(ctx).
 		Model(&entity.Transaction{}).
-		Where("id = ? AND state = ? AND (duration_minutes = 0 OR rate_limit = '')",
-			id, entity.StatePending).
+		Where("id = ? AND state IN (?, ?) AND (duration_minutes = 0 OR rate_limit = '')",
+			id, entity.StatePending, entity.StatePaid).
 		Updates(map[string]any{
-			"duration_minutes": durationMinutes,
-			"rate_limit":       rateLimit,
+			"duration_minutes": gorm.Expr(
+				"CASE WHEN duration_minutes = 0 THEN ? ELSE duration_minutes END", durationMinutes),
+			"rate_limit": gorm.Expr(
+				"CASE WHEN rate_limit = '' THEN ? ELSE rate_limit END", rateLimit),
 		})
 	if result.Error != nil {
 		r.logger.Error("fill transaction snapshot", zap.Uint("transaction_id", id), zap.Error(result.Error))

@@ -43,9 +43,10 @@ func NewMigrator(
 	return &Migrator{db: db, catalog: catalog, snapshots: snapshots, logger: logger}
 }
 
-// Up creates or updates every table the domains declare, then seeds the
-// Package catalog. Both steps are idempotent: running the command again
-// changes nothing and inserts no duplicate Package (ADR 0012).
+// Up creates or updates every table the domains declare, seeds the Package
+// catalog, then backfills the catalog snapshot on pending or paid Transactions
+// that predate it. Every step is idempotent: running the command again changes
+// nothing and inserts no duplicate Package (ADR 0012, ADR 0026).
 func (m *Migrator) Up(ctx context.Context) error {
 	if err := m.db.WithContext(ctx).AutoMigrate(migrations()...); err != nil {
 		m.logger.Error("apply schema", zap.Error(err))
@@ -59,7 +60,7 @@ func (m *Migrator) Up(ctx context.Context) error {
 	}
 
 	// Filled after the seed, so a catalog this deployment just created is what
-	// the pending rows copy from (ADR 0026).
+	// the pending and paid rows copy from (ADR 0026).
 	backfilled, err := m.snapshots.BackfillSnapshots(ctx)
 	if err != nil {
 		m.logger.Error("backfill transaction snapshots", zap.Error(err))

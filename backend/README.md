@@ -74,8 +74,9 @@ both are empty in a steady-state deployment.
 ## Deployment migration (ADR 0012)
 
 `migrate` applies the Postgres schema (`packages`, later the other tables from
-the PRD) and seeds the starter Package catalog, then exits. Deployment runs it
-as a one-shot compose service and the API waits for it
+the PRD), seeds the starter Package catalog, and backfills `duration_minutes` /
+`rate_limit` on pending or paid Transactions that predate those columns, then
+exits. Deployment runs it as a one-shot compose service and the API waits for it
 (`service_completed_successfully`); the API and worker never migrate
 themselves.
 
@@ -266,7 +267,7 @@ make deps            # go mod download + tidy
 make build           # bin/api + bin/worker + bin/migrate
 make run-api         # API on SERVER_HOST:SERVER_PORT
 make run-worker      # Asynq worker
-make run-migrate     # schema + Package seed, then exit (ADR 0012)
+make run-migrate     # schema + Package seed + snapshot backfill (ADR 0012/0026)
 make test            # unit + integration (real Postgres, real Redis)
 make test-unit       # internal/... only
 make test-integration# test/integration only

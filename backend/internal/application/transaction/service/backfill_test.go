@@ -8,10 +8,11 @@ import (
 	"github.com/novriyantoAli/mikrotik-login-page/backend/internal/application/transaction/entity"
 )
 
-// TestBackfillSnapshotsFillsOnlyPendingRows covers the deploy boundary in
-// ADR 0026: pending Transactions created before the columns existed copy the
-// catalog, while rows whose effect is already in FreeRADIUS keep their history.
-func TestBackfillSnapshotsFillsOnlyPendingRows(t *testing.T) {
+// TestBackfillSnapshotsFillsOnlyUnprovisionedRows covers the deploy boundary in
+// ADR 0026: pending and paid Transactions created before the columns existed copy
+// the catalog, while rows whose effect is already in FreeRADIUS keep their
+// history.
+func TestBackfillSnapshotsFillsOnlyUnprovisionedRows(t *testing.T) {
 	t.Parallel()
 
 	f := newFixture()
@@ -38,25 +39,28 @@ func TestBackfillSnapshotsFillsOnlyPendingRows(t *testing.T) {
 		ID: 7, Name: "Paket Mingguan", PriceIDR: 25000,
 		DurationMinutes: 5 * 24 * 60, RateLimit: "5M/5M",
 	}
+	f.catalog.getCalls = 0
 
 	filled, err := f.backfiller.BackfillSnapshots(ctx)
 	if err != nil {
 		t.Fatalf("BackfillSnapshots: %v", err)
 	}
-	if filled != 1 {
-		t.Fatalf("backfilled %d rows, want only the pending one", filled)
+	if filled != 2 {
+		t.Fatalf("backfilled %d rows, want the pending and paid rows", filled)
+	}
+	if f.catalog.getCalls != 1 {
+		t.Fatalf("read the catalog %d times, want once per Package", f.catalog.getCalls)
 	}
 
-	if f.repo.rows[0].DurationMinutes != 5*24*60 || f.repo.rows[0].RateLimit != "5M/5M" {
-		t.Fatalf("pending row snapshot = (%d, %q), want the catalog's (7200, 5M/5M)",
-			f.repo.rows[0].DurationMinutes, f.repo.rows[0].RateLimit)
-	}
-	for _, index := range []int{1, 2} {
-		if f.repo.rows[index].DurationMinutes != 0 || f.repo.rows[index].RateLimit != "" {
-			t.Fatalf("row %d (state %q) was rewritten: (%d, %q)",
-				index, f.repo.rows[index].State,
-				f.repo.rows[index].DurationMinutes, f.repo.rows[index].RateLimit)
+	for _, index := range []int{0, 1} {
+		if f.repo.rows[index].DurationMinutes != 5*24*60 || f.repo.rows[index].RateLimit != "5M/5M" {
+			t.Fatalf("row %d snapshot = (%d, %q), want the catalog's (7200, 5M/5M)",
+				index, f.repo.rows[index].DurationMinutes, f.repo.rows[index].RateLimit)
 		}
+	}
+	if f.repo.rows[2].DurationMinutes != 0 || f.repo.rows[2].RateLimit != "" {
+		t.Fatalf("provisioned row was rewritten: (%d, %q)",
+			f.repo.rows[2].DurationMinutes, f.repo.rows[2].RateLimit)
 	}
 
 	// A second deploy runs the same command and must change nothing.
@@ -69,9 +73,41 @@ func TestBackfillSnapshotsFillsOnlyPendingRows(t *testing.T) {
 	}
 }
 
-// TestBackfillSnapshotsSkipsAPendingRowWhosePackageIsGone keeps one orphan from
+// TestBackfillSnapshotsFillsOnlyTheMissingColumn proves a valid duration is not
+// overwritten just because the rate limit is empty.
+func TestBackfillSnapshotsFillsOnlyTheMissingColumn(t *testing.T) {
+	t.Parallel()
+
+	f := newFixture()
+	row := f.addPaid(t)
+	row.State = entity.StatePending
+	row.DurationMinutes = int(packageDuration.Minutes())
+	row.RateLimit = ""
+
+	f.catalog.packages[7] = packagesentity.Package{
+		ID: 7, Name: "Paket Mingguan", PriceIDR: 25000,
+		DurationMinutes: 2 * 24 * 60, RateLimit: "2M/2M",
+	}
+
+	filled, err := f.backfiller.BackfillSnapshots(context.Background())
+	if err != nil {
+		t.Fatalf("BackfillSnapshots: %v", err)
+	}
+	if filled != 1 {
+		t.Fatalf("backfilled %d rows, want 1", filled)
+	}
+	if f.repo.rows[0].DurationMinutes != int(packageDuration.Minutes()) {
+		t.Fatalf("duration = %d, want the frozen %d",
+			f.repo.rows[0].DurationMinutes, int(packageDuration.Minutes()))
+	}
+	if f.repo.rows[0].RateLimit != "2M/2M" {
+		t.Fatalf("rate limit = %q, want the catalog's missing column", f.repo.rows[0].RateLimit)
+	}
+}
+
+// TestBackfillSnapshotsSkipsARowWhosePackageIsGone keeps one orphan from
 // blocking a deploy: the row is logged and left alone, never invented.
-func TestBackfillSnapshotsSkipsAPendingRowWhosePackageIsGone(t *testing.T) {
+func TestBackfillSnapshotsSkipsARowWhosePackageIsGone(t *testing.T) {
 	t.Parallel()
 
 	f := newFixture()

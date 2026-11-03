@@ -315,16 +315,22 @@ func (r *fakeRepository) ListByPhone(
 	return matched[start:end], total, nil
 }
 
-func (r *fakeRepository) PendingWithoutSnapshot(
+func (r *fakeRepository) UnprovisionedWithoutSnapshot(
 	_ context.Context,
+	afterID uint,
+	limit int,
 ) ([]repository.SnapshotTarget, error) {
 	targets := make([]repository.SnapshotTarget, 0, len(r.rows))
 	for index := range r.rows {
 		row := r.rows[index]
-		if row.State != entity.StatePending || (row.DurationMinutes > 0 && row.RateLimit != "") {
+		if row.ID <= afterID || (row.State != entity.StatePending && row.State != entity.StatePaid) ||
+			(row.DurationMinutes > 0 && row.RateLimit != "") {
 			continue
 		}
 		targets = append(targets, repository.SnapshotTarget{ID: row.ID, PackageID: row.PackageID})
+		if limit > 0 && len(targets) == limit {
+			break
+		}
 	}
 	return targets, nil
 }
@@ -337,12 +343,16 @@ func (r *fakeRepository) FillSnapshot(
 ) (bool, error) {
 	for index := range r.rows {
 		row := &r.rows[index]
-		if row.ID != id || row.State != entity.StatePending ||
+		if row.ID != id || (row.State != entity.StatePending && row.State != entity.StatePaid) ||
 			(row.DurationMinutes > 0 && row.RateLimit != "") {
 			continue
 		}
-		row.DurationMinutes = durationMinutes
-		row.RateLimit = rateLimit
+		if row.DurationMinutes == 0 {
+			row.DurationMinutes = durationMinutes
+		}
+		if row.RateLimit == "" {
+			row.RateLimit = rateLimit
+		}
 		return true, nil
 	}
 	return false, nil
@@ -632,6 +642,15 @@ func TestCreate_SnapshotsTheTypedPackagePrice(t *testing.T) {
 	want := "GW-" + f.repo.rows[0].Reference
 	if got := f.repo.rows[0].GatewayReference; got != want {
 		t.Fatalf("gateway reference = %q, want the vendor's own id %q", got, want)
+	}
+
+	// The terms the buyer paid for are frozen in the same row, not re-read at
+	// provisioning time (ADR 0026).
+	if got := f.repo.rows[0].DurationMinutes; got != 10080 {
+		t.Fatalf("duration snapshot = %d, want the Package's 10080 minutes", got)
+	}
+	if got := f.repo.rows[0].RateLimit; got != "10M/10M" {
+		t.Fatalf("rate limit snapshot = %q, want the Package's 10M/10M", got)
 	}
 }
 

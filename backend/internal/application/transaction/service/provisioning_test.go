@@ -199,6 +199,37 @@ func TestProvision_EmptySnapshotFallsBackToTheCatalogAndWarns(t *testing.T) {
 	}
 }
 
+// TestProvision_PartialSnapshotKeepsTheFrozenDuration covers the per-field
+// fallback: an empty rate limit must not discard a duration that was already
+// recorded at checkout.
+func TestProvision_PartialSnapshotKeepsTheFrozenDuration(t *testing.T) {
+	t.Parallel()
+
+	f, logs := observedFixture(t)
+	paidAt := f.clock.now
+	row := f.addPaid(t)
+	f.repo.rows[0].RateLimit = ""
+	f.catalog.packages[7] = packagesentity.Package{
+		ID: 7, Name: "Paket Mingguan", PriceIDR: 25000,
+		DurationMinutes: 2 * 24 * 60, RateLimit: "2M/2M",
+	}
+
+	if err := f.provisioner.Provision(context.Background(), row.ID); err != nil {
+		t.Fatalf("Provision: %v", err)
+	}
+
+	account := f.writer.accounts[0]
+	if want := paidAt.Add(packageDuration); !account.Expiration.Equal(want) {
+		t.Fatalf("expiration = %s, want the frozen duration (%s)", account.Expiration, want)
+	}
+	if account.RateLimit != "2M/2M" {
+		t.Fatalf("rate limit = %q, want the catalog's missing column", account.RateLimit)
+	}
+	if matched := entriesFor(logs, service.EventSnapshotFallback); len(matched) != 1 {
+		t.Fatalf("snapshot fallback logged %d times, want exactly 1", len(matched))
+	}
+}
+
 func TestProvision_ExtendAddsToTheRunningActivePeriod(t *testing.T) {
 	t.Parallel()
 

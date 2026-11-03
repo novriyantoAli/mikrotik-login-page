@@ -74,10 +74,11 @@ func TestProvisioningUsesTheSnapshotFromCheckoutWhenTheCatalogChanges(t *testing
 	}
 }
 
-// TestMigrateBackfillsPendingSnapshotsWithoutTouchingProvisionedRows proves the
-// one-shot backfill: rows that predate the columns are filled from the catalog
-// while they are still pending, and a provisioned row's history is left alone.
-func TestMigrateBackfillsPendingSnapshotsWithoutTouchingProvisionedRows(t *testing.T) {
+// TestMigrateBackfillsUnprovisionedSnapshotsWithoutTouchingProvisionedRows proves
+// the one-shot backfill on the real upgrade path: rows that predate the columns
+// (simulated by dropping them) are filled from the catalog while pending or paid,
+// and a provisioned row's history is left alone.
+func TestMigrateBackfillsUnprovisionedSnapshotsWithoutTouchingProvisionedRows(t *testing.T) {
 	harness := testutil.NewAPIHarness(t)
 	ctx := context.Background()
 	repo := repository.NewRepository(harness.Postgres, zap.NewNop())
@@ -93,21 +94,36 @@ func TestMigrateBackfillsPendingSnapshotsWithoutTouchingProvisionedRows(t *testi
 	if err := repo.Create(ctx, pending); err != nil {
 		t.Fatalf("create the pending Transaction: %v", err)
 	}
-	provisioned := newTransaction("TRX-SNAPSHOT-PROVISIONED", "6281300000202", packageID,
+	paid := newTransaction("TRX-SNAPSHOT-PAID", "6281300000202", packageID,
+		transactionentity.StatePaid)
+	if err := repo.Create(ctx, paid); err != nil {
+		t.Fatalf("create the paid Transaction: %v", err)
+	}
+	provisioned := newTransaction("TRX-SNAPSHOT-PROVISIONED", "6281300000203", packageID,
 		transactionentity.StateProvisioned)
 	if err := repo.Create(ctx, provisioned); err != nil {
 		t.Fatalf("create the provisioned Transaction: %v", err)
 	}
 
+	// Rewind the schema to the deploy boundary this migration exists for: the
+	// columns are gone and the rows above were written before they existed.
+	if err := harness.Postgres.Exec(
+		"ALTER TABLE transactions DROP COLUMN duration_minutes, DROP COLUMN rate_limit",
+	).Error; err != nil {
+		t.Fatalf("drop the snapshot columns: %v", err)
+	}
+
 	harness.Migrate(t)
 
-	var filled transactionentity.Transaction
-	if err := harness.Postgres.Where("id = ?", pending.ID).First(&filled).Error; err != nil {
-		t.Fatalf("read the backfilled Transaction: %v", err)
-	}
-	if filled.DurationMinutes != pkg.DurationMinutes || filled.RateLimit != pkg.RateLimit {
-		t.Fatalf("pending snapshot = (%d, %q), want the catalog's (%d, %q)",
-			filled.DurationMinutes, filled.RateLimit, pkg.DurationMinutes, pkg.RateLimit)
+	for name, id := range map[string]uint{"pending": pending.ID, "paid": paid.ID} {
+		var filled transactionentity.Transaction
+		if err := harness.Postgres.Where("id = ?", id).First(&filled).Error; err != nil {
+			t.Fatalf("read the %s Transaction: %v", name, err)
+		}
+		if filled.DurationMinutes != pkg.DurationMinutes || filled.RateLimit != pkg.RateLimit {
+			t.Fatalf("%s snapshot = (%d, %q), want the catalog's (%d, %q)",
+				name, filled.DurationMinutes, filled.RateLimit, pkg.DurationMinutes, pkg.RateLimit)
+		}
 	}
 
 	var untouched transactionentity.Transaction
@@ -129,5 +145,40 @@ func TestMigrateBackfillsPendingSnapshotsWithoutTouchingProvisionedRows(t *testi
 	if again.DurationMinutes != pkg.DurationMinutes || again.RateLimit != pkg.RateLimit {
 		t.Fatalf("second migration changed the snapshot: (%d, %q)",
 			again.DurationMinutes, again.RateLimit)
+	}
+}
+
+// TestMigrateBackfillPreservesAnAlreadyFrozenDuration pins the per-column fill:
+// an empty rate limit is filled from the catalog without overwriting a duration
+// that checkout already recorded.
+func TestMigrateBackfillPreservesAnAlreadyFrozenDuration(t *testing.T) {
+	harness := testutil.NewAPIHarness(t)
+	ctx := context.Background()
+	repo := repository.NewRepository(harness.Postgres, zap.NewNop())
+
+	packageID := firstPackageID(t, harness)
+	var pkg packagesentity.Package
+	if err := harness.Postgres.Where("id = ?", packageID).First(&pkg).Error; err != nil {
+		t.Fatalf("read the Package: %v", err)
+	}
+
+	row := newTransaction("TRX-SNAPSHOT-PARTIAL", "6281300000204", packageID,
+		transactionentity.StatePending)
+	row.DurationMinutes = 60
+	if err := repo.Create(ctx, row); err != nil {
+		t.Fatalf("create the partially snapshotted Transaction: %v", err)
+	}
+
+	harness.Migrate(t)
+
+	var filled transactionentity.Transaction
+	if err := harness.Postgres.Where("id = ?", row.ID).First(&filled).Error; err != nil {
+		t.Fatalf("read the backfilled Transaction: %v", err)
+	}
+	if filled.DurationMinutes != 60 {
+		t.Fatalf("duration = %d, want the already frozen 60", filled.DurationMinutes)
+	}
+	if filled.RateLimit != pkg.RateLimit {
+		t.Fatalf("rate limit = %q, want the catalog's %q", filled.RateLimit, pkg.RateLimit)
 	}
 }
