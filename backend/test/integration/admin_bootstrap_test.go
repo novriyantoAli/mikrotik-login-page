@@ -14,6 +14,7 @@ import (
 	adminrepository "github.com/novriyantoAli/mikrotik-login-page/backend/internal/application/admin/repository"
 	adminservice "github.com/novriyantoAli/mikrotik-login-page/backend/internal/application/admin/service"
 	packagesentity "github.com/novriyantoAli/mikrotik-login-page/backend/internal/application/packages/entity"
+	"github.com/novriyantoAli/mikrotik-login-page/backend/internal/pkg/audit"
 	"github.com/novriyantoAli/mikrotik-login-page/backend/internal/pkg/testutil"
 )
 
@@ -73,7 +74,7 @@ func TestAdminSchemaAndOwnerSeed(t *testing.T) {
 	} {
 		t.Run(name, func(t *testing.T) {
 			bootstrap := adminservice.NewService(
-				adminrepository.NewRepository(harness.Postgres, zap.NewNop()),
+				adminrepository.NewRepository(harness.Postgres, adminrepository.NewAuditRecorder(zap.NewNop()), zap.NewNop()),
 				settings,
 				zap.NewNop(),
 			)
@@ -198,7 +199,7 @@ func TestAuditLogStoresAndReadsItsPayload(t *testing.T) {
 	entry := entity.AuditEntry{
 		AdminID:    owner.ID,
 		AdminEmail: owner.Email,
-		Action:     entity.ActionPackageUpdate,
+		Action:     audit.ActionPackageUpdate,
 		TargetType: "package",
 		TargetID:   "7",
 		Payload: entity.Payload{
@@ -215,8 +216,8 @@ func TestAuditLogStoresAndReadsItsPayload(t *testing.T) {
 	if err := harness.Postgres.First(&stored, entry.ID).Error; err != nil {
 		t.Fatalf("read audit row: %v", err)
 	}
-	if stored.Action != entity.ActionPackageUpdate {
-		t.Fatalf("action = %q, want %q", stored.Action, entity.ActionPackageUpdate)
+	if stored.Action != audit.ActionPackageUpdate {
+		t.Fatalf("action = %q, want %q", stored.Action, audit.ActionPackageUpdate)
 	}
 	if stored.AdminEmail != owner.Email {
 		t.Fatalf("admin email = %q, want the copied %q", stored.AdminEmail, owner.Email)

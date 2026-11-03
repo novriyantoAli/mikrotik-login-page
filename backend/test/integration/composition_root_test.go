@@ -7,6 +7,8 @@ import (
 	"go.uber.org/fx"
 
 	fxapp "github.com/novriyantoAli/mikrotik-login-page/backend/internal/app"
+	packagesrepository "github.com/novriyantoAli/mikrotik-login-page/backend/internal/application/packages/repository"
+	transactionrepository "github.com/novriyantoAli/mikrotik-login-page/backend/internal/application/transaction/repository"
 	transactionservice "github.com/novriyantoAli/mikrotik-login-page/backend/internal/application/transaction/service"
 	servermigration "github.com/novriyantoAli/mikrotik-login-page/backend/internal/server/migration"
 )
@@ -19,7 +21,9 @@ import (
 // fx.ValidateApp walks the graph without running constructors or lifecycle hooks,
 // so no Postgres, Redis or modem is touched; the invoke names the three sweeps
 // the worker exists to run, because a dry run only checks what something asks
-// for.
+// for. The audit ports are named too: the worker builds the catalog domain without
+// building the admin domain, so a port the composition root forgot would only
+// surface when the container starts (ADR 0027 §1).
 func TestWorkerGraphResolves(t *testing.T) {
 	t.Parallel()
 
@@ -30,6 +34,8 @@ func TestWorkerGraphResolves(t *testing.T) {
 			_ transactionservice.Expiry,
 			_ transactionservice.Provisioner,
 			_ transactionservice.Reconciler,
+			_ packagesrepository.AuditRecorder,
+			_ transactionrepository.AuditRecorder,
 		) {
 		}),
 	)

@@ -22,10 +22,13 @@ the hardening slice of ADR 0018). No slice of either PRD remains unstarted.
 The **Admin Panel** — managing the Package catalog, listing Transactions, and
 listing active hotspot users — is the only remaining area. It now has a PRD and
 the five ADRs it needed (0024–0028), split into two slices and in progress:
-[`docs/prd/admin-panel.md`](docs/prd/admin-panel.md). Slice 1 has landed its
+[`docs/prd/admin-panel.md`](docs/prd/admin-panel.md). Slice 1 has landed part of its
 foundation — the `admins`/`admin_sessions`/`admin_audit_log` tables, the first
-owner seeded by `migrate`, and `packages.is_active`/`version` — but the catalog
-write endpoints and the panel itself are still to come, so the catalog still
+owner seeded by `migrate`, `packages.is_active`/`version`, and the domain's first
+audited write: creating an admin, which appends its trail row inside the same
+database transaction (ADR 0027) through a port the domains that record actions
+declare for themselves. The admin HTTP surface — login, roles, and the catalog
+write endpoints — and the panel itself are still to come, so the catalog still
 starts from the deployment seed. Retirement is now representable in the schema
 (`packages.is_active`), so once the catalog write endpoints land a Package will be
 retired rather than deleted and will no longer come back on the next deploy

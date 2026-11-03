@@ -13,8 +13,10 @@ import (
 	"go.uber.org/zap"
 	"golang.org/x/crypto/bcrypt"
 
+	"github.com/novriyantoAli/mikrotik-login-page/backend/internal/application/admin/dto"
 	"github.com/novriyantoAli/mikrotik-login-page/backend/internal/application/admin/entity"
 	"github.com/novriyantoAli/mikrotik-login-page/backend/internal/application/admin/repository"
+	"github.com/novriyantoAli/mikrotik-login-page/backend/internal/pkg/audit"
 )
 
 // PasswordCost is the bcrypt cost every admin password is hashed with (ADR
@@ -52,6 +54,22 @@ var (
 	ErrBootstrapEmailInvalid = errors.New("ADMIN_EMAIL is not an email address")
 	// ErrBootstrapPasswordWeak means ADMIN_PASSWORD breaks the panel's own rule.
 	ErrBootstrapPasswordWeak = errors.New("ADMIN_PASSWORD does not satisfy the admin password rule")
+
+	// ErrEmailTaken means another admin already holds the address; the transport
+	// answers 409, never both "taken" and "invalid".
+	ErrEmailTaken = errors.New("admin email is already in use")
+	// ErrEmailInvalid means the submitted address is not an address; the bootstrap
+	// has its own sentinel because its message must name ADMIN_EMAIL.
+	ErrEmailInvalid = errors.New("admin email is not an email address")
+	// ErrRoleInvalid means the submitted role is not one of the three the
+	// permission matrix knows (ADR 0024 §3).
+	ErrRoleInvalid = errors.New("admin role is not one of owner, support, auditor")
+	// ErrPasswordWeak means the submitted password breaks the panel's own rule.
+	ErrPasswordWeak = errors.New("password does not satisfy the admin password rule")
+	// ErrActorRequired means a write arrived without the admin who performed it.
+	// Refusing is the point: an audited action with no actor is a trail row that
+	// cannot answer the question it exists for (ADR 0027 §3).
+	ErrActorRequired = errors.New("an audited action needs its actor")
 )
 
 // Service is the admin domain's public surface.
@@ -61,6 +79,10 @@ type Service interface {
 	// ignored completely: no password is reset, and an incomplete or invalid pair
 	// is not an error either.
 	BootstrapOwner(ctx context.Context) (int64, error)
+	// CreateAdmin adds one panel actor and leaves exactly one trail row for it,
+	// in the same database transaction (ADR 0027 §2). The actor is the owner who
+	// performed the write, never the admin being created.
+	CreateAdmin(ctx context.Context, actor audit.Actor, request *dto.CreateAdminRequest) (*dto.AdminResponse, error)
 }
 
 type service struct {
@@ -135,6 +157,94 @@ func (s *service) ownerFromSettings() (*entity.Admin, error) {
 		Role:         entity.RoleOwner,
 		IsActive:     true,
 	}, nil
+}
+
+// CreateAdmin adds one panel actor and leaves one trail row for it. The rules are
+// enforced here rather than only in the form: the panel is one caller of the
+// service, and a rule the next transport forgets is a rule the audit row would be
+// the only witness of.
+func (s *service) CreateAdmin(
+	ctx context.Context,
+	actor audit.Actor,
+	request *dto.CreateAdminRequest,
+) (*dto.AdminResponse, error) {
+	if actor.ID == 0 || strings.TrimSpace(actor.Email) == "" {
+		return nil, ErrActorRequired
+	}
+
+	role, err := parseRole(request.Role)
+	if err != nil {
+		return nil, err
+	}
+
+	email, err := canonicalEmail(request.Email)
+	if err != nil {
+		return nil, fmt.Errorf("%w: %v", ErrEmailInvalid, err)
+	}
+	if err := checkPassword(email, request.Password); err != nil {
+		return nil, fmt.Errorf("%w: %v", ErrPasswordWeak, err)
+	}
+
+	hash, err := bcrypt.GenerateFromPassword([]byte(request.Password), PasswordCost)
+	if err != nil {
+		s.logger.Error("hash admin password", zap.Error(err))
+		return nil, fmt.Errorf("hash admin password: %w", err)
+	}
+
+	admin := &entity.Admin{
+		Email:        email,
+		PasswordHash: string(hash),
+		Role:         role,
+		IsActive:     true,
+	}
+	// The payload is the after state of the fields an owner chose, never the
+	// credential: a trail that holds a hash is a trail that leaks one (ADR 0027 §4).
+	entry := audit.Entry{
+		Actor:      actor,
+		Action:     audit.ActionAdminCreate,
+		TargetType: audit.TargetAdmin,
+		Payload:    map[string]any{"email": email, "role": string(role), "is_active": true},
+	}
+
+	if err := s.repo.CreateAdmin(ctx, admin, entry); err != nil {
+		if errors.Is(err, repository.ErrDuplicateEmail) {
+			return nil, fmt.Errorf("%w: %s", ErrEmailTaken, email)
+		}
+		// The repository already logged the statement it saw fail; logging it again
+		// here would report one failure twice.
+		return nil, err
+	}
+
+	s.logger.Info("admin created",
+		zap.Uint("admin_id", admin.ID),
+		zap.String("email", admin.Email),
+		zap.String("role", string(admin.Role)),
+		zap.String("actor", actor.Email),
+	)
+	return adminToResponse(*admin), nil
+}
+
+// parseRole accepts only the three roles the permission matrix knows (ADR 0024
+// §3); anything else would become a fourth role the middleware does not know.
+func parseRole(raw string) (entity.Role, error) {
+	role := entity.Role(strings.ToLower(strings.TrimSpace(raw)))
+	switch role {
+	case entity.RoleOwner, entity.RoleSupport, entity.RoleAuditor:
+		return role, nil
+	default:
+		return "", fmt.Errorf("%w: %q", ErrRoleInvalid, raw)
+	}
+}
+
+// adminToResponse maps the entity onto the panel's shape.
+func adminToResponse(admin entity.Admin) *dto.AdminResponse {
+	return &dto.AdminResponse{
+		ID:        admin.ID,
+		Email:     admin.Email,
+		Role:      string(admin.Role),
+		IsActive:  admin.IsActive,
+		CreatedAt: admin.CreatedAt,
+	}
 }
 
 // canonicalEmail trims and lowercases an address, then rejects anything that

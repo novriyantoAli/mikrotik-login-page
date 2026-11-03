@@ -88,6 +88,7 @@ func RouterWithBase(base fx.Option, extra ...fx.Option) fx.Option {
 func routerWithBase(base fx.Option, extra ...fx.Option) fx.Option {
 	return fx.Options(
 		base,
+		auditBindings(),
 		database.Module(),
 		health.Module(),
 		packages.Module(),
@@ -110,6 +111,7 @@ func routerWithBase(base fx.Option, extra ...fx.Option) fx.Option {
 func Migrate(extra ...fx.Option) fx.Option {
 	return fx.Options(
 		Core(),
+		auditBindings(),
 		database.PostgresModule(),
 		packages.Module(),
 		admin.Module(),
@@ -132,6 +134,7 @@ func Worker(extra ...fx.Option) fx.Option {
 func WorkerWithBase(base fx.Option, extra ...fx.Option) fx.Option {
 	return fx.Options(
 		base,
+		auditBindings(),
 		database.RedisModule(),
 		database.PostgresModule(),
 		// Provisioning writes FreeRADIUS from this process, so the worker owns the
