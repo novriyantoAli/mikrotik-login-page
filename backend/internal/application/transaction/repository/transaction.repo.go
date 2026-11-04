@@ -262,8 +262,8 @@ func (r *transactionRepository) WithTx(
 	ctx context.Context,
 	fn func(context.Context, database.Tx) error,
 ) error {
-	err := r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		return fn(ctx, database.NewTx(tx))
+	err := database.WithinTx(ctx, r.db, func(tx database.Tx) error {
+		return fn(ctx, tx)
 	})
 	if err != nil {
 		// The caller that composed the transaction reports it: logging here would

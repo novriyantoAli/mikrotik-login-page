@@ -143,7 +143,7 @@ Menambah **Admin Panel** ke monorepo sebagai aktor dan permukaan tersendiri:
 ### Audit (ADR 0027)
 
 - Tabel `admin_audit_log` append-only: `id`, `created_at`, `admin_id` + `admin_email` (disalin, supaya baris tetap terbaca bila admin dihapus), `action` (`package.create`|`package.update`|`package.activate`|`package.deactivate`|`pin.reveal`|`admin.create`|`admin.update`|`admin.password_reset`|`admin.deactivate`), `target_type`, `target_id`, `payload` (JSONB kecil: nilai sebelum/sesudah untuk field katalog), `ip`.
-- Ditulis lewat port `AuditRecorder` yang didefinisikan domain pemilik aksi (`packages`, `transaction`) dan diimplementasikan adaptor di domain `admin` — bentuk yang sama dengan preseden `eventbus.Publisher` (skill backend §8.3). Insert berjalan **di dalam transaksi DB yang sama** dengan perubahan.
+- Ditulis lewat port `audit.Recorder` di `internal/pkg/audit` dan diimplementasikan adaptor di domain `admin` — bentuk yang sama dengan preseden `eventbus.Publisher` (skill backend §8.3); domain pemakai tidak mengimpor `admin`. Insert berjalan **di dalam transaksi DB yang sama** dengan perubahan, lewat `database.WithinTx` yang menjadi satu-satunya pembuat handle transaksi.
 - Tidak ada endpoint ubah/hapus. Retensi/rotasi di luar v1.
 
 ### Daftar Transaction dan buka PIN
@@ -211,7 +211,7 @@ Menambah **Admin Panel** ke monorepo sebagai aktor dan permukaan tersendiri:
 
 ### Slice 1 — Panel bisa dipakai, katalog bisa diubah tanpa SQL
 
-1. Domain `admin`: entity/repo/service akun, sesi, audit; port `AuditRecorder`; middleware sesi + peran.
+1. Domain `admin`: entity/repo/service akun, sesi, audit; port `audit.Recorder` bersama di `internal/pkg/audit`; middleware sesi + peran.
 2. `migrate` men-seed owner pertama (gagal keras bila kosong & env kosong) + kolom `is_active`/`version` di `packages`, kolom snapshot di `transactions`, backfill baris pending.
 3. Endpoint auth admin: login, logout, session, ubah password; rate limit; cookie terpisah.
 4. `packages.Service` tulis (`CreatePackage`, `UpdatePackage`, `SetActive`) + validasi + `version` + audit; katalog publik menyaring `is_active`.

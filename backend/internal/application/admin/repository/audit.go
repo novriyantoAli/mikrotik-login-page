@@ -7,12 +7,10 @@ package repository
 
 import (
 	"context"
-	"database/sql"
 	"errors"
 	"fmt"
 
 	"go.uber.org/zap"
-	"gorm.io/gorm"
 
 	"github.com/novriyantoAli/mikrotik-login-page/backend/internal/application/admin/entity"
 	"github.com/novriyantoAli/mikrotik-login-page/backend/internal/pkg/audit"
@@ -23,12 +21,15 @@ import (
 // in a transaction. It is a refusal, not a warning: an entry that commits on its
 // own can survive a rolled-back change, which is exactly the "change with no
 // witness, or witness with no change" pair the trail must never contain.
+//
+// The check is a nil handle, not a runtime type assertion: database.WithinTx is
+// the only way to build a non-zero database.Tx, so a handle that exists is a
+// transaction (ADR 0027 §2).
 var ErrAuditWithoutTransaction = errors.New("audit entry needs the caller's transaction")
 
-// AuditRecorder appends one row per privileged action. Other domains declare the
-// small port they need in their own package (see packages/repository and
-// transaction/repository); this type satisfies those ports and is bound to them
-// by the composition root, so nothing in the graph imports admin to record.
+// AuditRecorder appends one row per privileged action. It satisfies audit.Recorder,
+// the one interface every recording domain depends on, and is bound to it by the
+// composition root, so nothing in the graph imports admin to record.
 type AuditRecorder struct {
 	logger *zap.Logger
 }
@@ -42,7 +43,7 @@ func NewAuditRecorder(logger *zap.Logger) *AuditRecorder {
 // Record appends exactly one trail row inside the caller's transaction.
 func (r *AuditRecorder) Record(ctx context.Context, tx database.Tx, entry audit.Entry) error {
 	handle := tx.DB()
-	if !insideTransaction(handle) {
+	if handle == nil {
 		return ErrAuditWithoutTransaction
 	}
 
@@ -57,19 +58,6 @@ func (r *AuditRecorder) Record(ctx context.Context, tx database.Tx, entry audit.
 		return fmt.Errorf("append audit row %q: %w", entry.Action, err)
 	}
 	return nil
-}
-
-// insideTransaction reports whether the handle is a live transaction rather than
-// the connection pool. A pool handle would make the insert commit on its own, so it
-// is refused too: checking only "not nil" would let the one failure this type exists
-// to prevent through a different door. GORM keeps the executing connection in the
-// statement, and it is a *sql.Tx only between Begin and Commit.
-func insideTransaction(handle *gorm.DB) bool {
-	if handle == nil || handle.Statement == nil {
-		return false
-	}
-	_, ok := handle.Statement.ConnPool.(*sql.Tx)
-	return ok
 }
 
 // rowFromAudit maps the shared fact onto the persisted row. The actor's email and

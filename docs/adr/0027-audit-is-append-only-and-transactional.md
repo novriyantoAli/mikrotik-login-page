@@ -15,24 +15,38 @@ admins, which is backwards.
 
 ## Decision
 
-**1. Audit is a port, not a dependency on `admin`.** `packages` (and the
-`transaction` PIN path) declare a small interface in their own package:
+**1. Audit is a port, not a dependency on `admin`.** The interface lives in
+`internal/pkg/audit`, beside the vocabulary, and every domain depends on that one
+declaration:
 
 ```go
-// AuditRecorder is what a domain depends on to leave a trail for a privileged
-// action. The admin domain implements it; nothing here imports admin.
-type AuditRecorder interface {
-    Record(ctx context.Context, entry AuditEntry) error
+// Recorder is what a domain depends on to leave a trail for a privileged action.
+// The admin domain implements it; nothing here imports admin.
+type Recorder interface {
+    Record(ctx context.Context, tx database.Tx, entry Entry) error
 }
 ```
 
 The adapter lives in `admin` and is injected by Fx — the same inversion the
 repo already uses for `eventbus.Publisher` (backend skill §8.3).
 
+**Amendment (2026-11-04, after the Admin Panel's identity slice landed):** this
+section originally had each consumer declare its own copy of the interface
+(`packages/repository/audit.go`, `transaction/repository/audit.go`). Two identical
+declarations and a composition root returning a tuple of them meant a third
+consumer (#32) would add a third copy. The interface now lives in
+`internal/pkg/audit` and is bound once; the reason this section exists is
+unchanged — no domain imports `admin`, and `admin` imports no domain. It also
+gains the caller's transaction in its signature, and `database.WithinTx` is now
+the only way to build a `database.Tx`, so §2's "inside the caller's transaction"
+is a property of the type rather than a runtime check.
+
 **2. The insert happens inside the caller's database transaction.** The
-repository that mutates the row takes the `AuditRecorder` (or is handed a
+repository that mutates the row takes the `Recorder` (or is handed a
 transactional handle) so the catalog UPDATE and the audit INSERT commit or roll
-back together. A write that succeeds without its row is not representable.
+back together. A write that succeeds without its row is not representable, and
+since `WithinTx` is the only constructor of a non-zero `Tx`, a pool handle cannot
+be mistaken for one.
 
 **3. The table is append-only.** `admin_audit_log`:
 
