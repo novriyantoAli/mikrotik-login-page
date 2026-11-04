@@ -12,6 +12,12 @@ _Avoid_: Voucher, internet product
 The internet access duration purchased by the user, computed from the expiration attribute.
 _Avoid_: Time quota, validity, masa aktif
 
+**Catalog Terms**:
+The package name, price, duration and rate limit frozen on a Transaction at
+checkout, so a later catalog edit cannot change what a buyer already paid for.
+Provisioning reads them from the Transaction, never from the catalog.
+_Avoid_: current price, package snapshot
+
 **Phone Number**:
 The user's phone number; used as the account identity in the app and as the FreeRADIUS username. It is the only customer identity the backend stores — there is no separate customer or account record, so Transactions, Magic Links, and the RADIUS account are all keyed by it.
 _Avoid_: Username, MSISDN, customer, member

@@ -14,6 +14,7 @@ import (
 	"github.com/novriyantoAli/mikrotik-login-page/backend/internal/application/payment"
 	"github.com/novriyantoAli/mikrotik-login-page/backend/internal/application/transaction/dto"
 	transactionentity "github.com/novriyantoAli/mikrotik-login-page/backend/internal/application/transaction/entity"
+	transactionservice "github.com/novriyantoAli/mikrotik-login-page/backend/internal/application/transaction/service"
 	"github.com/novriyantoAli/mikrotik-login-page/backend/internal/pkg/testutil"
 )
 
@@ -419,5 +420,43 @@ func TestProvisioning_AttemptsAreCountedOnTheRow(t *testing.T) {
 	if succeeded.ProvisionAttempts != 2 || succeeded.State != transactionentity.StateProvisioned {
 		t.Fatalf("after the retry: attempts = %d, state = %q; want 2, provisioned",
 			succeeded.ProvisionAttempts, succeeded.State)
+	}
+}
+
+// TestProvisioning_RefusesAPaidTransactionWithoutCatalogTerms is ADR 0026 §5 at
+// the process boundary: the fallback is gone, so a row with no snapshot is
+// refused loudly and nothing reaches FreeRADIUS or the modem. It also proves the
+// refusal is not a state change — the row stays paid for the next sweep and for
+// an operator to inspect.
+func TestProvisioning_RefusesAPaidTransactionWithoutCatalogTerms(t *testing.T) {
+	harness, _, created := paidCheckout(t, "081200000094", "198.51.100.94")
+	ctx := context.Background()
+
+	if err := harness.Postgres.Model(&transactionentity.Transaction{}).
+		Where("id = ?", created.ID).
+		Updates(map[string]any{"duration_minutes": 0, "rate_limit": ""}).Error; err != nil {
+		t.Fatalf("strip the Transaction snapshot: %v", err)
+	}
+
+	err := harness.TransactionProvisioning.Provision(ctx, created.ID)
+	if !errors.Is(err, transactionservice.ErrSnapshotMissing) {
+		t.Fatalf("Provision error = %v, want ErrSnapshotMissing", err)
+	}
+	if accounts := harness.Doubles.Radius.Accounts(); len(accounts) != 0 {
+		t.Fatalf("writer applied %d accounts, want none", len(accounts))
+	}
+	if sent := harness.Doubles.SMS.Messages(); len(sent) != 0 {
+		t.Fatalf("outbox queued %d SMS, want none", len(sent))
+	}
+
+	var row transactionentity.Transaction
+	if err := harness.Postgres.First(&row, created.ID).Error; err != nil {
+		t.Fatalf("read Transaction: %v", err)
+	}
+	if row.State != transactionentity.StatePaid {
+		t.Fatalf("state = %q, want the row to stay paid", row.State)
+	}
+	if row.ProvisionAttempts != 1 {
+		t.Fatalf("provision_attempts = %d, want the attempt counted", row.ProvisionAttempts)
 	}
 }

@@ -51,9 +51,22 @@ rewriting their history would be inventing data. `paid` is included because its
 effect is not in FreeRADIUS yet, so it is still exposed to the drift this ADR
 closes.
 
-**5. A missing snapshot is tolerated, not trusted.** If a checkout somehow stored
-an empty duration, provisioning falls back to the catalog and logs it. The
-fallback exists for one deploy boundary, not as a supported state.
+**5. A missing snapshot is refused, not trusted.** If a checkout somehow stored an
+empty duration or rate limit, provisioning refuses the Transaction and logs it; it
+never reads the catalog for it.
+
+**Amendment (2026-11-03, after the Admin Panel's identity slice landed):** this
+section originally tolerated a missing snapshot for one deploy boundary by falling
+back to the catalog. That boundary has passed: checkout always writes both columns
+and `migrate` backfills the rows that predate them. Once the panel can edit prices,
+the fallback would grant today's terms for a purchase sold at older ones — the
+drift this ADR exists to close. The fallback is removed: `provisioner` takes no
+catalog dependency (the worker no longer builds the `packages` domain), a missing
+or partial snapshot returns `ErrSnapshotMissing`, and the attempt logs
+`provisioning.snapshot_missing` (renamed from `provisioning.snapshot_fallback`,
+which can no longer occur). Rows whose Package is gone are still skipped by
+the backfill (not a deployment blocker) and are refused at provisioning time like
+any other missing snapshot.
 
 ## Rejected alternatives
 

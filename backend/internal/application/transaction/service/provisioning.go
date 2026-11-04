@@ -9,7 +9,6 @@ import (
 	"go.uber.org/zap"
 
 	notificationservice "github.com/novriyantoAli/mikrotik-login-page/backend/internal/application/notification/service"
-	packageservice "github.com/novriyantoAli/mikrotik-login-page/backend/internal/application/packages/service"
 	"github.com/novriyantoAli/mikrotik-login-page/backend/internal/application/provisioning"
 	"github.com/novriyantoAli/mikrotik-login-page/backend/internal/application/transaction/entity"
 	"github.com/novriyantoAli/mikrotik-login-page/backend/internal/application/transaction/repository"
@@ -28,6 +27,12 @@ const (
 	provisionBatch = 20
 )
 
+// ErrSnapshotMissing means a paid Transaction carries none of the catalog terms
+// checkout is supposed to freeze on it. Refusing is the point: reading the
+// catalog would grant today's terms for a purchase that was sold at older ones
+// (ADR 0026 §5).
+var ErrSnapshotMissing = errors.New("transaction carries no catalog terms")
+
 // Provisioner turns a paid Transaction into a working hotspot account: it writes
 // the PIN, the Active Period end and the rate limit to FreeRADIUS, then records
 // the SMS in the outbox and the state change in one Postgres transaction
@@ -42,21 +47,19 @@ type Provisioner interface {
 }
 
 type provisioner struct {
-	repo    repository.Repository
-	catalog packageservice.Service
-	writer  provisioning.Writer
-	reader  provisioning.ExpirationReader
-	outbox  notificationservice.Outbox
-	cipher  *pin.Cipher
-	clock   clock.Clock
-	logger  *zap.Logger
+	repo   repository.Repository
+	writer provisioning.Writer
+	reader provisioning.ExpirationReader
+	outbox notificationservice.Outbox
+	cipher *pin.Cipher
+	clock  clock.Clock
+	logger *zap.Logger
 }
 
 // NewProvisioner builds the provisioner; Fx injects every port, so the MySQL
 // writer and the SMS outbox stay replaceable in tests.
 func NewProvisioner(
 	repo repository.Repository,
-	catalog packageservice.Service,
 	writer provisioning.Writer,
 	reader provisioning.ExpirationReader,
 	outbox notificationservice.Outbox,
@@ -65,14 +68,13 @@ func NewProvisioner(
 	logger *zap.Logger,
 ) Provisioner {
 	return &provisioner{
-		repo:    repo,
-		catalog: catalog,
-		writer:  writer,
-		reader:  reader,
-		outbox:  outbox,
-		cipher:  cipher,
-		clock:   clock,
-		logger:  logger,
+		repo:   repo,
+		writer: writer,
+		reader: reader,
+		outbox: outbox,
+		cipher: cipher,
+		clock:  clock,
+		logger: logger,
 	}
 }
 
@@ -124,8 +126,12 @@ func (p *provisioner) beginAttempt(ctx context.Context, id uint) int {
 // persist the plan once, write the account, then record the result and its SMS
 // together.
 func (p *provisioner) provision(ctx context.Context, row *entity.Transaction) error {
-	terms, err := p.terms(ctx, row)
+	terms, err := soldTermsOf(row)
 	if err != nil {
+		var missing *missingTermsError
+		if errors.As(err, &missing) {
+			p.logMissingSnapshot(row, *missing)
+		}
 		return err
 	}
 
@@ -159,44 +165,61 @@ func (p *provisioner) provision(ctx context.Context, row *entity.Transaction) er
 	return p.complete(ctx, row, pinValue)
 }
 
-// provisionTerms are the catalog terms frozen on the Transaction at checkout:
-// the Active Period length and the Mikrotik-Rate-Limit the buyer paid for.
-type provisionTerms struct {
+// soldTerms are the catalog terms frozen on the Transaction at checkout: the
+// Active Period length and the Mikrotik-Rate-Limit the buyer was sold. The name
+// keeps it apart from catalogTerms in backfill.go, which are the values the
+// catalog holds today.
+type soldTerms struct {
 	duration  time.Duration
 	rateLimit string
 }
 
-// terms reads the snapshot, not the catalog, so an edit between payment and
-// provisioning cannot change what the buyer receives (ADR 0026). A snapshot that
-// predates the columns is tolerated for one deploy boundary: only the missing
-// field is read from the catalog, and the fallback is logged. A frozen duration
-// is never overwritten because the rate limit alone is empty.
-func (p *provisioner) terms(ctx context.Context, row *entity.Transaction) (provisionTerms, error) {
-	duration := time.Duration(row.DurationMinutes) * time.Minute
-	rateLimit := row.RateLimit
-	if row.DurationMinutes > 0 && rateLimit != "" {
-		return provisionTerms{duration: duration, rateLimit: rateLimit}, nil
+// soldTermsOf reads the snapshot and nothing else. A missing field is a bug, not
+// a deploy boundary: checkout always writes both, and `migrate` backfills the
+// rows that predate them, so reading the catalog here would hand the buyer
+// today's price for yesterday's purchase (ADR 0026 §5).
+func soldTermsOf(row *entity.Transaction) (soldTerms, error) {
+	if row.DurationMinutes <= 0 || row.RateLimit == "" {
+		return soldTerms{}, &missingTermsError{
+			transactionID:   row.ID,
+			durationMissing: row.DurationMinutes <= 0,
+			rateMissing:     row.RateLimit == "",
+		}
 	}
+	return soldTerms{
+		duration:  time.Duration(row.DurationMinutes) * time.Minute,
+		rateLimit: row.RateLimit,
+	}, nil
+}
 
-	p.logger.Warn("provisioning snapshot missing; falling back to the catalog",
-		zap.String("event", EventSnapshotFallback),
+// missingTermsError carries which fields refused the attempt, so the refusal and
+// the log line that explains it are decided by one predicate instead of two that
+// can drift.
+type missingTermsError struct {
+	transactionID   uint
+	durationMissing bool
+	rateMissing     bool
+}
+
+func (e *missingTermsError) Error() string {
+	return fmt.Sprintf("%s: transaction %d (duration_missing=%t, rate_limit_missing=%t)",
+		ErrSnapshotMissing, e.transactionID, e.durationMissing, e.rateMissing)
+}
+
+// Unwrap makes errors.Is(err, ErrSnapshotMissing) true for callers and tests.
+func (e *missingTermsError) Unwrap() error { return ErrSnapshotMissing }
+
+// logMissingSnapshot names the fields a refused Transaction is missing. It is the
+// replacement for the old fallback's log line: the attempt counter already shows
+// that something is stuck, and this event says why.
+func (p *provisioner) logMissingSnapshot(row *entity.Transaction, missing missingTermsError) {
+	p.logger.Warn("provisioning refused: Transaction has no catalog terms",
+		zap.String("event", EventSnapshotMissing),
 		zap.Uint("transaction_id", row.ID),
 		zap.Uint("package_id", row.PackageID),
-		zap.Bool("duration_missing", row.DurationMinutes <= 0),
-		zap.Bool("rate_limit_missing", rateLimit == ""),
+		zap.Bool("duration_missing", missing.durationMissing),
+		zap.Bool("rate_limit_missing", missing.rateMissing),
 	)
-	pkg, err := p.catalog.GetPackage(ctx, row.PackageID)
-	if err != nil {
-		return provisionTerms{}, fmt.Errorf("read Package %d for a missing snapshot: %w",
-			row.PackageID, err)
-	}
-	if row.DurationMinutes <= 0 {
-		duration = time.Duration(pkg.DurationMinutes) * time.Minute
-	}
-	if rateLimit == "" {
-		rateLimit = pkg.RateLimit
-	}
-	return provisionTerms{duration: duration, rateLimit: rateLimit}, nil
 }
 
 // ensurePlan stores the target Active Period end and the encrypted PIN exactly

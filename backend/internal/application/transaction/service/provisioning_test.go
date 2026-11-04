@@ -168,65 +168,63 @@ func TestProvision_UsesTheSnapshotRatherThanTheEditedCatalog(t *testing.T) {
 	}
 }
 
-// TestProvision_EmptySnapshotFallsBackToTheCatalogAndWarns covers the one deploy
-// boundary ADR 0026 tolerates: a pending row that predates the columns.
-func TestProvision_EmptySnapshotFallsBackToTheCatalogAndWarns(t *testing.T) {
+// TestProvision_MissingSnapshotIsRefused is ADR 0026 §5 after the deploy
+// boundary passed: no catalog fallback, no account written, and one named event
+// that says which fields are missing.
+func TestProvision_MissingSnapshotIsRefused(t *testing.T) {
 	t.Parallel()
 
 	f, logs := observedFixture(t)
-	paidAt := f.clock.now
 	row := f.addPaid(t)
 	f.repo.rows[0].DurationMinutes = 0
 	f.repo.rows[0].RateLimit = ""
-	f.catalog.packages[7] = packagesentity.Package{
-		ID: 7, Name: "Paket Mingguan", PriceIDR: 25000,
-		DurationMinutes: 2 * 24 * 60, RateLimit: "2M/2M",
-	}
 
-	if err := f.provisioner.Provision(context.Background(), row.ID); err != nil {
-		t.Fatalf("Provision: %v", err)
+	err := f.provisioner.Provision(context.Background(), row.ID)
+	if !errors.Is(err, service.ErrSnapshotMissing) {
+		t.Fatalf("error = %v, want ErrSnapshotMissing", err)
 	}
-
-	account := f.writer.accounts[0]
-	if want := paidAt.Add(2 * 24 * time.Hour); !account.Expiration.Equal(want) {
-		t.Fatalf("expiration = %s, want the catalog fallback (%s)", account.Expiration, want)
+	if len(f.writer.accounts) != 0 {
+		t.Fatalf("writer applied %d accounts, want none for a refused Transaction", len(f.writer.accounts))
 	}
-	if account.RateLimit != "2M/2M" {
-		t.Fatalf("rate limit = %q, want the catalog fallback", account.RateLimit)
+	// The constructor no longer accepts a catalog, so this is guaranteed at compile
+	// time; the assertion stays as the readable statement of the invariant.
+	if f.catalog.getCalls != 0 {
+		t.Fatalf("provisioning read the catalog %d times, want 0", f.catalog.getCalls)
 	}
-	if matched := entriesFor(logs, service.EventSnapshotFallback); len(matched) != 1 {
-		t.Fatalf("snapshot fallback logged %d times, want exactly 1", len(matched))
+	if matched := entriesFor(logs, service.EventSnapshotMissing); len(matched) != 1 {
+		t.Fatalf("snapshot-missing event logged %d times, want exactly 1", len(matched))
+	}
+	if f.repo.rows[0].State != entity.StatePaid {
+		t.Fatalf("state = %q, want the row to stay paid for the next sweep", f.repo.rows[0].State)
+	}
+	if f.repo.rows[0].ProvisionAttempts != 1 {
+		t.Fatalf("provision_attempts = %d, want the attempt counted", f.repo.rows[0].ProvisionAttempts)
 	}
 }
 
-// TestProvision_PartialSnapshotKeepsTheFrozenDuration covers the per-field
-// fallback: an empty rate limit must not discard a duration that was already
-// recorded at checkout.
-func TestProvision_PartialSnapshotKeepsTheFrozenDuration(t *testing.T) {
+// TestProvision_PartialSnapshotIsAlsoRefused closes the per-field leniency too: a
+// frozen duration with an empty rate limit is still a row that cannot be
+// provisioned truthfully, so it is refused rather than completed from the catalog.
+func TestProvision_PartialSnapshotIsAlsoRefused(t *testing.T) {
 	t.Parallel()
 
 	f, logs := observedFixture(t)
-	paidAt := f.clock.now
 	row := f.addPaid(t)
 	f.repo.rows[0].RateLimit = ""
-	f.catalog.packages[7] = packagesentity.Package{
-		ID: 7, Name: "Paket Mingguan", PriceIDR: 25000,
-		DurationMinutes: 2 * 24 * 60, RateLimit: "2M/2M",
-	}
 
-	if err := f.provisioner.Provision(context.Background(), row.ID); err != nil {
-		t.Fatalf("Provision: %v", err)
+	err := f.provisioner.Provision(context.Background(), row.ID)
+	if !errors.Is(err, service.ErrSnapshotMissing) {
+		t.Fatalf("error = %v, want ErrSnapshotMissing", err)
 	}
-
-	account := f.writer.accounts[0]
-	if want := paidAt.Add(packageDuration); !account.Expiration.Equal(want) {
-		t.Fatalf("expiration = %s, want the frozen duration (%s)", account.Expiration, want)
+	if len(f.writer.accounts) != 0 {
+		t.Fatal("writer applied an account for a Transaction with a partial snapshot")
 	}
-	if account.RateLimit != "2M/2M" {
-		t.Fatalf("rate limit = %q, want the catalog's missing column", account.RateLimit)
+	// Guaranteed by the constructor signature; kept as the invariant's readable form.
+	if f.catalog.getCalls != 0 {
+		t.Fatalf("provisioning read the catalog %d times, want 0", f.catalog.getCalls)
 	}
-	if matched := entriesFor(logs, service.EventSnapshotFallback); len(matched) != 1 {
-		t.Fatalf("snapshot fallback logged %d times, want exactly 1", len(matched))
+	if matched := entriesFor(logs, service.EventSnapshotMissing); len(matched) != 1 {
+		t.Fatalf("snapshot-missing event logged %d times, want exactly 1", len(matched))
 	}
 }
 

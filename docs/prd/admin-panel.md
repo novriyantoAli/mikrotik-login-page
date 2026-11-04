@@ -138,7 +138,7 @@ Menambah **Admin Panel** ke monorepo sebagai aktor dan permukaan tersendiri:
 
 - `transactions` mendapat `duration_minutes` dan `rate_limit` yang diisi dari katalog **saat checkout**, sejajar dengan `package_name`/`amount_idr` yang sudah ada.
 - `provisioning` membaca durasi dan rate limit dari Transaction, bukan dari katalog. `ProvisionTargetExpiration` tetap disimpan sekali (ADR 0016), sehingga retry tidak bisa berubah pikiran.
-- Baris `pending` yang lahir sebelum kolom ini ada di-backfill sekali di `migrate`; fallback baca katalog hanya untuk baris yang snapshot-nya kosong.
+- Baris `pending` yang lahir sebelum kolom ini ada di-backfill sekali di `migrate`; provisioning membaca snapshot itu dan menolak baris yang snapshot-nya kosong, tidak pernah jatuh kembali ke katalog (ADR 0026 §5).
 
 ### Audit (ADR 0027)
 
