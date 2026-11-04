@@ -7,14 +7,11 @@ import (
 	"testing"
 
 	"go.uber.org/zap"
-	"gorm.io/gorm"
 
 	"github.com/novriyantoAli/mikrotik-login-page/backend/internal/application/admin/dto"
 	"github.com/novriyantoAli/mikrotik-login-page/backend/internal/application/admin/entity"
 	adminrepository "github.com/novriyantoAli/mikrotik-login-page/backend/internal/application/admin/repository"
 	adminservice "github.com/novriyantoAli/mikrotik-login-page/backend/internal/application/admin/service"
-	packagesrepository "github.com/novriyantoAli/mikrotik-login-page/backend/internal/application/packages/repository"
-	transactionrepository "github.com/novriyantoAli/mikrotik-login-page/backend/internal/application/transaction/repository"
 	"github.com/novriyantoAli/mikrotik-login-page/backend/internal/pkg/audit"
 	"github.com/novriyantoAli/mikrotik-login-page/backend/internal/pkg/database"
 	"github.com/novriyantoAli/mikrotik-login-page/backend/internal/pkg/testutil"
@@ -38,18 +35,19 @@ func readAuditRows(t *testing.T, harness *testutil.APIHarness) []entity.AuditEnt
 	return rows
 }
 
-// TestAuditRowCommitsWithTheCallersTransaction is ADR 0027 §2 through the port the
-// catalog declares: the row the adapter writes is only visible because the caller's
-// transaction committed it.
+// TestAuditRowCommitsWithTheCallersTransaction is ADR 0027 §2 through the one
+// interface every recording domain depends on: the row the adapter writes is only
+// visible because the caller's transaction committed it.
 func TestAuditRowCommitsWithTheCallersTransaction(t *testing.T) {
 	harness := testutil.NewAPIHarness(t)
 
-	// The catalog's own port is what the adapter must satisfy; nothing in this test
-	// names the admin domain's concrete type except the constructor.
-	var port packagesrepository.AuditRecorder = adminrepository.NewAuditRecorder(zap.NewNop())
+	// audit.Recorder is what the adapter must satisfy; nothing here names the admin
+	// domain's concrete type except the constructor.
+	var port audit.Recorder = adminrepository.NewAuditRecorder(zap.NewNop())
+	ctx := context.Background()
 
-	err := harness.Postgres.Transaction(func(tx *gorm.DB) error {
-		return port.Record(context.Background(), database.NewTx(tx), audit.Entry{
+	err := database.WithinTx(ctx, harness.Postgres, func(tx database.Tx) error {
+		return port.Record(ctx, tx, audit.Entry{
 			Actor:      panelActor(t, harness),
 			Action:     audit.ActionPackageUpdate,
 			TargetType: audit.TargetPackage,
@@ -87,11 +85,12 @@ func TestAuditRowCommitsWithTheCallersTransaction(t *testing.T) {
 func TestAuditRowRollsBackWithTheCallersTransaction(t *testing.T) {
 	harness := testutil.NewAPIHarness(t)
 
-	var port transactionrepository.AuditRecorder = adminrepository.NewAuditRecorder(zap.NewNop())
+	var port audit.Recorder = adminrepository.NewAuditRecorder(zap.NewNop())
 	rolledBack := errors.New("the changed row refused to save")
+	ctx := context.Background()
 
-	err := harness.Postgres.Transaction(func(tx *gorm.DB) error {
-		if recordErr := port.Record(context.Background(), database.NewTx(tx), audit.Entry{
+	err := database.WithinTx(ctx, harness.Postgres, func(tx database.Tx) error {
+		if recordErr := port.Record(ctx, tx, audit.Entry{
 			Actor:      panelActor(t, harness),
 			Action:     audit.ActionPINReveal,
 			TargetType: audit.TargetTransaction,
@@ -120,26 +119,6 @@ func TestAuditRecordRefusesToWriteOutsideATransaction(t *testing.T) {
 	err := recorder.Record(context.Background(), database.Tx{}, audit.Entry{
 		Actor:  panelActor(t, harness),
 		Action: audit.ActionAdminDeactivate,
-	})
-	if !errors.Is(err, adminrepository.ErrAuditWithoutTransaction) {
-		t.Fatalf("error = %v, want ErrAuditWithoutTransaction", err)
-	}
-	if rows := readAuditRows(t, harness); len(rows) != 0 {
-		t.Fatalf("audit rows = %d, want none", len(rows))
-	}
-}
-
-// TestAuditRecordRefusesThePoolInsteadOfATransaction closes the other door to the
-// same failure: a handle that is not a transaction would commit the row on its own,
-// so it is refused exactly like a missing handle.
-func TestAuditRecordRefusesThePoolInsteadOfATransaction(t *testing.T) {
-	harness := testutil.NewAPIHarness(t)
-	recorder := adminrepository.NewAuditRecorder(zap.NewNop())
-
-	// The pool itself, wrapped as if it were a caller's transaction.
-	err := recorder.Record(context.Background(), database.NewTx(harness.Postgres), audit.Entry{
-		Actor:  panelActor(t, harness),
-		Action: audit.ActionAdminCreate,
 	})
 	if !errors.Is(err, adminrepository.ErrAuditWithoutTransaction) {
 		t.Fatalf("error = %v, want ErrAuditWithoutTransaction", err)

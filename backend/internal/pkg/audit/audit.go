@@ -2,12 +2,31 @@
 // privileged action (ADR 0027). It owns the action names, the target types and
 // the shape of the fact — and nothing else.
 //
-// The table itself belongs to the admin domain, so this package deliberately has
-// no persistence: a domain that records an action declares its own small
-// AuditRecorder port and depends on these values, never on admin (ADR 0027 §1).
-// The action strings are stable: a report written today must still match a row
-// written next year.
+// The table itself belongs to the admin domain, so this package has no
+// persistence of its own: the Recorder interface declared here depends only on the
+// opaque database.Tx, never on gorm or a table, and no domain imports admin
+// (ADR 0027 §1). The action strings are stable: a report written today must still
+// match a row written next year.
 package audit
+
+import (
+	"context"
+
+	"github.com/novriyantoAli/mikrotik-login-page/backend/internal/pkg/database"
+)
+
+// Recorder appends exactly one trail row for a privileged action. It lives here,
+// with the vocabulary, so every domain depends on one interface instead of
+// declaring its own copy; the table and the adapter stay in the admin domain,
+// which no other domain imports (ADR 0027 §1).
+//
+// It takes the caller's transaction rather than opening its own, so the change
+// and its witness commit or roll back together and "changed without a trail row"
+// is not representable (ADR 0027 §2). A zero-value database.Tx — "no
+// transaction" — is refused.
+type Recorder interface {
+	Record(ctx context.Context, tx database.Tx, entry Entry) error
+}
 
 // Action names one audited act.
 type Action string

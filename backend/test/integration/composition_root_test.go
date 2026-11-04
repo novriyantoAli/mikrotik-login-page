@@ -8,8 +8,8 @@ import (
 
 	fxapp "github.com/novriyantoAli/mikrotik-login-page/backend/internal/app"
 	packageservice "github.com/novriyantoAli/mikrotik-login-page/backend/internal/application/packages/service"
-	transactionrepository "github.com/novriyantoAli/mikrotik-login-page/backend/internal/application/transaction/repository"
 	transactionservice "github.com/novriyantoAli/mikrotik-login-page/backend/internal/application/transaction/service"
+	"github.com/novriyantoAli/mikrotik-login-page/backend/internal/pkg/audit"
 	servermigration "github.com/novriyantoAli/mikrotik-login-page/backend/internal/server/migration"
 )
 
@@ -21,9 +21,9 @@ import (
 // fx.ValidateApp walks the graph without running constructors or lifecycle hooks,
 // so no Postgres, Redis or modem is touched; the invoke names the three sweeps
 // the worker exists to run, because a dry run only checks what something asks
-// for. The Transaction audit port is named too: the composition root provides it
-// without building the admin domain, so a port it forgot would only surface when
-// the container starts (ADR 0027 §1). The worker no longer builds the catalog at
+// for. The audit recorder is named too: the composition root provides it without
+// building the admin domain, so a binding it forgot would only surface when the
+// container starts (ADR 0027 §1). The worker no longer builds the catalog at
 // all — provisioning reads the terms frozen on the Transaction (ADR 0026 §5) —
 // and TestWorkerGraphNeverBuildsTheCatalog pins that as a negative.
 func TestWorkerGraphResolves(t *testing.T) {
@@ -36,7 +36,7 @@ func TestWorkerGraphResolves(t *testing.T) {
 			_ transactionservice.Expiry,
 			_ transactionservice.Provisioner,
 			_ transactionservice.Reconciler,
-			_ transactionrepository.AuditRecorder,
+			_ audit.Recorder,
 		) {
 		}),
 	)
@@ -68,7 +68,7 @@ func TestMigrateGraphResolves(t *testing.T) {
 
 	err := fx.ValidateApp(
 		fxapp.Migrate(),
-		fx.Invoke(func(*servermigration.Migrator) {}),
+		fx.Invoke(func(*servermigration.Migrator, audit.Recorder) {}),
 	)
 	if err != nil {
 		t.Fatalf("migrate graph does not resolve: %v", err)

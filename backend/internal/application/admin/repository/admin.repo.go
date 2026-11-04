@@ -134,8 +134,9 @@ func (r *adminRepository) InsertOwner(ctx context.Context, admin *entity.Admin) 
 // CreateAdmin writes the identity and its trail row through one transaction: the
 // insert and the audit entry commit together or not at all (ADR 0027 §2).
 func (r *adminRepository) CreateAdmin(ctx context.Context, admin *entity.Admin, entry audit.Entry) error {
-	err := r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		if err := tx.Create(admin).Error; err != nil {
+	err := database.WithinTx(ctx, r.db, func(tx database.Tx) error {
+		handle := tx.DB()
+		if err := handle.Create(admin).Error; err != nil {
 			if errors.Is(err, gorm.ErrDuplicatedKey) {
 				// Not logged as a failure: two owners racing for one address is a
 				// conflict the service answers, not a broken database.
@@ -148,7 +149,7 @@ func (r *adminRepository) CreateAdmin(ctx context.Context, admin *entity.Admin, 
 		// The row's identity only exists now, so the fact is completed here rather
 		// than in the service that did not know it yet.
 		recorded := entry.WithTarget(audit.TargetAdmin, strconv.FormatUint(uint64(admin.ID), 10))
-		return r.audit.Record(ctx, database.NewTx(tx), recorded)
+		return r.audit.Record(ctx, tx, recorded)
 	})
 	if err != nil {
 		return fmt.Errorf("create admin %q: %w", admin.Email, err)
@@ -317,8 +318,9 @@ func (r *adminRepository) updateAdminAndRecord(
 	revoke bool,
 	entry audit.Entry,
 ) error {
-	err := r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		result := tx.Model(&entity.Admin{}).Where("id = ?", adminID).Updates(changes)
+	err := database.WithinTx(ctx, r.db, func(tx database.Tx) error {
+		handle := tx.DB()
+		result := handle.Model(&entity.Admin{}).Where("id = ?", adminID).Updates(changes)
 		if result.Error != nil {
 			r.logger.Error("update admin", zap.Uint("admin_id", adminID), zap.Error(result.Error))
 			return fmt.Errorf("update admin %d: %w", adminID, result.Error)
@@ -328,13 +330,13 @@ func (r *adminRepository) updateAdminAndRecord(
 		}
 
 		if revoke {
-			if err := r.revokeAll(tx, adminID, now); err != nil {
+			if err := r.revokeAll(handle, adminID, now); err != nil {
 				return err
 			}
 		}
 
 		recorded := entry.WithTarget(audit.TargetAdmin, strconv.FormatUint(uint64(adminID), 10))
-		return r.audit.Record(ctx, database.NewTx(tx), recorded)
+		return r.audit.Record(ctx, tx, recorded)
 	})
 	if err != nil {
 		return fmt.Errorf("update admin %d: %w", adminID, err)
