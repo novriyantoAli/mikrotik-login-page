@@ -40,6 +40,10 @@ var adminRoutes = []string{
 	"POST /api/admin/admins",
 	"POST /api/admin/admins/:id/password",
 	"POST /api/admin/admins/:id/active",
+	"GET /api/admin/packages",
+	"POST /api/admin/packages",
+	"PUT /api/admin/packages/:id",
+	"POST /api/admin/packages/:id/active",
 }
 
 // bodyAssertedRoutes are the routes the subtests below cover by asserting what the

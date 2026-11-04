@@ -15,7 +15,7 @@ Documentation: [`../docs/adr/`](../docs/adr), [`../CONTEXT.md`](../CONTEXT.md),
 | `internal/app` | Fx option sets shared by both processes and by tests |
 | `internal/config` | Viper configuration (`config.yaml` + `SECTION_KEY` env overrides) |
 | `internal/application/<domain>` | Vertical slice: `dto/`, `entity/`, `repository/`, `service/`, `handler/`, `worker/`, `module.go` |
-| `internal/application/packages` | Package catalog: seed data, public `GET /packages` |
+| `internal/application/packages` | Package catalog: seed data, public `GET /packages`, and the panel's audited writes (ADR 0025, ADR 0027) |
 | `internal/application/activeperiod` | Public `GET /active-period`, read through the provisioning port |
 | `internal/application/transaction` | Transaction state machine, idempotent checkout, gateway callback, expiry sweep, Transaction history (ADR 0015) |
 | `internal/application/account` | Account Status read composition: summary, current PIN, active Package and Extend preview (ADR 0017); no entity, no table |
@@ -87,9 +87,10 @@ The seed keys on `packages.code` with `ON CONFLICT DO NOTHING`, so running the
 command twice inserts nothing, and a price an operator changed by hand survives
 a redeploy. A Package is retired, never deleted (ADR 0025): the row keeps its
 `code` and its history, so the seed finds it and inserts nothing — the "deleted
-Package comes back on Tuesday" problem is gone by construction. Until the Admin
-Panel's write endpoints land, SQL is still the only way to edit the catalog, and
-changing a starter value in code does not rewrite existing rows.
+Package comes back on Tuesday" problem is gone by construction. The panel's
+write endpoints (`POST`/`PUT /api/admin/packages`, `POST
+/api/admin/packages/{id}/active`) are the supported way to edit the catalog;
+changing a starter value in code still does not rewrite existing rows.
 
 ## Public read contract (Login Page)
 

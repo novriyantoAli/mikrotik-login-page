@@ -14,6 +14,7 @@ import (
 	"github.com/novriyantoAli/mikrotik-login-page/backend/internal/application/packages/entity"
 	"github.com/novriyantoAli/mikrotik-login-page/backend/internal/application/packages/handler"
 	"github.com/novriyantoAli/mikrotik-login-page/backend/internal/application/packages/service"
+	"github.com/novriyantoAli/mikrotik-login-page/backend/internal/pkg/audit"
 )
 
 type stubCatalog struct {
@@ -30,6 +31,36 @@ func (stubCatalog) GetPackage(context.Context, uint) (*entity.Package, error) {
 }
 
 func (stubCatalog) Seed(context.Context) (int64, error) { return 0, nil }
+
+func (stubCatalog) ListAdminPackages(context.Context) ([]dto.AdminPackageResponse, error) {
+	return nil, nil
+}
+
+func (stubCatalog) CreatePackage(
+	context.Context,
+	audit.Actor,
+	*dto.CreatePackageRequest,
+) (*dto.AdminPackageResponse, error) {
+	return nil, nil
+}
+
+func (stubCatalog) UpdatePackage(
+	context.Context,
+	audit.Actor,
+	uint,
+	*dto.UpdatePackageRequest,
+) (*dto.AdminPackageResponse, error) {
+	return nil, nil
+}
+
+func (stubCatalog) SetActive(
+	context.Context,
+	audit.Actor,
+	uint,
+	*dto.SetActiveRequest,
+) (*dto.AdminPackageResponse, error) {
+	return nil, nil
+}
 
 func getPackages(t *testing.T, catalog stubCatalog) *httptest.ResponseRecorder {
 	t.Helper()

@@ -86,3 +86,15 @@ at Postgres's resolution and a timestamp is a poor equality token.
   behaviour for a retired Package.
 - Retiring the last Package is refused, so an operator who really wants to stop
   selling must retire all but one — a deliberate speed bump, not an oversight.
+
+## Amendment (2026-11-04, after the catalog write slice landed)
+
+§4's refusal is evaluated inside the repository's transaction, not in the
+service, because the last-active count and the row must be read under the same
+lock: two admins retiring the last two Packages at once would otherwise both see
+"one other is active" and commit. The service still owns the rule — it maps the
+repository's `ErrLastActivePackage` to its own sentinel, and the transport owns
+the `409` wording — so the repository decides only the fact, never the message.
+The same holds for §7's version check: it is a conditional `UPDATE` under the row
+lock, and a stale version returns the row as it is now so the panel can show what
+changed instead of merely refusing.

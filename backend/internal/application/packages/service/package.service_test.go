@@ -10,22 +10,47 @@ import (
 	"github.com/novriyantoAli/mikrotik-login-page/backend/internal/application/packages/entity"
 	"github.com/novriyantoAli/mikrotik-login-page/backend/internal/application/packages/repository"
 	"github.com/novriyantoAli/mikrotik-login-page/backend/internal/application/packages/service"
+	"github.com/novriyantoAli/mikrotik-login-page/backend/internal/pkg/audit"
 )
 
 type fakeRepository struct {
 	rows     []entity.Package
+	all      []entity.Package
 	listErr  error
+	allErr   error
 	inserted int64
 	seedErr  error
 	seeds    [][]entity.Package
 	byIDErr  error
+
+	createErr   error
+	createEntry audit.Entry
+	created     []entity.Package
+
+	updateBefore  entity.Package
+	updateErr     error
+	updateVersion int
+	updateEntry   audit.Entry
+
+	setActiveBefore entity.Package
+	setActiveErr    error
+	setActiveID     uint
+	setActiveArg    bool
+	setActiveEntry  audit.Entry
 }
 
-func (r *fakeRepository) List(context.Context) ([]entity.Package, error) {
+func (r *fakeRepository) ListActive(context.Context) ([]entity.Package, error) {
 	if r.listErr != nil {
 		return nil, r.listErr
 	}
 	return r.rows, nil
+}
+
+func (r *fakeRepository) ListAll(context.Context) ([]entity.Package, error) {
+	if r.allErr != nil {
+		return nil, r.allErr
+	}
+	return r.all, nil
 }
 
 func (r *fakeRepository) GetByID(_ context.Context, id uint) (*entity.Package, error) {
@@ -46,6 +71,53 @@ func (r *fakeRepository) InsertMissing(_ context.Context, packages []entity.Pack
 	}
 	r.seeds = append(r.seeds, packages)
 	return r.inserted, nil
+}
+
+func (r *fakeRepository) Create(_ context.Context, pkg *entity.Package, entry audit.Entry) error {
+	if r.createErr != nil {
+		return r.createErr
+	}
+	pkg.ID = 42
+	r.created = append(r.created, *pkg)
+	r.createEntry = entry
+	return nil
+}
+
+func (r *fakeRepository) Update(
+	_ context.Context,
+	pkg *entity.Package,
+	expectedVersion int,
+	entry repository.EntryBuilder,
+) (*entity.Package, error) {
+	if r.updateErr != nil {
+		return nil, r.updateErr
+	}
+	r.updateVersion = expectedVersion
+	r.updateEntry = entry(r.updateBefore)
+
+	updated := *pkg
+	updated.Version = expectedVersion + 1
+	return &updated, nil
+}
+
+func (r *fakeRepository) SetActive(
+	_ context.Context,
+	id uint,
+	active bool,
+	entry repository.EntryBuilder,
+) (*entity.Package, error) {
+	if r.setActiveErr != nil {
+		return nil, r.setActiveErr
+	}
+	r.setActiveID = id
+	r.setActiveArg = active
+	r.setActiveEntry = entry(r.setActiveBefore)
+
+	updated := r.setActiveBefore
+	updated.ID = id
+	updated.IsActive = active
+	updated.Version = r.setActiveBefore.Version + 1
+	return &updated, nil
 }
 
 func newService(repo *fakeRepository) service.Service {

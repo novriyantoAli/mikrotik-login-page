@@ -19,6 +19,7 @@ import (
 	"github.com/novriyantoAli/mikrotik-login-page/backend/internal/application/transaction/entity"
 	"github.com/novriyantoAli/mikrotik-login-page/backend/internal/application/transaction/repository"
 	"github.com/novriyantoAli/mikrotik-login-page/backend/internal/application/transaction/service"
+	"github.com/novriyantoAli/mikrotik-login-page/backend/internal/pkg/audit"
 	"github.com/novriyantoAli/mikrotik-login-page/backend/internal/pkg/database"
 	"github.com/novriyantoAli/mikrotik-login-page/backend/internal/pkg/pin"
 )
@@ -395,6 +396,38 @@ func (c *fakeCatalog) GetPackage(_ context.Context, id uint) (*packagesentity.Pa
 }
 
 func (c *fakeCatalog) Seed(context.Context) (int64, error) { return 0, nil }
+
+// The panel's write surface is not exercised from this domain; the methods exist
+// only because packages.Service is one interface (golden rule 3).
+func (c *fakeCatalog) ListAdminPackages(context.Context) ([]packagesdto.AdminPackageResponse, error) {
+	return nil, nil
+}
+
+func (c *fakeCatalog) CreatePackage(
+	context.Context,
+	audit.Actor,
+	*packagesdto.CreatePackageRequest,
+) (*packagesdto.AdminPackageResponse, error) {
+	return nil, nil
+}
+
+func (c *fakeCatalog) UpdatePackage(
+	context.Context,
+	audit.Actor,
+	uint,
+	*packagesdto.UpdatePackageRequest,
+) (*packagesdto.AdminPackageResponse, error) {
+	return nil, nil
+}
+
+func (c *fakeCatalog) SetActive(
+	context.Context,
+	audit.Actor,
+	uint,
+	*packagesdto.SetActiveRequest,
+) (*packagesdto.AdminPackageResponse, error) {
+	return nil, nil
+}
 
 type fakeGateway struct {
 	channels    []payment.Channel

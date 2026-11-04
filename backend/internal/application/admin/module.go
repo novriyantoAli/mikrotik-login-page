@@ -56,6 +56,9 @@ func Module() fx.Option {
 			func(auth service.Auth) middleware.AdminSessionResolver { return auth },
 			middleware.NewAdminGuard,
 			handler.NewHandler,
+			// The panel's catalog routes are a thin adapter over packages.Service; the
+			// catalog's rules stay in the owning domain (golden rule 5).
+			handler.NewPackageHandler,
 		),
 	)
 }

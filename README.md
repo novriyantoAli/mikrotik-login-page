@@ -27,15 +27,18 @@ foundation and its authentication surface — the
 `admins`/`admin_sessions`/`admin_audit_log` tables, the first owner seeded by
 `migrate`, `packages.is_active`/`version`, the domain's first audited write
 (creating an admin, which appends its trail row inside the same database
-transaction, ADR 0027, through a port the domains that record actions declare
-for themselves), and the panel's own sign-in: email + bcrypt password, a
-separate `admin_sessions` table and cookie scoped to `/api/admin`, login rate
-limits per IP and per email, and the three-role permission matrix enforced per
-route on the server (ADR 0024). What remains of slice 1 is the catalog write
-surface and the panel itself, so the catalog still starts from the deployment
-seed. Retirement is now representable in the schema (`packages.is_active`), so
-once the catalog write endpoints land a Package will be retired rather than
-deleted and will no longer come back on the next deploy (ADR 0025).
+transaction, ADR 0027, through the shared `audit.Recorder` port), and the
+panel's own sign-in: email + bcrypt password, a separate `admin_sessions` table
+and cookie scoped to `/api/admin`, login rate limits per IP and per email, and
+the three-role permission matrix enforced per route on the server (ADR 0024).
+The catalog write surface has landed too: `POST`/`PUT /api/admin/packages` and
+`POST /api/admin/packages/{id}/active`, with every field validated in the
+service, the version the panel read required on an edit, an immutable `code`,
+the last active Package impossible to retire, and exactly one audit row in the
+same transaction (ADR 0025, ADR 0027). `GET /api/packages` filters `is_active`
+without changing its shape, so a Package is retired rather than deleted and no
+longer comes back on the next deploy. What remains of slice 1 is the panel
+itself (`admin/`).
 
 One known gap is budgeted outside that plan: the smoke journey runs with the
 modem absent, so a pty AT emulator for the modem edge is separate work, not a

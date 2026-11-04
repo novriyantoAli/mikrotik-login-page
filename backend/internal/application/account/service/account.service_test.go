@@ -16,6 +16,7 @@ import (
 	"github.com/novriyantoAli/mikrotik-login-page/backend/internal/application/provisioning"
 	transactiondto "github.com/novriyantoAli/mikrotik-login-page/backend/internal/application/transaction/dto"
 	transactionservice "github.com/novriyantoAli/mikrotik-login-page/backend/internal/application/transaction/service"
+	"github.com/novriyantoAli/mikrotik-login-page/backend/internal/pkg/audit"
 )
 
 const (
@@ -94,6 +95,38 @@ func (c *stubCatalog) GetPackage(context.Context, uint) (*packagesentity.Package
 }
 
 func (c *stubCatalog) Seed(context.Context) (int64, error) { return 0, nil }
+
+// The panel's write surface is not exercised from this domain; the methods exist
+// only because packages.Service is one interface (golden rule 3).
+func (c *stubCatalog) ListAdminPackages(context.Context) ([]packagesdto.AdminPackageResponse, error) {
+	return nil, nil
+}
+
+func (c *stubCatalog) CreatePackage(
+	context.Context,
+	audit.Actor,
+	*packagesdto.CreatePackageRequest,
+) (*packagesdto.AdminPackageResponse, error) {
+	return nil, nil
+}
+
+func (c *stubCatalog) UpdatePackage(
+	context.Context,
+	audit.Actor,
+	uint,
+	*packagesdto.UpdatePackageRequest,
+) (*packagesdto.AdminPackageResponse, error) {
+	return nil, nil
+}
+
+func (c *stubCatalog) SetActive(
+	context.Context,
+	audit.Actor,
+	uint,
+	*packagesdto.SetActiveRequest,
+) (*packagesdto.AdminPackageResponse, error) {
+	return nil, nil
+}
 
 type stubExpirations struct {
 	current provisioning.Expiration

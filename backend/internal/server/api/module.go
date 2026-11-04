@@ -80,6 +80,11 @@ func RouterModule() fx.Option {
 				fx.As(new(RouteRegistrar)),
 				fx.ResultTags(routesGroup),
 			),
+			fx.Annotate(
+				adminhandler.NewPackageHandler,
+				fx.As(new(RouteRegistrar)),
+				fx.ResultTags(routesGroup),
+			),
 		),
 	)
 }

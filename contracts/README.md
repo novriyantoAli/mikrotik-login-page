@@ -31,6 +31,7 @@ silently.
 | `account.response.json` | `GET /api/account` (200, summary with the current PIN) | `backend/test/integration/account_contract_test.go`, `frontend/tests/unit/account.contract.test.ts` |
 | `account.extend-preview.response.json` | `GET /api/account/extend-preview?package_id=` (200) | same two test files |
 | `transactions.response.json` | `GET /api/transactions?page=&page_size=` (200, history without the PIN) | same two test files |
+| `admin-packages.response.json` | `GET /api/admin/packages` (200, typed values with `version`) | `backend/test/integration/admin_packages_test.go`; the panel's zod schema when `admin/` lands (ADR 0028) |
 
 Rules:
 
