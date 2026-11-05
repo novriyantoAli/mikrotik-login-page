@@ -99,6 +99,21 @@ func readRepoFile(t *testing.T, relativePath string) string {
 	return string(raw)
 }
 
+// nginxDirectives returns the lines of an nginx config with comments and blank
+// lines removed, so a test can ask "does this config *do* X" instead of "does
+// this file mention X in a comment explaining why it must not".
+func nginxDirectives(config string) []string {
+	directives := make([]string, 0, len(config))
+	for _, line := range strings.Split(config, "\n") {
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "" || strings.HasPrefix(trimmed, "#") {
+			continue
+		}
+		directives = append(directives, trimmed)
+	}
+	return directives
+}
+
 // TestComposeServesOneOriginWithEveryService pins the deployment shape from
 // ADR 0009: Postgres, MySQL FreeRADIUS, Redis, API, worker, app, the Admin Panel
 // (its own image, ADR 0028) and one proxy that serves the app, forwards /api and
@@ -168,13 +183,12 @@ func TestPanelIsItsOwnArtefactOnTheSameOrigin(t *testing.T) {
 	}
 	// Two policies intersect. A document policy here would have to hash the
 	// panel's inline bootstrap script, which a static header cannot know.
-	for _, line := range strings.Split(proxyConfig, "\n") {
-		header := strings.TrimSpace(line)
-		if !strings.HasPrefix(header, "add_header Content-Security-Policy") {
+	for _, directive := range nginxDirectives(proxyConfig) {
+		if !strings.HasPrefix(directive, "add_header Content-Security-Policy") {
 			continue
 		}
-		if strings.Contains(header, "default-src") || strings.Contains(header, "script-src") {
-			t.Fatalf("the proxy states a document CSP (%s); it would intersect with the panel's own", header)
+		if strings.Contains(directive, "default-src") || strings.Contains(directive, "script-src") {
+			t.Fatalf("the proxy states a document CSP (%s); it would intersect with the panel's own", directive)
 		}
 	}
 
@@ -187,6 +201,17 @@ func TestPanelIsItsOwnArtefactOnTheSameOrigin(t *testing.T) {
 	}
 	if !strings.Contains(panelConfig, "rewrite ^/admin/(.*)$ /$1 break") {
 		t.Fatal("the panel's container does not strip the /admin prefix the proxy forwards")
+	}
+	// A redirect built inside the container carries the container's own scheme
+	// and listening port, so a browser on :8080 is sent to :80 (PR #48's e2e run
+	// caught exactly that). The proxy states it instead, from the public host.
+	for _, directive := range nginxDirectives(panelConfig) {
+		if strings.HasPrefix(directive, "return 3") {
+			t.Fatalf("the panel's container builds a redirect (%s); its own :80 would leak into it", directive)
+		}
+	}
+	if !strings.Contains(proxyConfig, "return 301 $forwarded_proto://$public_host/admin/") {
+		t.Fatal("the proxy does not state the /admin/ redirect from the public host and scheme")
 	}
 
 	panelKit := readRepoFile(t, "admin/svelte.config.js")
