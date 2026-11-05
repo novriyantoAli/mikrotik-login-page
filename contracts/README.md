@@ -31,7 +31,10 @@ silently.
 | `account.response.json` | `GET /api/account` (200, summary with the current PIN) | `backend/test/integration/account_contract_test.go`, `frontend/tests/unit/account.contract.test.ts` |
 | `account.extend-preview.response.json` | `GET /api/account/extend-preview?package_id=` (200) | same two test files |
 | `transactions.response.json` | `GET /api/transactions?page=&page_size=` (200, history without the PIN) | same two test files |
-| `admin-packages.response.json` | `GET /api/admin/packages` (200, typed values with `version`) | `backend/test/integration/admin_packages_test.go`; the panel's zod schema when `admin/` lands (ADR 0028) |
+| `admin-packages.response.json` | `GET /api/admin/packages` (200, typed values with `version`) | `backend/test/integration/admin_packages_test.go`; the panel's zod schema in `admin/tests` |
+| `admin-login.request.json` | `POST /api/admin/auth/login` (request body) | `backend/test/integration/admin_contract_test.go`, `admin/tests/unit/auth.contract.test.ts` |
+| `admin-session.response.json` | `POST /api/admin/auth/login` and `GET /api/admin/auth/session` (200) | same two test files |
+| `admin-admins.response.json` | `GET /api/admin/admins` (200, one row per role) | `backend/test/integration/admin_contract_test.go`, `admin/tests/unit/admins.contract.test.ts` |
 
 Rules:
 
@@ -60,6 +63,11 @@ Rules:
   `pin` appears only in `account.response.json`; a `pin` field in
   `transactions.response.json` is a leak, not a feature, and `active_period.state`
   is one of `active`, `expiring`, `expired` or `none` computed by the backend.
+- The admin fixtures are the **panel contract** (ADR 0024/0025/0028). The
+  session body carries no token (the cookie is the session), and a fixture that
+  grows one is a leak, not a feature. `is_active` and `version` are on every
+  Package row so an edit can present the version it read; `role` is one of
+  `owner`, `support`, `auditor`.
 - Values are examples, not assertions of live data (latency, timestamps).
 - Never edit a fixture to make one side's test pass without updating the other
   side's schema/DTO in the same change.
