@@ -37,8 +37,11 @@ service, the version the panel read required on an edit, an immutable `code`,
 the last active Package impossible to retire, and exactly one audit row in the
 same transaction (ADR 0025, ADR 0027). `GET /api/packages` filters `is_active`
 without changing its shape, so a Package is retired rather than deleted and no
-longer comes back on the next deploy. What remains of slice 1 is the panel
-itself (`admin/`).
+longer comes back on the next deploy. The panel itself (`admin/`) is delivered
+as its own artefact too: its own image and compose service, served under
+`/admin` by the one proxy, with a CI job and a browser journey of its own
+(ADR 0028). What remains of the plan is slice 2 — the panel's read surfaces
+(Transactions, active users, audit log).
 
 One known gap is budgeted outside that plan: the smoke journey runs with the
 modem absent, so a pty AT emulator for the modem edge is separate work, not a
@@ -51,8 +54,9 @@ half-finished slice (ADR 0018 §5).
 | `KOPINETGO-2024/` | The MikroTik hotspot Login Page and status page (served by RouterOS) |
 | `backend/` | Go API + worker (Fx, Gin, GORM, Asynq) — see [`backend/README.md`](backend/README.md) |
 | `frontend/` | SvelteKit purchase app, built as a SPA — see [`frontend/README.md`](frontend/README.md) |
+| `admin/` | SvelteKit **Admin Panel**, its own image and compose service at `/admin` — see [`admin/README.md`](admin/README.md) |
 | `contracts/` | Shared request/response fixtures imported by backend and frontend tests |
-| `docker-compose.yml` | One origin: Postgres, MySQL FreeRADIUS, Redis, API, worker, app, proxy |
+| `docker-compose.yml` | One origin: Postgres, MySQL FreeRADIUS, Redis, API, worker, app, admin, proxy |
 | `tests/unit`, `tests/smoke` | Vitest + jsdom and Playwright tests of the Login Page seam |
 | `docs/` | ADRs and PRDs |
 
@@ -65,6 +69,7 @@ sibling `~/Projects/mikrotik-login` monorepo is prior art only.
 cp .env.example .env      # fill in the secrets; ADMIN_EMAIL/ADMIN_PASSWORD seed the first owner
 make up                   # docker compose up -d --build (runs the migrate step first)
 open http://localhost:8080/            # purchase app (status screen)
+open http://localhost:8080/admin        # Admin Panel (owner seeded above)
 curl http://localhost:8080/api/health   # backend + Postgres + MySQL + Redis
 make down
 ```
@@ -79,10 +84,14 @@ bootstrap pair is set, naming the variable to fill in; a deployment that got pas
 it would come up with a panel nobody can enter. Once any owner exists the pair is
 ignored, so a later deploy never resets a password.
 
-The proxy serves the app at `/` and the API at `/api` on one origin (ADR 0009,
-ADR 0013). `GET /api/health` answers 200 when every dependency is reachable and
-503 with a `degraded` report when one is not, so an operator sees which server is
-down rather than a blank failure.
+The proxy serves the app at `/`, the API at `/api` and the Admin Panel at
+`/admin` on one origin (ADR 0009, ADR 0013, ADR 0028). The panel is its own
+image (`mikrotik-login-page/admin`) with its own build and release tag
+(`ADMIN_TAG`), so a panel fix never re-releases the buyer's flow; it keeps its
+shell out of caches and states its own content policy, which is narrower than
+the purchase app's (no vendor QR image to allow). `GET /api/health` answers 200
+when every dependency is reachable and 503 with a `degraded` report when one is
+not, so an operator sees which server is down rather than a blank failure.
 
 ### TLS
 
@@ -107,13 +116,14 @@ downloads a Postgres distribution for the embedded test server and caches it;
 offline machines need `TEST_POSTGRES_DSN` to point at an existing Postgres.
 
 ```bash
-make install              # root npm, backend go modules, frontend npm
-make test                 # Login Page + backend integration + purchase app
+make install              # root npm, backend go modules, frontend + panel npm
+make test                 # Login Page + backend integration + purchase app + panel
 make test-login           # Vitest + jsdom for the Login Page seam
 make test-backend         # backend unit + integration (real Postgres, real Redis)
 make test-frontend        # purchase app unit/component/contract tests
+make test-admin           # Admin Panel unit/component/contract tests
 make typecheck            # tsc (login page), go build/vet, svelte-check
-make lint                 # golangci-lint v2 + go vet, ESLint + Prettier
+make lint                 # golangci-lint v2 + go vet, ESLint + Prettier (both apps)
 npm run test:smoke        # Playwright browser tests for the Login Page
 npm run test:app          # Playwright 360px layout checks for the purchase app
 make test-e2e             # full journey against the compose stack (needs Docker)
@@ -132,6 +142,14 @@ against a stack you already have: set `E2E_APP_URL`, `E2E_STUB_URL`,
 ```bash
 npx playwright test -c playwright.e2e.config.mjs --project=stub
 ```
+
+The panel's own browser project runs against the same stack
+(`--project=panel`): it proves `/admin` is served by the panel's image with its
+own cache and content policy, that sign-in holds a cookie scoped to
+`/api/admin`, and that a price written in the panel reaches `GET /api/packages`.
+The e2e override sets `ADMIN_COOKIE_SECURE=false`, because a Secure cookie is
+dropped over the stack's plain HTTP and the sign-in would leave no session
+behind. `npm run test:e2e` runs both projects.
 
 `E2E_SANDBOX=1 … --project=sandbox` instead checks the real Tripay sandbox: it
 creates a payment and stops, so it never settles money and needs no public

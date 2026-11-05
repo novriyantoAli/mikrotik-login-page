@@ -18,11 +18,16 @@ type composeFile struct {
 
 type composeService struct {
 	Image       string              `yaml:"image"`
+	Build       composeBuild        `yaml:"build"`
 	Command     []string            `yaml:"command"`
 	Environment map[string]string   `yaml:"environment"`
 	Ports       []string            `yaml:"ports"`
 	DependsOn   composeDependencies `yaml:"depends_on"`
 	Healthcheck composeHealthcheck  `yaml:"healthcheck"`
+}
+
+type composeBuild struct {
+	Context string `yaml:"context"`
 }
 
 type composeHealthcheck struct {
@@ -64,9 +69,13 @@ func (d *composeDependencies) UnmarshalYAML(value *yaml.Node) error {
 }
 
 func loadCompose(t *testing.T) composeFile {
+	return loadComposeFile(t, "docker-compose.yml")
+}
+
+func loadComposeFile(t *testing.T, relativePath string) composeFile {
 	t.Helper()
 
-	path := filepath.Join(repoRoot(t), "docker-compose.yml")
+	path := filepath.Join(repoRoot(t), relativePath)
 	raw, err := os.ReadFile(path)
 	if err != nil {
 		t.Fatalf("read %s: %v", path, err)
@@ -90,9 +99,25 @@ func readRepoFile(t *testing.T, relativePath string) string {
 	return string(raw)
 }
 
+// nginxDirectives returns the lines of an nginx config with comments and blank
+// lines removed, so a test can ask "does this config *do* X" instead of "does
+// this file mention X in a comment explaining why it must not".
+func nginxDirectives(config string) []string {
+	directives := make([]string, 0, len(config))
+	for _, line := range strings.Split(config, "\n") {
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "" || strings.HasPrefix(trimmed, "#") {
+			continue
+		}
+		directives = append(directives, trimmed)
+	}
+	return directives
+}
+
 // TestComposeServesOneOriginWithEveryService pins the deployment shape from
-// ADR 0009: Postgres, MySQL FreeRADIUS, Redis, API, worker, app and one proxy
-// that serves the app and forwards /api.
+// ADR 0009: Postgres, MySQL FreeRADIUS, Redis, API, worker, app, the Admin Panel
+// (its own image, ADR 0028) and one proxy that serves the app, forwards /api and
+// routes /admin.
 func TestComposeServesOneOriginWithEveryService(t *testing.T) {
 	compose := loadCompose(t)
 
@@ -104,6 +129,7 @@ func TestComposeServesOneOriginWithEveryService(t *testing.T) {
 		"api",
 		"worker",
 		"app",
+		"admin",
 		"proxy",
 	} {
 		if _, ok := compose.Services[service]; !ok {
@@ -123,6 +149,94 @@ func TestComposeServesOneOriginWithEveryService(t *testing.T) {
 	}
 	if !strings.Contains(proxyConfig, "proxy_pass http://app:80") {
 		t.Fatalf("proxy config does not serve the app:\n%s", proxyConfig)
+	}
+}
+
+// TestPanelIsItsOwnArtefactOnTheSameOrigin pins ADR 0028's deployment shape: a
+// second image with its own static root, no published port, its own headers, and
+// a proxy that only forwards. Isolation that exists as a route group is a
+// convention; an image is a boundary.
+func TestPanelIsItsOwnArtefactOnTheSameOrigin(t *testing.T) {
+	compose := loadCompose(t)
+
+	admin, ok := compose.Services["admin"]
+	if !ok {
+		t.Fatal("docker-compose.yml has no admin service: the panel would exist only as source")
+	}
+	if admin.Build.Context != "./admin" {
+		t.Fatalf("admin build context = %q, want ./admin", admin.Build.Context)
+	}
+	if admin.Image == compose.Services["app"].Image {
+		t.Fatal("the panel and the purchase app share an image, so they share a release")
+	}
+	if len(admin.Ports) != 0 {
+		t.Fatalf("admin ports = %v, want none: only the proxy reaches the panel", admin.Ports)
+	}
+	if _, ok := compose.Services["proxy"].DependsOn["admin"]; !ok {
+		t.Fatal("the proxy does not depend on admin, so /admin could answer 502 on first boot")
+	}
+
+	proxyConfig := readRepoFile(t, "docker/proxy/nginx.conf")
+	if !strings.Contains(proxyConfig, "location /admin") ||
+		!strings.Contains(proxyConfig, "proxy_pass http://admin:80") {
+		t.Fatalf("proxy config does not route /admin to the panel:\n%s", proxyConfig)
+	}
+	// Two policies intersect. A document policy here would have to hash the
+	// panel's inline bootstrap script, which a static header cannot know.
+	for _, directive := range nginxDirectives(proxyConfig) {
+		if !strings.HasPrefix(directive, "add_header Content-Security-Policy") {
+			continue
+		}
+		if strings.Contains(directive, "default-src") || strings.Contains(directive, "script-src") {
+			t.Fatalf("the proxy states a document CSP (%s); it would intersect with the panel's own", directive)
+		}
+	}
+
+	panelConfig := readRepoFile(t, "admin/docker/nginx.conf")
+	if !strings.Contains(panelConfig, `Cache-Control "no-store"`) {
+		t.Fatalf("admin/docker/nginx.conf keeps the shell in caches:\n%s", panelConfig)
+	}
+	if !strings.Contains(panelConfig, "frame-ancestors 'none'") {
+		t.Fatal("the panel's container states no framing policy of its own")
+	}
+	if !strings.Contains(panelConfig, "rewrite ^/admin/(.*)$ /$1 break") {
+		t.Fatal("the panel's container does not strip the /admin prefix the proxy forwards")
+	}
+	// A redirect built inside the container carries the container's own scheme
+	// and listening port, so a browser on :8080 is sent to :80 (PR #48's e2e run
+	// caught exactly that). The proxy states it instead, from the public host.
+	for _, directive := range nginxDirectives(panelConfig) {
+		if strings.HasPrefix(directive, "return 3") {
+			t.Fatalf("the panel's container builds a redirect (%s); its own :80 would leak into it", directive)
+		}
+	}
+	if !strings.Contains(proxyConfig, "return 301 $forwarded_proto://$public_host/admin/") {
+		t.Fatal("the proxy does not state the /admin/ redirect from the public host and scheme")
+	}
+
+	panelKit := readRepoFile(t, "admin/svelte.config.js")
+	if !strings.Contains(panelKit, "base: '/admin'") {
+		t.Fatal("the panel is not built under /admin, so its shell would ask the origin root for assets")
+	}
+	// The difference the ADR asks for: the purchase app must allow a vendor QR
+	// image, the panel has nothing to allow.
+	if strings.Contains(panelKit, "'https:'") {
+		t.Fatal("the panel's policy still allows remote images, so it is not its own policy")
+	}
+}
+
+// TestPanelJourneyCanHoldASession pins the one stack difference the panel's
+// browser journey needs: on plain HTTP a Secure cookie is dropped, so sign-in
+// would answer 200 and leave no session behind (ADR 0009, ADR 0024 §2).
+func TestPanelJourneyCanHoldASession(t *testing.T) {
+	e2e := loadComposeFile(t, "docker-compose.e2e.yml")
+
+	api, ok := e2e.Services["api"]
+	if !ok {
+		t.Fatal("docker-compose.e2e.yml has no api service")
+	}
+	if api.Environment["ADMIN_COOKIE_SECURE"] != "false" {
+		t.Fatalf("e2e api ADMIN_COOKIE_SECURE = %q, want false", api.Environment["ADMIN_COOKIE_SECURE"])
 	}
 }
 

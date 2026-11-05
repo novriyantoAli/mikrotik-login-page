@@ -33,6 +33,37 @@ describe('admin package contract fixture', () => {
   });
 });
 
+// The two write bodies the form sends are fixtures too: the backend integration
+// tests decode the same files into their DTOs, so a field either side forgets
+// fails one of the two suites.
+describe('package write contract fixtures', () => {
+  it('decodes the create body the backend binds', () => {
+    const parsed = CreatePackageInputSchema.parse(
+      loadContract('admin-package-create.request.json'),
+    );
+
+    expect(parsed.code).toBe('tahunan');
+    expect(parsed.price_idr).toBe(250000);
+  });
+
+  it('decodes the edit body with the version it was based on', () => {
+    const parsed = UpdatePackageInputSchema.parse(
+      loadContract('admin-package-update.request.json'),
+    );
+
+    expect(parsed.code).toBe('harian');
+    expect(parsed.version).toBe(2);
+  });
+
+  it('refuses an edit body without a version', () => {
+    const fixture = loadContract<{ version?: number }>('admin-package-update.request.json');
+    const withoutVersion = { ...fixture };
+    delete withoutVersion.version;
+
+    expect(UpdatePackageInputSchema.safeParse(withoutVersion).success).toBe(false);
+  });
+});
+
 describe('package form rules', () => {
   const valid = {
     code: 'harian',

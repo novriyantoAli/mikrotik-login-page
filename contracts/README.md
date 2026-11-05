@@ -35,6 +35,8 @@ silently.
 | `admin-login.request.json` | `POST /api/admin/auth/login` (request body) | `backend/test/integration/admin_contract_test.go`, `admin/tests/unit/auth.contract.test.ts` |
 | `admin-session.response.json` | `POST /api/admin/auth/login` and `GET /api/admin/auth/session` (200) | same two test files |
 | `admin-admins.response.json` | `GET /api/admin/admins` (200, one row per role) | `backend/test/integration/admin_contract_test.go`, `admin/tests/unit/admins.contract.test.ts` |
+| `admin-package-create.request.json` | `POST /api/admin/packages` (request body) | `backend/test/integration/admin_contract_test.go`, `admin/tests/unit/packages.contract.test.ts` |
+| `admin-package-update.request.json` | `PUT /api/admin/packages/{id}` (request body) | same two test files |
 
 Rules:
 
@@ -67,7 +69,10 @@ Rules:
   session body carries no token (the cookie is the session), and a fixture that
   grows one is a leak, not a feature. `is_active` and `version` are on every
   Package row so an edit can present the version it read; `role` is one of
-  `owner`, `support`, `auditor`.
+  `owner`, `support`, `auditor`. The two Package write bodies are asymmetric on
+  purpose: `code` is the seed's identity, so it is required on create and only
+  echoed on edit (a rename is refused, ADR 0025 §5), and every edit carries the
+  `version` it was based on.
 - Values are examples, not assertions of live data (latency, timestamps).
 - Never edit a fixture to make one side's test pass without updating the other
   side's schema/DTO in the same change.

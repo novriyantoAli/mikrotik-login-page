@@ -72,6 +72,11 @@ the pair is ignored completely, so a deploy can never reset a password. That is
 also why both are optional at startup, why a half-filled pair is not a startup
 error, and why both are empty in a steady-state deployment.
 
+The panel these keys belong to is not served by this API. It is its own image
+(`mikrotik-login-page/admin`, built from `admin/`) and its own compose service,
+and the proxy routes `/admin` to it (ADR 0028); the API only answers the
+`/api/admin/**` routes its cookie path scopes. See [`admin/README.md`](admin/README.md).
+
 ## Deployment migration (ADR 0012)
 
 `migrate` applies the Postgres schema (`packages` with its `is_active`/`version`

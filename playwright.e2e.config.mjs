@@ -3,11 +3,14 @@ import { defineConfig, devices } from '@playwright/test';
 /**
  * End-to-end smoke against the real stack (ADR 0018 §5).
  *
- * Two projects, on purpose:
+ * Three projects, three audiences, on purpose:
  *
  * - `stub` (the gate): the vendor is stubbed and the modulus is absent, so the
  *   whole chain — app, API, worker, Postgres, MySQL FreeRADIUS, the SMS outbox —
  *   is exercised deterministically. This is the one CI runs.
+ * - `panel` (the panel's own surface): the Admin Panel as deployed at /admin, on
+ *   the same stack. Desktop-first on purpose (ADR 0028 §5): the 360px standard
+ *   stays a property of the purchase app.
  * - `sandbox` (manual, @sandbox): pointed at Tripay's real sandbox, it asks a
  *   narrower question — is the vendor contract still what this adapter assumes?
  *   It never settles a payment, so it needs no public callback ingress. Enable it
@@ -26,6 +29,14 @@ const projects = [
       // journey proves the layout criterion while it proves the flow.
       viewport: { width: 360, height: 740 },
       baseURL: process.env.E2E_LOGIN_PAGE_URL ?? 'http://localhost:4173',
+    },
+  },
+  {
+    name: 'panel',
+    grep: /@panel/,
+    use: {
+      ...devices['Desktop Chrome'],
+      viewport: { width: 1280, height: 900 },
     },
   },
 ];
