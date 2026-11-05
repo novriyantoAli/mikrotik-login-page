@@ -1,0 +1,7 @@
+{
+  "code": "tahunan",
+  "name": "Paket Tahunan",
+  "price_idr": 250000,
+  "duration_minutes": 525600,
+  "rate_limit": "20M/20M"
+}

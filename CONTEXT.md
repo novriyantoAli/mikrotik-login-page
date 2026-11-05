@@ -55,5 +55,5 @@ The page in the Svelte app showing the active package, remaining active period, 
 _Avoid_: Dashboard
 
 **Admin Panel**:
-The page in the Svelte app for admins to manage Packages, view transactions, and list active users.
+The separate app (`admin/`, its own image and compose service) where admins manage Packages, view transactions, and list active users. It shares the origin but not the build with the Svelte purchase app.
 _Avoid_: Backoffice

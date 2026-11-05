@@ -24,8 +24,9 @@ x-e2e-tripay: &e2e-tripay
 
 services:
   # A fresh compose volume is a fresh deployment, and `migrate` refuses to finish
-  # with an empty admins table and no bootstrap pair (ADR 0024 §6). The panel is
-  # not part of this journey yet, so any long-enough password will do.
+  # with an empty admins table and no bootstrap pair (ADR 0024 §6). The panel's
+  # journey signs in with this pair, so it is fixed here rather than invented by
+  # the spec (tests/e2e/admin-panel.spec.mjs).
   migrate:
     environment:
       ADMIN_EMAIL: ${ADMIN_EMAIL:-owner@e2e.test}
@@ -36,8 +37,10 @@ services:
       <<: *e2e-tripay
       # The journey runs on plain HTTP (no TLS terminator in front of compose),
       # so a Secure cookie would be dropped by the browser and no session would
-      # ever exist (ADR 0009).
+      # ever exist (ADR 0009). The Admin Panel's cookie is a second one, with the
+      # same problem: its sign-in would 200 and leave no session behind.
       AUTH_COOKIE_SECURE: "false"
+      ADMIN_COOKIE_SECURE: "false"
       # The Magic Link the SMS carries must point at the origin the browser uses.
       AUTH_APP_BASE_URL: ${E2E_APP_URL:-http://localhost:8080}
       # The Login Page's `return` target is honoured only when it is allowed.

@@ -240,7 +240,20 @@ services:
     security_opt:
       - no-new-privileges:true
 
-  # The single origin: app at /, backend at /api.
+  # The Admin Panel, its own artefact and image (ADR 0028). It shares the origin
+  # but not the build, the release cadence or the headers: a panel bug fixed
+  # tonight never re-releases the flow a buyer is in.
+  admin:
+    image: mikrotik-login-page/admin:${ADMIN_TAG:-latest}
+    build:
+      context: ./admin
+    expose:
+      - "80"
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+
+  # The single origin: app at /, backend at /api, Admin Panel at /admin.
   proxy:
     image: nginx:1.27-alpine
     ports:
@@ -250,6 +263,7 @@ services:
     depends_on:
       - app
       - api
+      - admin
     restart: unless-stopped
     security_opt:
       - no-new-privileges:true

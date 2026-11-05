@@ -47,6 +47,29 @@ jobs:
       - run: npm test
       - run: npm run build
 
+  # The panel is its own artefact with its own release cadence (ADR 0028 §6): a
+  # panel bug fixed tonight must not be able to regress the buyer's flow, so its
+  # build is a job of its own. A panel that only builds on the machine it was
+  # written on is not delivered.
+  admin:
+    name: Admin Panel (typecheck, lint, tests, build)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: admin
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: admin/package-lock.json
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm run lint
+      - run: npm test
+      - run: npm run build
+
   app-layout:
     name: Purchase app (360px layout)
     runs-on: ubuntu-latest
@@ -165,11 +188,12 @@ jobs:
       - name: Bring the stack up
         run: docker compose -f docker-compose.yml -f docker-compose.e2e.yml up -d --build
 
-      - name: Wait for the API and the worker
+      - name: Wait for the API, the worker and the panel
         run: |
           for attempt in $(seq 1 60); do
             if curl -fsS http://127.0.0.1:8080/api/health > /dev/null \
-              && curl -fsS http://127.0.0.1:8081/healthz > /dev/null; then
+              && curl -fsS http://127.0.0.1:8081/healthz > /dev/null \
+              && curl -fsSL http://127.0.0.1:8080/admin/ > /dev/null; then
               echo "stack siap setelah ${attempt} percobaan"
               exit 0
             fi
@@ -188,7 +212,10 @@ jobs:
             docker compose -f docker-compose.yml -f docker-compose.e2e.yml exec -T postgres \
               sh -c 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DATABASE" -tA'
 
-      - run: npx playwright test -c playwright.e2e.config.mjs --project=stub
+      # Both browser projects against the same stack: the buyer's journey and the
+      # panel's (ADR 0028 §6). The panel spec reads and restores the catalog, so
+      # the order does not matter; it runs second because the journey is the gate.
+      - run: npx playwright test -c playwright.e2e.config.mjs --project=stub --project=panel
 
       - name: Stack logs on failure
         if: failure()

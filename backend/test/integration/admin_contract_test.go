@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	admindto "github.com/novriyantoAli/mikrotik-login-page/backend/internal/application/admin/dto"
+	packagesdto "github.com/novriyantoAli/mikrotik-login-page/backend/internal/application/packages/dto"
 )
 
 // adminSessionEnvelope is the contract as Go sees it. The shared fixture and the
@@ -62,6 +63,54 @@ func TestAdminSessionContract_FixtureMatchesDTO(t *testing.T) {
 		t.Fatalf("marshal session DTO: %v", err)
 	}
 	assertSameJSONShape(t, decodeJSON(t, raw), decodeJSON(t, roundTrip), "$")
+}
+
+// TestAdminPackageWriteContract_FixtureMatchesDTO proves the two bodies the
+// panel's Package form sends are exactly what the transport binds. The pair is
+// deliberately asymmetric: `code` is the seed's identity, so it is required on
+// create and only echoed on edit, where the server refuses a rename (ADR 0025
+// §5). Without `version` an edit would overwrite a price nobody saw.
+func TestAdminPackageWriteContract_FixtureMatchesDTO(t *testing.T) {
+	createRaw := loadContract(t, "admin-package-create.request.json")
+
+	var create packagesdto.CreatePackageRequest
+	createDecoder := json.NewDecoder(bytes.NewReader(createRaw))
+	createDecoder.DisallowUnknownFields()
+	if err := createDecoder.Decode(&create); err != nil {
+		t.Fatalf("fixture does not decode into the create DTO: %v", err)
+	}
+	if create.Code == "" || create.Name == "" || create.PriceIDR <= 0 ||
+		create.DurationMinutes <= 0 || create.RateLimit == "" {
+		t.Fatalf("fixture create body is incomplete: %+v", create)
+	}
+
+	createRoundTrip, err := json.Marshal(create)
+	if err != nil {
+		t.Fatalf("marshal create DTO: %v", err)
+	}
+	assertSameJSONShape(t, decodeJSON(t, createRaw), decodeJSON(t, createRoundTrip), "$")
+
+	updateRaw := loadContract(t, "admin-package-update.request.json")
+
+	var update packagesdto.UpdatePackageRequest
+	updateDecoder := json.NewDecoder(bytes.NewReader(updateRaw))
+	updateDecoder.DisallowUnknownFields()
+	if err := updateDecoder.Decode(&update); err != nil {
+		t.Fatalf("fixture does not decode into the update DTO: %v", err)
+	}
+	if update.Code == "" || update.Name == "" || update.PriceIDR <= 0 ||
+		update.DurationMinutes <= 0 || update.RateLimit == "" {
+		t.Fatalf("fixture update body is incomplete: %+v", update)
+	}
+	if update.Version <= 0 {
+		t.Fatal("fixture edit carries no version, so it would overwrite a price nobody saw")
+	}
+
+	updateRoundTrip, err := json.Marshal(update)
+	if err != nil {
+		t.Fatalf("marshal update DTO: %v", err)
+	}
+	assertSameJSONShape(t, decodeJSON(t, updateRaw), decodeJSON(t, updateRoundTrip), "$")
 }
 
 // TestAdminListContract_FixtureMatchesDTO proves the team screen cannot grow or

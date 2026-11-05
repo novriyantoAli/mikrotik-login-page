@@ -75,11 +75,32 @@ npm run format      # Prettier write
 `BACKEND_ORIGIN` (default `http://127.0.0.1:8080`) only affects the dev server
 proxy; the deployed origin is the reverse proxy.
 
+## Deployment (ADR 0028)
+
+The panel is its own image and compose service (`admin`), built from this
+directory by `admin/Dockerfile` and served as static files by nginx:
+
+- the proxy forwards `/admin` unchanged and this container strips that one prefix,
+  so the shell's `/admin/_app/...` asset URLs resolve from its own root; a deep
+  link such as `/admin/paket` falls back to `index.html`;
+- the shell is `Cache-Control: no-store` (a stale shell asks for asset hashes the
+  current build has already replaced) while `_app/immutable/` is cached for a
+  year;
+- the container states its own `frame-ancestors 'none'`; the document policy
+  itself comes from the build's `<meta>` tag, so the proxy must not send a second,
+  stricter one;
+- `ADMIN_TAG` selects the image tag, so the panel is released independently of the
+  purchase app.
+
+`docker compose up -d --build` serves it at `http://localhost:8080/admin`, next to
+the purchase app at `/` and the API at `/api`.
+
 ## Shared contract fixtures
 
 `tests/support/contracts.ts` reads `../../../contracts/*.json`, the same files the
 backend integration tests decode. `admin-login.request.json`,
-`admin-session.response.json`, `admin-admins.response.json`, and
+`admin-session.response.json`, `admin-admins.response.json`,
+`admin-package-create.request.json`, `admin-package-update.request.json` and
 `admin-packages.response.json` are the panel's contract; changing one side alone
 fails the other side's suite.
 
@@ -91,6 +112,8 @@ fails the other side's suite.
   `$env/*`. The app is a static SPA served by nginx, so there is no server
   environment at runtime. `env.ts` is the only file allowed to read
   `import.meta.env`.
-- **No Playwright suite inside this package.** The panel's end-to-end journey is
-  owned by the deployment slice (#34); this package stays Vitest, component and
-  shared-contract tests.
+- **No Playwright suite inside this package.** The panel's browser journey lives
+  with the other end-to-end specs (`tests/e2e/admin-panel.spec.mjs`, Playwright
+  project `panel`) because it needs the deployed stack — the proxy, the panel's
+  own image, the real session cookie — not a dev server. This package stays
+  Vitest, component and shared-contract tests.
