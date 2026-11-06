@@ -422,3 +422,34 @@ func (r *fakeOutboxRepository) Counts(_ context.Context, now time.Time) (reposit
 	}
 	return counts, nil
 }
+
+// LatestStatuses mirrors the repository's DISTINCT ON read: the newest row per
+// Phone Number, and nothing about the body.
+func (r *fakeOutboxRepository) LatestStatuses(
+	_ context.Context,
+	phoneNumbers []string,
+) ([]repository.DeliveryStatus, error) {
+	wanted := make(map[string]struct{}, len(phoneNumbers))
+	for _, phoneNumber := range phoneNumbers {
+		wanted[phoneNumber] = struct{}{}
+	}
+
+	newest := make(map[string]repository.DeliveryStatus, len(phoneNumbers))
+	for _, row := range r.rows {
+		if _, ok := wanted[row.PhoneNumber]; !ok {
+			continue
+		}
+		// Rows are appended in insert order, so the later one wins.
+		newest[row.PhoneNumber] = repository.DeliveryStatus{
+			PhoneNumber: row.PhoneNumber,
+			State:       string(row.State),
+			UpdatedAt:   row.UpdatedAt,
+		}
+	}
+
+	statuses := make([]repository.DeliveryStatus, 0, len(newest))
+	for _, status := range newest {
+		statuses = append(statuses, status)
+	}
+	return statuses, nil
+}

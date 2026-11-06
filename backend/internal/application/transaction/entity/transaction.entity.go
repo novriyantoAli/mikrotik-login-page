@@ -47,6 +47,17 @@ func (s State) CanTransitionTo(next State) bool {
 	return false
 }
 
+// Known reports whether the value is one of the five states this column can hold.
+// A filter that carries anything else is a typo, and answering it with an empty
+// page would look like "no such Transaction" instead of "that is not a state".
+func (s State) Known() bool {
+	switch s {
+	case StatePending, StatePaid, StateProvisioned, StateFailed, StateExpired:
+		return true
+	}
+	return false
+}
+
 // Instruction is one rendering block of the payment instructions ("Cara
 // pembayaran", then numbered steps). It is vendor-neutral: only the adapter knows
 // where those strings came from.

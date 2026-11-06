@@ -76,6 +76,15 @@ func (s *stubService) History(
 	return s.page, nil
 }
 
+// The panel's search is not this handler's route; it is served by the admin
+// domain. The method exists only because transaction.Service is one interface.
+func (s *stubService) ListTransactions(
+	_ context.Context,
+	_ *dto.AdminTransactionFilter,
+) (*dto.AdminTransactionPage, error) {
+	return nil, nil
+}
+
 type stubAuthenticator struct{}
 
 func (stubAuthenticator) Authenticate(

@@ -85,6 +85,11 @@ func RouterModule() fx.Option {
 				fx.As(new(RouteRegistrar)),
 				fx.ResultTags(routesGroup),
 			),
+			fx.Annotate(
+				adminhandler.NewTransactionHandler,
+				fx.As(new(RouteRegistrar)),
+				fx.ResultTags(routesGroup),
+			),
 		),
 	)
 }

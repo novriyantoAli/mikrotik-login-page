@@ -59,6 +59,9 @@ func Module() fx.Option {
 			// The panel's catalog routes are a thin adapter over packages.Service; the
 			// catalog's rules stay in the owning domain (golden rule 5).
 			handler.NewPackageHandler,
+			// The same shape for the panel's Transaction search: a thin adapter over
+			// transaction.Service, with no repository and no PIN path of its own.
+			handler.NewTransactionHandler,
 		),
 	)
 }

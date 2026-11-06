@@ -14,6 +14,7 @@ import (
 
 	"go.uber.org/zap"
 
+	notificationservice "github.com/novriyantoAli/mikrotik-login-page/backend/internal/application/notification/service"
 	packagesentity "github.com/novriyantoAli/mikrotik-login-page/backend/internal/application/packages/entity"
 	packageservice "github.com/novriyantoAli/mikrotik-login-page/backend/internal/application/packages/service"
 	"github.com/novriyantoAli/mikrotik-login-page/backend/internal/application/payment"
@@ -87,6 +88,12 @@ type Service interface {
 	// History returns one page of a Phone Number's Transactions, newest first.
 	// The response never carries a PIN.
 	History(ctx context.Context, phoneNumber string, filter *dto.TransactionFilter) (*dto.TransactionPage, error)
+	// ListTransactions returns one page of the panel's Transaction search, newest
+	// first. It is a read surface for support: every role may call it, no row
+	// carries a PIN, and the Package name and price shown are the ones the buyer
+	// bought (ADR 0026, PRD #35).
+	ListTransactions(ctx context.Context, filter *dto.AdminTransactionFilter) (
+		*dto.AdminTransactionPage, error)
 }
 
 // CurrentAccount is the newest provisioned purchase of one Phone Number: the
@@ -99,8 +106,12 @@ type CurrentAccount struct {
 }
 
 type service struct {
-	repo     repository.Repository
-	catalog  packageservice.Service
+	repo repository.Repository
+
+	catalog packageservice.Service
+	// sms is the outbox's read port: the panel must be able to say whether the PIN
+	// SMS went out, and this domain never reads that table itself (golden rule 5).
+	sms      notificationservice.StatusReader
 	gateway  payment.Gateway
 	cipher   *pin.Cipher
 	waker    queue.Enqueuer
@@ -116,6 +127,7 @@ type service struct {
 func NewService(
 	repo repository.Repository,
 	catalog packageservice.Service,
+	sms notificationservice.StatusReader,
 	gateway payment.Gateway,
 	cipher *pin.Cipher,
 	waker queue.Enqueuer,
@@ -126,6 +138,7 @@ func NewService(
 	return &service{
 		repo:        repo,
 		catalog:     catalog,
+		sms:         sms,
 		gateway:     gateway,
 		cipher:      cipher,
 		waker:       waker,

@@ -14,13 +14,16 @@ import (
 )
 
 // Module provides the enqueue path: other domains depend on service.Outbox and
-// never see a modem. The Asynq wake-up client comes with it.
+// never see a modem. The Asynq wake-up client comes with it. The read port the
+// panel's Transaction list uses comes from here too, so no process needs the modem
+// to report what became of a message.
 func Module() fx.Option {
 	return fx.Options(
 		queue.Module(),
 		fx.Provide(
 			repository.NewRepository,
 			service.NewOutbox,
+			service.NewStatusReader,
 		),
 	)
 }

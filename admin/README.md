@@ -12,7 +12,7 @@ The panel is separate from the purchase app on purpose: it is mounted at
 
 | Path                         | Role                                                                                               |
 | ---------------------------- | -------------------------------------------------------------------------------------------------- |
-| `src/routes/`                | Thin route adapters (`/` home + login, `/paket`, `/admin`)                                         |
+| `src/routes/`                | Thin route adapters (`/` home + login, `/paket`, `/transaksi`, `/admin`)                           |
 | `src/lib/api/client.ts`      | The single axios instance, one normalised error shape, the 401-notification seam                   |
 | `src/lib/config/env.ts`      | Typed wrapper over the build-time `VITE_*` values                                                  |
 | `src/lib/domains/<domain>/`  | Vertical slice: `schemas/` (zod), `api/`, `queries/`, optional `state/`, `components/`, `index.ts` |
@@ -34,17 +34,23 @@ Domains:
 - `packages` — the catalog including retired Packages, create/edit with the
   field rules mirrored from the backend, and activate/deactivate (the last
   active Package cannot be retired; the server answers 409).
+- `transactions` — the panel's Transaction search: state, Phone Number and a
+  date range, with the shared `{data, total_count, page, page_size}` pagination.
+  Each row shows the Package name and price the buyer **bought** (the snapshot on
+  the Transaction, ADR 0026), the provisioning attempt count and the last SMS
+  outcome. No row carries a PIN, and there is no reveal action here.
 - `admins` — owner-only team management: list, create, reset password,
   activate/deactivate. The UI hides what a role may not do; the server enforces
   it.
 
 ## Routes
 
-| Route          | Purpose                                                     |
-| -------------- | ----------------------------------------------------------- |
-| `/admin`       | Shell + login; signed in, the home card and password change |
-| `/admin/paket` | Package catalog, edit form (owner), activate/deactivate     |
-| `/admin/admin` | Team management (owner only)                                |
+| Route              | Purpose                                                     |
+| ------------------ | ----------------------------------------------------------- |
+| `/admin`           | Shell + login; signed in, the home card and password change |
+| `/admin/paket`     | Package catalog, edit form (owner), activate/deactivate     |
+| `/admin/transaksi` | Transaction search for every role, without the PIN          |
+| `/admin/admin`     | Team management (owner only)                                |
 
 Routes are thin: the domain components own queries, loading/error/empty states
 and forms.

@@ -38,6 +38,11 @@ type Repository interface {
 	// Counts returns one row per state plus the age of the longest-waiting
 	// message, measured against the caller's clock (ADR 0018).
 	Counts(ctx context.Context, now time.Time) (Counts, error)
+	// LatestStatuses returns the newest outbox row of each given Phone Number, so
+	// the panel can say what became of the last message it tried to send. It reads
+	// the state and the timestamps only: a pending row still holds the PIN in clear
+	// text, and a caller that never selected it cannot leak it (ADR 0016).
+	LatestStatuses(ctx context.Context, phoneNumbers []string) ([]DeliveryStatus, error)
 }
 
 // Counts is the outbox's state at one instant. It belongs to persistence rather
@@ -48,6 +53,15 @@ type Counts struct {
 	Sent                    int64 `gorm:"column:sent"`
 	Failed                  int64 `gorm:"column:failed"`
 	OldestPendingAgeSeconds int64 `gorm:"column:oldest_pending_age_seconds"`
+}
+
+// DeliveryStatus is the newest outbox row of one Phone Number: the state the
+// message ended (or is waiting) in, and when it last changed. It carries no body
+// on purpose — see LatestStatuses.
+type DeliveryStatus struct {
+	PhoneNumber string    `gorm:"column:phone_number"`
+	State       string    `gorm:"column:state"`
+	UpdatedAt   time.Time `gorm:"column:updated_at"`
 }
 
 type smsRepository struct {
@@ -175,6 +189,32 @@ func (r *smsRepository) MarkFailed(
 		return fmt.Errorf("mark sms %d failed: %w", id, err)
 	}
 	return nil
+}
+
+// LatestStatuses reads the newest row per Phone Number in one statement.
+// DISTINCT ON is what keeps it one round trip: the panel lists a page of
+// Transactions and asks for all of their statuses at once, not one query per row.
+func (r *smsRepository) LatestStatuses(
+	ctx context.Context,
+	phoneNumbers []string,
+) ([]DeliveryStatus, error) {
+	if len(phoneNumbers) == 0 {
+		return nil, nil
+	}
+
+	var statuses []DeliveryStatus
+	err := r.db.WithContext(ctx).Raw(`
+		SELECT DISTINCT ON (phone_number) phone_number, state, updated_at
+		FROM sms_outbox
+		WHERE phone_number IN ?
+		ORDER BY phone_number, id DESC`,
+		phoneNumbers,
+	).Scan(&statuses).Error
+	if err != nil {
+		r.logger.Error("read latest sms statuses", zap.Int("phone_numbers", len(phoneNumbers)), zap.Error(err))
+		return nil, fmt.Errorf("read latest sms statuses: %w", err)
+	}
+	return statuses, nil
 }
 
 // Counts counts by state in one statement. The age covers the rows still owed to

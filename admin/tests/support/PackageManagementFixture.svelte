@@ -1,7 +1,7 @@
 <script lang="ts">
   import { QueryClient, QueryClientProvider } from '@tanstack/svelte-query';
 
-  import PackageManagement from '$lib/domains/packages/components/PackageManagement.svelte';
+  import { PackageManagement } from '$lib/domains/packages';
 
   let { canWrite = true }: { canWrite?: boolean } = $props();
 

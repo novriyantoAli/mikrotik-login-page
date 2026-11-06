@@ -90,6 +90,12 @@
             >
               Package
             </a>
+            <a
+              class="hover:text-foreground underline-offset-4 hover:underline"
+              href={resolve('/transaksi')}
+            >
+              Transaksi
+            </a>
             {#if session.role === 'owner'}
               <a
                 class="hover:text-foreground underline-offset-4 hover:underline"

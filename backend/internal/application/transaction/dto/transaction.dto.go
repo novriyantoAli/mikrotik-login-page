@@ -117,3 +117,60 @@ type TransactionPage struct {
 	Page       int
 	PageSize   int
 }
+
+// AdminTransactionFilter is the panel's Transaction search: the filters an
+// operator types while answering a buyer's call. Dates are `YYYY-MM-DD` days in
+// the deployment's own day (WIB, see the service's panelDayLocation): From is the
+// first instant of its day and To is the first instant of the day after it, so a
+// whole day is always included and two days never overlap.
+type AdminTransactionFilter struct {
+	// State is not gated by a binding tag: the lifecycle owns the vocabulary
+	// (`entity.State.Known`), so there is one list of states rather than one per
+	// transport, and a typo answers the same 422 as any other refused filter.
+	State       string `form:"state"`
+	PhoneNumber string `form:"phone_number"`
+	PackageID   uint   `form:"package_id"`
+	From        string `form:"from"`
+	To          string `form:"to"`
+	Page        int    `form:"page" binding:"omitempty,min=1"`
+	PageSize    int    `form:"page_size" binding:"omitempty,min=1,max=100"`
+}
+
+// AdminTransactionSummaryResponse is one row of the panel's Transaction list. It
+// is deliberately not TransactionResponse: the panel answers support calls, so it
+// also sees the buyer's Phone Number, the reference, the provisioning attempt
+// count and the last SMS outcome — while the PIN is absent by construction, not by
+// a nil value a later change could fill in (PRD #35).
+//
+// PackageName and AmountIDR are the snapshot the buyer paid for, never the current
+// catalog row (ADR 0026).
+type AdminTransactionSummaryResponse struct {
+	ID                uint   `json:"id" example:"12"`
+	Reference         string `json:"reference" example:"TRX-0123456789ABCDEF"`
+	PhoneNumber       string `json:"phone_number" example:"6281234567890"`
+	PackageID         uint   `json:"package_id" example:"1"`
+	PackageName       string `json:"package_name" example:"Paket Harian"`
+	AmountIDR         int64  `json:"amount_idr" example:"5000"`
+	Channel           string `json:"channel" example:"BRIVA"`
+	ChannelName       string `json:"channel_name" example:"BRIVA"`
+	State             string `json:"state" example:"provisioned"`
+	GatewayReference  string `json:"gateway_reference" example:"T0001"`
+	ProvisionAttempts int    `json:"provision_attempts" example:"1"`
+	// LastSMSState is the newest outbox row's state for this Phone Number:
+	// pending, sending, sent or failed. It is nil when nothing was ever queued.
+	LastSMSState *string `json:"last_sms_state" example:"sent"`
+	LastSMSAt    *string `json:"last_sms_at" example:"2026-10-23T08:02:00Z"`
+	CreatedAt    string  `json:"created_at" example:"2026-10-23T08:00:00Z"`
+	PaidAt       *string `json:"paid_at" example:"2026-10-23T08:01:00Z"`
+	ExpiresAt    string  `json:"expires_at" example:"2026-10-23T09:00:00Z"`
+}
+
+// AdminTransactionPage is one page of the panel's search plus the numbers the
+// panel paginates with. The handler renders it as the shared envelope, so the
+// panel learns one pagination shape for every list (PRD #35).
+type AdminTransactionPage struct {
+	Items      []AdminTransactionSummaryResponse
+	TotalCount int64
+	Page       int
+	PageSize   int
+}

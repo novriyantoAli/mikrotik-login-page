@@ -23,3 +23,12 @@ export function fieldErrorsFrom<T extends string>(
   }
   return errors;
 }
+
+/**
+ * Rupiah for a panel screen. Money is always integer rupiah on the wire; this is
+ * the one place it becomes display copy, so a formatting change is one edit
+ * instead of one per domain.
+ */
+export function formatPriceIDR(amountIDR: number): string {
+  return new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR' }).format(amountIDR);
+}

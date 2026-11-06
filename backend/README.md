@@ -97,6 +97,15 @@ write endpoints (`POST`/`PUT /api/admin/packages`, `POST
 /api/admin/packages/{id}/active`) are the supported way to edit the catalog;
 changing a starter value in code still does not rewrite existing rows.
 
+The panel's read surface answers support calls without decrypting anything:
+`GET /api/admin/transactions` filters by `state`, `phone_number`, `package_id`,
+`from`/`to` (inclusive `YYYY-MM-DD` days) and paginates in the shared
+`{data,total_count,page,page_size}` envelope. Each row carries the Package name
+and price snapshotted at checkout (ADR 0026), `provision_attempts`, and the
+newest `sms_outbox` state for that Phone Number — read through the notification
+domain's `StatusReader` port, never by touching its table. The list has no `pin`
+field at all: opening one is a separate, audited act.
+
 ## Public read contract (Login Page)
 
 | Endpoint | Body |

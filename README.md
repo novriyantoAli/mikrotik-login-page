@@ -40,8 +40,12 @@ without changing its shape, so a Package is retired rather than deleted and no
 longer comes back on the next deploy. The panel itself (`admin/`) is delivered
 as its own artefact too: its own image and compose service, served under
 `/admin` by the one proxy, with a CI job and a browser journey of its own
-(ADR 0028). What remains of the plan is slice 2 — the panel's read surfaces
-(Transactions, active users, audit log).
+(ADR 0028). Slice 2 has started with the panel's Transaction search:
+`GET /api/admin/transactions` filters by state, Phone Number, Package and a date
+range, shows the Package terms snapshotted at checkout plus the provisioning
+attempt count and the last SMS outcome, and never carries a PIN. What remains of
+the plan is the rest of slice 2 — opening one PIN (audited, owner/support), active
+users, and the audit log.
 
 One known gap is budgeted outside that plan: the smoke journey runs with the
 modem absent, so a pty AT emulator for the modem edge is separate work, not a

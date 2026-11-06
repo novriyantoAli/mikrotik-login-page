@@ -11,6 +11,7 @@ import (
 
 	"go.uber.org/zap"
 
+	notificationservice "github.com/novriyantoAli/mikrotik-login-page/backend/internal/application/notification/service"
 	packagesdto "github.com/novriyantoAli/mikrotik-login-page/backend/internal/application/packages/dto"
 	packagesentity "github.com/novriyantoAli/mikrotik-login-page/backend/internal/application/packages/entity"
 	packageservice "github.com/novriyantoAli/mikrotik-login-page/backend/internal/application/packages/service"
@@ -316,6 +317,52 @@ func (r *fakeRepository) ListByPhone(
 	return matched[start:end], total, nil
 }
 
+// ListForPanel mirrors the production query: the filters the panel sends, newest
+// first. It is a fake, but it filters on the same fields so a service test proves
+// the mapping and the pagination, not the SQL.
+func (r *fakeRepository) ListForPanel(
+	_ context.Context,
+	params repository.PanelListParams,
+) ([]entity.Transaction, int64, error) {
+	matched := make([]entity.Transaction, 0, len(r.rows))
+	for index := range r.rows {
+		row := r.rows[index]
+		if params.State != nil && row.State != *params.State {
+			continue
+		}
+		if params.PhoneNumber != "" && row.PhoneNumber != params.PhoneNumber {
+			continue
+		}
+		if params.PackageID > 0 && row.PackageID != params.PackageID {
+			continue
+		}
+		if params.From != nil && row.CreatedAt.Before(*params.From) {
+			continue
+		}
+		if params.To != nil && !row.CreatedAt.Before(*params.To) {
+			continue
+		}
+		matched = append(matched, row)
+	}
+	sort.SliceStable(matched, func(i, j int) bool {
+		if !matched[i].CreatedAt.Equal(matched[j].CreatedAt) {
+			return matched[i].CreatedAt.After(matched[j].CreatedAt)
+		}
+		return matched[i].ID > matched[j].ID
+	})
+
+	total := int64(len(matched))
+	start := (params.Page - 1) * params.PageSize
+	if start >= len(matched) {
+		return []entity.Transaction{}, total, nil
+	}
+	end := start + params.PageSize
+	if end > len(matched) {
+		end = len(matched)
+	}
+	return matched[start:end], total, nil
+}
+
 func (r *fakeRepository) UnprovisionedWithoutSnapshot(
 	_ context.Context,
 	afterID uint,
@@ -521,6 +568,31 @@ func mustCipher() *pin.Cipher {
 
 type recordingWaker struct{ tasks []string }
 
+// fakeSMSStatusReader is the outbox read port: a page of statuses keyed by Phone
+// Number, plus the error a broken outbox would produce.
+type fakeSMSStatusReader struct {
+	statuses map[string]notificationservice.DeliveryStatus
+	err      error
+	asked    []string
+}
+
+func (r *fakeSMSStatusReader) LatestStatuses(
+	_ context.Context,
+	phoneNumbers []string,
+) (map[string]notificationservice.DeliveryStatus, error) {
+	r.asked = append(r.asked, phoneNumbers...)
+	if r.err != nil {
+		return nil, r.err
+	}
+	found := make(map[string]notificationservice.DeliveryStatus, len(phoneNumbers))
+	for _, phoneNumber := range phoneNumbers {
+		if status, ok := r.statuses[phoneNumber]; ok {
+			found[phoneNumber] = status
+		}
+	}
+	return found, nil
+}
+
 func (w *recordingWaker) Enqueue(_ context.Context, taskType string) error {
 	w.tasks = append(w.tasks, taskType)
 	return nil
@@ -535,6 +607,7 @@ type fixture struct {
 	writer      *fakeRadiusWriter
 	reader      *fakeRadiusReader
 	outbox      *fakeSMSOutbox
+	smsStatus   *fakeSMSStatusReader
 	service     service.Service
 	provisioner service.Provisioner
 	reconciler  service.Reconciler
@@ -577,6 +650,7 @@ func newFixtureWithLogger(logger *zap.Logger) *fixture {
 	f.writer = &fakeRadiusWriter{}
 	f.reader = &fakeRadiusReader{}
 	f.outbox = &fakeSMSOutbox{}
+	f.smsStatus = &fakeSMSStatusReader{statuses: map[string]notificationservice.DeliveryStatus{}}
 	f.provisioner = service.NewProvisioner(
 		f.repo,
 		f.writer,
@@ -589,6 +663,7 @@ func newFixtureWithLogger(logger *zap.Logger) *fixture {
 	f.service = service.NewService(
 		f.repo,
 		f.catalog,
+		f.smsStatus,
 		f.gateway,
 		testPINCipher,
 		f.waker,

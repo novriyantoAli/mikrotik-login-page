@@ -82,6 +82,19 @@ test.describe('panel admin', () => {
     expect(session?.path).toBe('/api/admin');
     expect(session?.httpOnly).toBe(true);
 
+    // 3b. The panel's read surface loads on its own route too: the Transaction
+    //     search is every role's screen, and its table (or its empty state) must
+    //     render without a PIN column. The e2e seed may have no Transactions, so
+    //     either answer is accepted.
+    await page.goto(`${app}/admin/transaksi`);
+    await expect(page.getByRole('heading', { name: 'Transaksi' })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Cari' })).toBeVisible();
+    await expect(
+      page.getByRole('table').or(page.getByText(/Belum ada Transaction|Tidak ada Transaction/)),
+    ).toBeVisible();
+    const transaksiText = await page.evaluate(() => document.body.innerText);
+    expect(transaksiText, 'daftar transaksi memuat kolom PIN').not.toMatch(/\bPIN\b/);
+
     // 4. Read one Package through the panel's own API, so the edit below is based
     //    on the version the form would have read.
     const adminCatalog = async () =>

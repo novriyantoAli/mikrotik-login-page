@@ -30,6 +30,22 @@ type ListParams struct {
 	PageSize int
 }
 
+// PanelListParams is the panel's Transaction search: the filters an operator types
+// while answering a buyer's call. It is owned here rather than reusing
+// dto.AdminTransactionFilter for the same reason ListParams is (golden rule 14).
+//
+// The time window is half-open — From inclusive, To exclusive — so two adjacent
+// days never both match the same row and a day is always exactly 24 hours.
+type PanelListParams struct {
+	State       *entity.State
+	PhoneNumber string
+	PackageID   uint
+	From        *time.Time
+	To          *time.Time
+	Page        int
+	PageSize    int
+}
+
 // SnapshotTarget is a pending Transaction whose catalog snapshot is still
 // missing, reduced to the two fields the backfill needs. It belongs to
 // persistence rather than to a DTO: it is a migration query result, not an HTTP
@@ -92,6 +108,11 @@ type Repository interface {
 	// plus the total number of rows, so Account Status can paginate its history
 	// (ADR 0017).
 	ListByPhone(ctx context.Context, phoneNumber string, params ListParams) ([]entity.Transaction, int64, error)
+	// ListForPanel returns one page of the panel's Transaction search, newest
+	// first, plus the total number of matching rows. Every field of the row is
+	// returned because the panel shows the snapshot the buyer was sold; the PIN is
+	// not part of the mapping and never leaves this repository for this caller.
+	ListForPanel(ctx context.Context, params PanelListParams) ([]entity.Transaction, int64, error)
 	// UnprovisionedWithoutSnapshot returns paid and pending Transactions created
 	// before the catalog terms were stored on the row, oldest first and after the
 	// given id, so `migrate` can fill them in bounded batches (ADR 0026). A
@@ -371,6 +392,69 @@ func (r *transactionRepository) ListByPhone(
 		r.logger.Error("list transaction history", zap.String("phone_number", phone.Mask(phoneNumber)),
 			zap.Error(err))
 		return nil, 0, fmt.Errorf("list transaction history: %w", err)
+	}
+	return rows, total, nil
+}
+
+// ListForPanel is the panel's search. The count and the page are built by the same
+// expression, so the total a caller paginates with always describes the rows it
+// asked for.
+func (r *transactionRepository) ListForPanel(
+	ctx context.Context,
+	params PanelListParams,
+) ([]entity.Transaction, int64, error) {
+	// The page bounds belong with the SQL, not with one caller's politeness: a
+	// zero PageSize would otherwise mean "no LIMIT" and hand back the whole table.
+	if params.Page < 1 {
+		params.Page = 1
+	}
+	if params.PageSize < 1 {
+		params.PageSize = 1
+	}
+
+	// A fresh statement per query: reusing one *gorm.DB for count and page would
+	// let the second call inherit the first one's SELECT list.
+	query := func() *gorm.DB {
+		statement := r.db.WithContext(ctx).Model(&entity.Transaction{})
+		if params.State != nil {
+			statement = statement.Where("state = ?", *params.State)
+		}
+		if params.PhoneNumber != "" {
+			statement = statement.Where("phone_number = ?", params.PhoneNumber)
+		}
+		if params.PackageID > 0 {
+			statement = statement.Where("package_id = ?", params.PackageID)
+		}
+		if params.From != nil {
+			statement = statement.Where("created_at >= ?", *params.From)
+		}
+		if params.To != nil {
+			statement = statement.Where("created_at < ?", *params.To)
+		}
+		return statement
+	}
+
+	var total int64
+	if err := query().Count(&total).Error; err != nil {
+		r.logger.Error("count panel transactions", zap.Error(err))
+		return nil, 0, fmt.Errorf("count panel transactions: %w", err)
+	}
+
+	// Only the columns the panel maps. The row also holds the sealed PIN and the
+	// payment instructions; a read surface that never shows them has no reason to
+	// carry them through memory (ADR 0016).
+	var rows []entity.Transaction
+	err := query().
+		Select("id", "reference", "phone_number", "package_id", "package_name", "amount_idr",
+			"channel", "channel_name", "state", "gateway_reference", "provision_attempts",
+			"created_at", "paid_at", "expires_at").
+		Order("created_at DESC, id DESC").
+		Offset((params.Page - 1) * params.PageSize).
+		Limit(params.PageSize).
+		Find(&rows).Error
+	if err != nil {
+		r.logger.Error("list panel transactions", zap.Error(err))
+		return nil, 0, fmt.Errorf("list panel transactions: %w", err)
 	}
 	return rows, total, nil
 }

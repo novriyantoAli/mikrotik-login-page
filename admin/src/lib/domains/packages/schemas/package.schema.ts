@@ -1,5 +1,7 @@
 import { z } from 'zod';
 
+import { formatPriceIDR } from '$lib/utils';
+
 /**
  * The panel's Package catalog contract (ADR 0025). It is deliberately not the
  * frozen public catalog: the panel edits typed values (integer rupiah, minutes,
@@ -125,7 +127,7 @@ export function readVersionConflict(data: unknown): VersionConflict['error'] | n
 
 /** Human copy for a Package row, reused by the table and the form. */
 export function formatPrice(priceIDR: number): string {
-  return new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR' }).format(priceIDR);
+  return formatPriceIDR(priceIDR);
 }
 
 export function formatDuration(minutes: number): string {

@@ -37,6 +37,7 @@ silently.
 | `admin-admins.response.json` | `GET /api/admin/admins` (200, one row per role) | `backend/test/integration/admin_contract_test.go`, `admin/tests/unit/admins.contract.test.ts` |
 | `admin-package-create.request.json` | `POST /api/admin/packages` (request body) | `backend/test/integration/admin_contract_test.go`, `admin/tests/unit/packages.contract.test.ts` |
 | `admin-package-update.request.json` | `PUT /api/admin/packages/{id}` (request body) | same two test files |
+| `admin-transactions.response.json` | `GET /api/admin/transactions` (200, one page of the panel's search) | `backend/test/integration/admin_transactions_test.go`, `admin/tests/unit/transactions.contract.test.ts` |
 
 Rules:
 
@@ -73,6 +74,12 @@ Rules:
   purpose: `code` is the seed's identity, so it is required on create and only
   echoed on edit (a rename is refused, ADR 0025 §5), and every edit carries the
   `version` it was based on.
+- The admin Transaction fixture is the **panel's search contract** (PRD #35).
+  It is paginated in the shared `{data, total_count, page, page_size}` shape,
+  `package_name`/`amount_idr` are the snapshot the buyer paid for (ADR 0026),
+  `last_sms_state` is the newest `sms_outbox` row (or `null` when nothing was
+  queued), and there is **no `pin` field**: opening one is a separate, audited
+  act, so a list response that grows one is a leak, not a feature.
 - Values are examples, not assertions of live data (latency, timestamps).
 - Never edit a fixture to make one side's test pass without updating the other
   side's schema/DTO in the same change.

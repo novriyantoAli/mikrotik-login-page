@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	notificationservice "github.com/novriyantoAli/mikrotik-login-page/backend/internal/application/notification/service"
 	"github.com/novriyantoAli/mikrotik-login-page/backend/internal/application/transaction/dto"
 	"github.com/novriyantoAli/mikrotik-login-page/backend/internal/application/transaction/entity"
 )
@@ -60,6 +61,40 @@ func toResponse(row *entity.Transaction, pinValue *string) *dto.TransactionRespo
 		CreatedAt:    row.CreatedAt.UTC().Format(time.RFC3339),
 		PIN:          pinValue,
 	}
+}
+
+// toAdminSummary maps a row for the panel's Transaction list. It takes no PIN value
+// and has no field to put one in: the panel's list answers calls and must never
+// hand a credential to a screen nobody asked it for (PRD #35). Name and amount come
+// from the row, which is the snapshot the buyer paid for (ADR 0026).
+func toAdminSummary(
+	row *entity.Transaction,
+	status notificationservice.DeliveryStatus,
+	hasStatus bool,
+) dto.AdminTransactionSummaryResponse {
+	response := dto.AdminTransactionSummaryResponse{
+		ID:                row.ID,
+		Reference:         row.Reference,
+		PhoneNumber:       row.PhoneNumber,
+		PackageID:         row.PackageID,
+		PackageName:       row.PackageName,
+		AmountIDR:         row.AmountIDR,
+		Channel:           row.Channel,
+		ChannelName:       row.ChannelName,
+		State:             string(row.State),
+		GatewayReference:  row.GatewayReference,
+		ProvisionAttempts: row.ProvisionAttempts,
+		CreatedAt:         row.CreatedAt.UTC().Format(time.RFC3339),
+		PaidAt:            formatOptional(row.PaidAt),
+		ExpiresAt:         row.ExpiresAt.UTC().Format(time.RFC3339),
+	}
+	if hasStatus {
+		state := status.State
+		at := status.UpdatedAt.UTC().Format(time.RFC3339)
+		response.LastSMSState = &state
+		response.LastSMSAt = &at
+	}
+	return response
 }
 
 func formatOptional(moment *time.Time) *string {

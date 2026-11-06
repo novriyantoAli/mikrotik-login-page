@@ -46,6 +46,13 @@
               Peran Anda hanya membaca katalog.
             {/if}
           </p>
+          <p>
+            <a class="font-medium underline-offset-4 hover:underline" href={resolve('/transaksi')}
+              >Transaksi</a
+            >
+            — cari Transaction berdasarkan state, Phone Number, dan tanggal. Daftar tidak memuat PIN;
+            PIN dibuka lewat tindakan terpisah yang tercatat.
+          </p>
           {#if identity.role === 'owner'}
             <p>
               <a class="font-medium underline-offset-4 hover:underline" href={resolve('/admin')}

@@ -78,6 +78,15 @@ func (s *stubTransactions) History(
 	return nil, nil
 }
 
+// The panel's search is not exercised from this domain; the method exists only
+// because transaction.Service is one interface (golden rule 3).
+func (s *stubTransactions) ListTransactions(
+	context.Context,
+	*transactiondto.AdminTransactionFilter,
+) (*transactiondto.AdminTransactionPage, error) {
+	return nil, nil
+}
+
 type stubCatalog struct {
 	pkg *packagesentity.Package
 	err error
