@@ -16,9 +16,9 @@ untuk: sesi baru yang mengerjakan #38
 (pengguna aktif)** dan **#38 (audit reader)**.
 
 **#36 sudah selesai sebagai kode, belum di `main`:** branch
-`feat/36-pin-reveal`, commit `33a38a6`, PR **#49** masih OPEN (CI pending). Ia
-menulis baris `pin.reveal` yang justru menjadi bahan uji #38 — lihat bagian
-"Yang #36 tinggalkan".
+`feat/36-pin-reveal` (commit `33a38a6`, plus `59191f8` yang memperbaiki assertion
+e2e milik #35), PR **#49** masih OPEN. Ia menulis baris `pin.reveal` yang justru
+menjadi bahan uji #38.
 
 Branch untuk #38:
 
@@ -149,3 +149,12 @@ itu urutan yang pernah terbalik di #30.
 **Catatan lingkungan:** tidak ada Docker di mesin pengembang, jadi
 `docker-compose` dan job `e2e-compose` tidak bisa dijalankan lokal; katakan itu
 apa adanya di PR, jangan mengklaim lebih.
+
+**Jebakan gate e2e panel (`tests/e2e/admin-panel.spec.mjs`):** spec ini memeriksa
+`/admin/transaksi`, dan sampai PR #49 assertion-nya membaca seluruh
+`document.body.innerText` untuk `\bPIN\b` — kalimat penjelas yang menyebut kata
+"PIN" saja sudah membuatnya merah (itu yang membuat `main` merah sejak #35).
+Sekarang assertion-nya membaca `table` (halaman kosong dilewati). Kalau #38
+menambah halaman `/admin/audit` dengan kalimat yang menyebut "PIN", **periksa
+apakah spec e2e panel ikut menyentuh halaman itu** sebelum menyalahkan perubahan
+sendiri.
