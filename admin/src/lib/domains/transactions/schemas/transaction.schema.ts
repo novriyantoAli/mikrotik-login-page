@@ -60,6 +60,25 @@ export const AdminTransactionListResponseSchema = z
   .strict();
 export type AdminTransactionListResponse = z.infer<typeof AdminTransactionListResponseSchema>;
 
+/**
+ * The panel's one credential: `POST /api/admin/transactions/{id}/pin` answers the
+ * six digits inside the shared envelope, and nothing else (ADR 0027 §4). The schema
+ * is strict and the digits are checked, so a response that grows a field, or a value
+ * that is not a PIN, fails here instead of reaching a screen.
+ */
+export const PIN_LENGTH = 6;
+
+export const AdminPINRevealResponseSchema = z
+  .object({
+    data: z
+      .object({
+        pin: z.string().regex(new RegExp(`^\\d{${PIN_LENGTH}}$`)),
+      })
+      .strict(),
+  })
+  .strict();
+export type AdminPINRevealResponse = z.infer<typeof AdminPINRevealResponseSchema>;
+
 export const MAX_TRANSACTION_PAGE_SIZE = 100;
 export const DEFAULT_TRANSACTION_PAGE_SIZE = 20;
 

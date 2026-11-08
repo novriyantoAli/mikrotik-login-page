@@ -49,6 +49,15 @@ func Module() fx.Option {
 					TTL:    cfg.Admin.SessionTTL,
 				}
 			},
+			// The reveal budget is the panel's own defense, read from the panel's own
+			// section: it is spent per admin, not per buyer (ADR 0027 §4).
+			func(cfg *config.Config) middleware.PINRevealLimitSettings {
+				return middleware.PINRevealLimitSettings{
+					Window: cfg.Admin.PINReveal.Window,
+					Limit:  cfg.Admin.PINReveal.Limit,
+				}
+			},
+			middleware.NewPINRevealLimiter,
 			service.NewService,
 			service.NewAuth,
 			// Fx matches concrete interface types, so the narrow resolver the guard

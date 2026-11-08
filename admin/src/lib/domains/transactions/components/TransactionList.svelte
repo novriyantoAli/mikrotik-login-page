@@ -1,5 +1,6 @@
 <script lang="ts">
   import { Badge } from '$lib/components/ui/badge';
+  import { Button } from '$lib/components/ui/button';
 
   import {
     formatDateTime,
@@ -11,14 +12,27 @@
     type TransactionState,
   } from '../schemas/transaction.schema';
 
+  import TransactionDetail from './TransactionDetail.svelte';
+
   /**
-   * A pure table. The query, the filters and the pagination belong to
-   * TransactionManagement, which owns them; this component only renders.
+   * The table plus one expanded detail row at a time. The query, the filters, the
+   * pagination and the role all belong to TransactionManagement, which owns them;
+   * this component renders, and decides which row is open.
    *
-   * There is no PIN column and no reveal action: a list never carries a credential,
-   * and opening one is its own audited endpoint (PRD #35).
+   * There is no PIN column: a list never carries a credential. The detail row is the
+   * only place a PIN can be asked for, and asking is the audited act (ADR 0027 §4).
    */
-  let { transactions }: { transactions: AdminTransaction[] } = $props();
+  let {
+    transactions,
+    canReveal = false,
+  }: { transactions: AdminTransaction[]; canReveal?: boolean } = $props();
+
+  // One row open at a time: two PIN panels on screen is two credentials to misread.
+  let expandedId = $state<number | null>(null);
+
+  function toggle(id: number) {
+    expandedId = expandedId === id ? null : id;
+  }
 
   const stateVariants: Record<TransactionState, 'default' | 'success' | 'destructive' | 'outline'> =
     {
@@ -50,6 +64,7 @@
         <th class="px-3 py-2 font-medium">Reference</th>
         <th class="px-3 py-2 font-medium">Percobaan</th>
         <th class="px-3 py-2 font-medium">SMS terakhir</th>
+        <th class="px-3 py-2 font-medium">Detail</th>
       </tr>
     </thead>
     <tbody class="divide-y">
@@ -98,7 +113,23 @@
               <span class="text-muted-foreground text-xs">Belum ada SMS</span>
             {/if}
           </td>
+          <td class="px-3 py-2">
+            <Button
+              variant="outline"
+              aria-expanded={expandedId === transaction.id}
+              onclick={() => toggle(transaction.id)}
+            >
+              {expandedId === transaction.id ? 'Tutup' : 'Detail'}
+            </Button>
+          </td>
         </tr>
+        {#if expandedId === transaction.id}
+          <tr>
+            <td colspan="10" class="p-0">
+              <TransactionDetail {transaction} {canReveal} />
+            </td>
+          </tr>
+        {/if}
       {/each}
     </tbody>
   </table>

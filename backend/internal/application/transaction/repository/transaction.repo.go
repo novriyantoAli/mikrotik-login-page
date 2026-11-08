@@ -14,6 +14,7 @@ import (
 	"gorm.io/gorm"
 
 	"github.com/novriyantoAli/mikrotik-login-page/backend/internal/application/transaction/entity"
+	"github.com/novriyantoAli/mikrotik-login-page/backend/internal/pkg/audit"
 	"github.com/novriyantoAli/mikrotik-login-page/backend/internal/pkg/database"
 	"github.com/novriyantoAli/mikrotik-login-page/backend/internal/pkg/phone"
 )
@@ -113,6 +114,11 @@ type Repository interface {
 	// returned because the panel shows the snapshot the buyer was sold; the PIN is
 	// not part of the mapping and never leaves this repository for this caller.
 	ListForPanel(ctx context.Context, params PanelListParams) ([]entity.Transaction, int64, error)
+	// RecordPINReveal appends the trail row of one PIN reveal attempt. A reveal
+	// changes no row, so there is no change to commit the row with; this method
+	// opens the transaction the entry is written in itself, through the same
+	// WithinTx every writer uses (ADR 0027 §2, §4).
+	RecordPINReveal(ctx context.Context, entry audit.Entry) error
 	// UnprovisionedWithoutSnapshot returns paid and pending Transactions created
 	// before the catalog terms were stored on the row, oldest first and after the
 	// given id, so `migrate` can fill them in bounded batches (ADR 0026). A
@@ -155,13 +161,15 @@ type Expired struct {
 }
 
 type transactionRepository struct {
-	db     *gorm.DB
-	logger *zap.Logger
+	db       *gorm.DB
+	recorder audit.Recorder
+	logger   *zap.Logger
 }
 
-// NewRepository builds the GORM-backed repository; Fx injects the handle.
-func NewRepository(db *gorm.DB, logger *zap.Logger) Repository {
-	return &transactionRepository{db: db, logger: logger}
+// NewRepository builds the GORM-backed repository; Fx injects the handle and the
+// audit recorder the one audited read needs (ADR 0027).
+func NewRepository(db *gorm.DB, recorder audit.Recorder, logger *zap.Logger) Repository {
+	return &transactionRepository{db: db, recorder: recorder, logger: logger}
 }
 
 func (r *transactionRepository) Create(ctx context.Context, transaction *entity.Transaction) error {

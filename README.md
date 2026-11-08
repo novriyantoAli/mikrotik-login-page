@@ -43,9 +43,11 @@ as its own artefact too: its own image and compose service, served under
 (ADR 0028). Slice 2 has started with the panel's Transaction search:
 `GET /api/admin/transactions` filters by state, Phone Number, Package and a date
 range, shows the Package terms snapshotted at checkout plus the provisioning
-attempt count and the last SMS outcome, and never carries a PIN. What remains of
-the plan is the rest of slice 2 — opening one PIN (audited, owner/support), active
-users, and the audit log.
+attempt count and the last SMS outcome, and never carries a PIN. Opening one is
+its own audited act: `POST /api/admin/transactions/{id}/pin` gives owner and
+support the digits, appends exactly one `pin.reveal` row per attempt whatever the
+outcome (ADR 0027 §4), and is budgeted per admin rather than per address. What
+remains of the plan is the rest of slice 2 — active users and the audit log.
 
 One known gap is budgeted outside that plan: the smoke journey runs with the
 modem absent, so a pty AT emulator for the modem edge is separate work, not a

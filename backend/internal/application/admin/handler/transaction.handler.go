@@ -6,9 +6,11 @@ package handler
 import (
 	"errors"
 	"net/http"
+	"strconv"
 
 	"github.com/gin-gonic/gin"
 
+	"github.com/novriyantoAli/mikrotik-login-page/backend/internal/application/admin/entity"
 	transactionsdto "github.com/novriyantoAli/mikrotik-login-page/backend/internal/application/transaction/dto"
 	transactionservice "github.com/novriyantoAli/mikrotik-login-page/backend/internal/application/transaction/service"
 	"github.com/novriyantoAli/mikrotik-login-page/backend/internal/middleware"
@@ -21,15 +23,19 @@ import (
 type TransactionHandler struct {
 	transactions transactionservice.Service
 	guard        *middleware.AdminGuard
+	// revealLimit is the panel's own budget for opening a PIN: the transaction
+	// domain owns the act, the transport owns the throttle (ADR 0027 §4).
+	revealLimit *middleware.PINRevealLimiter
 }
 
-// NewTransactionHandler builds the handler; Fx injects the transaction service and
-// the admin guard.
+// NewTransactionHandler builds the handler; Fx injects the transaction service, the
+// admin guard and the reveal budget.
 func NewTransactionHandler(
 	transactions transactionservice.Service,
 	guard *middleware.AdminGuard,
+	revealLimit *middleware.PINRevealLimiter,
 ) *TransactionHandler {
-	return &TransactionHandler{transactions: transactions, guard: guard}
+	return &TransactionHandler{transactions: transactions, guard: guard, revealLimit: revealLimit}
 }
 
 // RegisterRoutes mounts the panel's Transaction search. Every role may read it
@@ -40,6 +46,14 @@ func (h *TransactionHandler) RegisterRoutes(api *gin.RouterGroup) {
 	panel := admin.Group("/transactions", h.guard.Require())
 	{
 		panel.GET("", h.ListTransactions)
+	}
+
+	// Opening a PIN is the one act the matrix splits: support may do it, an auditor
+	// may not, and the budget is spent per admin rather than per screenshot
+	// (ADR 0024 §3, ADR 0027 §4).
+	revealers := admin.Group("/transactions", h.guard.Require(entity.RoleOwner, entity.RoleSupport))
+	{
+		revealers.POST("/:id/pin", h.revealLimit.Limit(), h.RevealPIN)
 	}
 }
 
@@ -79,6 +93,67 @@ func (h *TransactionHandler) ListTransactions(c *gin.Context) {
 	}
 
 	httpx.Paged(c, http.StatusOK, page.Items, page.TotalCount, page.Page, page.PageSize)
+}
+
+// RevealPIN opens one Transaction's PIN for an operator who is answering a buyer
+// whose SMS never arrived. Every attempt leaves an audit row, whether or not it
+// produced a PIN, and the value never appears in a list, a URL or a log.
+//
+//	@Summary		Open one Transaction's PIN
+//	@Description	Decrypts the sealed PIN of a provisioned Transaction and always appends one
+//	@Description	audit row (pin.reveal). Owner and support only, rate-limited per admin.
+//	@Tags			admin-transactions
+//	@Produce		json
+//	@Param			id	path		int	true	"Transaction id"
+//	@Success		200	{object}	httpx.Envelope{data=transactionsdto.AdminPINRevealResponse}
+//	@Failure		400	{object}	httpx.ErrorResponse	"the id is not a number"
+//	@Failure		401	{object}	httpx.ErrorResponse	"no live admin session"
+//	@Failure		403	{object}	httpx.ErrorResponse	"the session's role may not open a PIN"
+//	@Failure		404	{object}	httpx.ErrorResponse	"no such Transaction"
+//	@Failure		409	{object}	httpx.ErrorResponse	"the Transaction has no PIN yet"
+//	@Failure		429	{object}	httpx.ErrorResponse	"this admin has spent its reveal budget"
+//	@Failure		500	{object}	httpx.ErrorResponse	"the PIN could not be opened"
+//	@Router			/admin/transactions/{id}/pin [post]
+func (h *TransactionHandler) RevealPIN(c *gin.Context) {
+	actor, ok := middleware.AdminActorFrom(c)
+	if !ok {
+		adminUnauthorized(c)
+		return
+	}
+
+	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
+	if err != nil || id == 0 {
+		httpx.Error(c, http.StatusBadRequest, httpx.CodeInvalidRequest,
+			"ID transaksi tidak valid.")
+		return
+	}
+
+	value, err := h.transactions.RevealPIN(c.Request.Context(), actor, uint(id))
+	if err != nil {
+		writePINRevealError(c, err)
+		return
+	}
+
+	httpx.Data(c, http.StatusOK, transactionsdto.AdminPINRevealResponse{PIN: value})
+}
+
+// writePINRevealError maps a refusal onto the panel's statuses. A key fault stays a
+// generic 500: the operator needs to know "not now", not which key version is
+// missing (ADR 0016).
+func writePINRevealError(c *gin.Context, err error) {
+	switch {
+	case errors.Is(err, transactionservice.ErrNotFound):
+		httpx.Error(c, http.StatusNotFound, httpx.CodeNotFound, "Transaksi tidak ditemukan.")
+	case errors.Is(err, transactionservice.ErrPINNotReady):
+		httpx.Error(c, http.StatusConflict, httpx.CodeConflict,
+			"PIN belum tersedia: transaksi ini belum selesai provisioning.")
+	case errors.Is(err, transactionservice.ErrPINUnavailable):
+		httpx.Internal(c)
+	case errors.Is(err, transactionservice.ErrActorRequired):
+		adminUnauthorized(c)
+	default:
+		httpx.Internal(c)
+	}
 }
 
 // writeTransactionError maps the search's refusals onto the panel's statuses. The

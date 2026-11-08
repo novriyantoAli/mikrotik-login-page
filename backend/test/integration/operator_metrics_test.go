@@ -7,6 +7,7 @@ import (
 
 	"go.uber.org/zap"
 
+	adminrepository "github.com/novriyantoAli/mikrotik-login-page/backend/internal/application/admin/repository"
 	notificationentity "github.com/novriyantoAli/mikrotik-login-page/backend/internal/application/notification/entity"
 	notificationrepo "github.com/novriyantoAli/mikrotik-login-page/backend/internal/application/notification/repository"
 	notificationservice "github.com/novriyantoAli/mikrotik-login-page/backend/internal/application/notification/service"
@@ -28,7 +29,8 @@ func TestOperatorCounters_ReportTheBacklogs(t *testing.T) {
 		harness.Doubles.Clock,
 	)
 	provisioning := transactionservice.NewProvisioningCounter(
-		transactionrepo.NewRepository(harness.Postgres, zap.NewNop()),
+		transactionrepo.NewRepository(harness.Postgres,
+			adminrepository.NewAuditRecorder(zap.NewNop()), zap.NewNop()),
 	)
 
 	now := harness.Doubles.Clock.Now()

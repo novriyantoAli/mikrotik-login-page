@@ -1,6 +1,7 @@
 <script lang="ts">
   import { Button } from '$lib/components/ui/button';
   import EmptyState from '$lib/components/shared/EmptyState.svelte';
+  import { createSessionQuery } from '$lib/domains/auth';
   import { createAdminPackageListQuery } from '$lib/domains/packages';
 
   import TransactionFilters from './TransactionFilters.svelte';
@@ -21,6 +22,11 @@
   // The Package filter's options come from the packages domain through its barrel;
   // a failed read only leaves that one select empty.
   const packages = createAdminPackageListQuery();
+  // Opening a PIN is support's and the owner's act (ADR 0024 §3). The UI hides the
+  // control from an auditor, but the backend is what refuses it: hiding a button is
+  // not authorisation.
+  const session = createSessionQuery();
+  const canReveal = $derived(session.data?.role === 'owner' || session.data?.role === 'support');
 
   const page = $derived(query.data?.page ?? filters.page);
   const pageSize = $derived(query.data?.page_size ?? filters.pageSize);
@@ -81,7 +87,7 @@
           : 'Transaction muncul di sini begitu seorang pembeli memulai pembayaran.'}
       />
     {:else}
-      <TransactionList transactions={query.data.data} />
+      <TransactionList transactions={query.data.data} {canReveal} />
     {/if}
 
     {#if rowCount > 0 || page > 1}

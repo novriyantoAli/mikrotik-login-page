@@ -7,6 +7,8 @@ import (
 
 	"go.uber.org/zap"
 
+	adminrepository "github.com/novriyantoAli/mikrotik-login-page/backend/internal/application/admin/repository"
+
 	"github.com/novriyantoAli/mikrotik-login-page/backend/internal/application/transaction/entity"
 	"github.com/novriyantoAli/mikrotik-login-page/backend/internal/application/transaction/repository"
 	"github.com/novriyantoAli/mikrotik-login-page/backend/internal/pkg/testutil"
@@ -30,7 +32,7 @@ func newTransaction(reference, phoneNumber string, packageID uint, state entity.
 // same Phone Number and Package cannot exist, while a settled one frees the slot.
 func TestTransactionRepositoryEnforcesOnePendingPerSession(t *testing.T) {
 	harness := testutil.NewAPIHarness(t)
-	repo := repository.NewRepository(harness.Postgres, zap.NewNop())
+	repo := repository.NewRepository(harness.Postgres, adminrepository.NewAuditRecorder(zap.NewNop()), zap.NewNop())
 	ctx := context.Background()
 
 	var indexes []string
@@ -57,7 +59,7 @@ func TestTransactionRepositoryEnforcesOnePendingPerSession(t *testing.T) {
 
 func TestTransactionRepositoryTransitionIsGuarded(t *testing.T) {
 	harness := testutil.NewAPIHarness(t)
-	repo := repository.NewRepository(harness.Postgres, zap.NewNop())
+	repo := repository.NewRepository(harness.Postgres, adminrepository.NewAuditRecorder(zap.NewNop()), zap.NewNop())
 	ctx := context.Background()
 
 	row := newTransaction("TRX-D", "6281300000092", 2, entity.StatePending)
@@ -100,7 +102,7 @@ func TestTransactionRepositoryTransitionIsGuarded(t *testing.T) {
 
 func TestTransactionRepositoryExpiresOnlyOverduePendingRows(t *testing.T) {
 	harness := testutil.NewAPIHarness(t)
-	repo := repository.NewRepository(harness.Postgres, zap.NewNop())
+	repo := repository.NewRepository(harness.Postgres, adminrepository.NewAuditRecorder(zap.NewNop()), zap.NewNop())
 	ctx := context.Background()
 
 	overdue := newTransaction("TRX-E", "6281300000093", 3, entity.StatePending)
@@ -141,7 +143,7 @@ func TestTransactionRepositoryExpiresOnlyOverduePendingRows(t *testing.T) {
 // for ownership and callbacks.
 func TestTransactionRepositoryLookups(t *testing.T) {
 	harness := testutil.NewAPIHarness(t)
-	repo := repository.NewRepository(harness.Postgres, zap.NewNop())
+	repo := repository.NewRepository(harness.Postgres, adminrepository.NewAuditRecorder(zap.NewNop()), zap.NewNop())
 	ctx := context.Background()
 
 	row := newTransaction("TRX-G", "6281300000094", 1, entity.StatePending)
@@ -181,7 +183,7 @@ func TestTransactionRepositoryLookups(t *testing.T) {
 // one batch.
 func TestTransactionRepositoryReconcilableIDsIsTheWindow(t *testing.T) {
 	harness := testutil.NewAPIHarness(t)
-	repo := repository.NewRepository(harness.Postgres, zap.NewNop())
+	repo := repository.NewRepository(harness.Postgres, adminrepository.NewAuditRecorder(zap.NewNop()), zap.NewNop())
 	ctx := context.Background()
 
 	now := time.Date(2026, time.October, 23, 9, 0, 0, 0, time.UTC)

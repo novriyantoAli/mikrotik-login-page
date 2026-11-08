@@ -100,6 +100,12 @@ admin:
     ip_limit: 10
     email_window: 5m
     email_limit: 5
+  # Opening a buyer's PIN is its own budget, keyed by the admin who opened it:
+  # support answering calls all afternoon must not spend the sign-in budget, and
+  # two operators behind one office IP must not share one allowance (ADR 0027 §4).
+  pin_reveal:
+    window: 10m
+    limit: 30
 
 transaction:
   # How long a buyer has to pay before the worker expires the Transaction.

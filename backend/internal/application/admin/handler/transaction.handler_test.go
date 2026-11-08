@@ -5,7 +5,10 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"strconv"
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"go.uber.org/zap"
@@ -14,6 +17,7 @@ import (
 	transactionsdto "github.com/novriyantoAli/mikrotik-login-page/backend/internal/application/transaction/dto"
 	transactionservice "github.com/novriyantoAli/mikrotik-login-page/backend/internal/application/transaction/service"
 	"github.com/novriyantoAli/mikrotik-login-page/backend/internal/middleware"
+	"github.com/novriyantoAli/mikrotik-login-page/backend/internal/pkg/audit"
 )
 
 // stubTransactions answers the panel's search; the buyer surfaces are not this
@@ -22,6 +26,10 @@ type stubTransactions struct {
 	page      *transactionsdto.AdminTransactionPage
 	listErr   error
 	lastQuery *transactionsdto.AdminTransactionFilter
+
+	revealedPIN string
+	revealedID  uint
+	revealErr   error
 }
 
 func (s *stubTransactions) ListTransactions(
@@ -76,6 +84,24 @@ func (s *stubTransactions) History(
 	return nil, nil
 }
 
+// RevealPIN is the panel's one write; the tests below drive it through the stub.
+func (s *stubTransactions) RevealPIN(
+	_ context.Context,
+	_ audit.Actor,
+	id uint,
+) (string, error) {
+	s.revealedID = id
+	return s.revealedPIN, s.revealErr
+}
+
+// allowingLimiter stands in for the Redis counter: these tests are about the route,
+// not the budget, and the budget has its own test in the middleware package.
+type allowingLimiter struct{}
+
+func (allowingLimiter) Allow(context.Context, string, int, time.Duration) (bool, error) {
+	return true, nil
+}
+
 func transactionEngine(t *testing.T, transactions *stubTransactions, resolver stubResolver) *gin.Engine {
 	t.Helper()
 
@@ -83,8 +109,12 @@ func transactionEngine(t *testing.T, transactions *stubTransactions, resolver st
 	guard := middleware.NewAdminGuard(resolver,
 		middleware.AdminCookieSettings{Name: "hotspot_admin"}, zap.NewNop())
 
+	revealLimit := middleware.NewPINRevealLimiter(allowingLimiter{},
+		middleware.PINRevealLimitSettings{Window: time.Minute, Limit: 30}, zap.NewNop())
+
 	engine := gin.New()
-	adminhandler.NewTransactionHandler(transactions, guard).RegisterRoutes(engine.Group("/api"))
+	adminhandler.NewTransactionHandler(transactions, guard, revealLimit).
+		RegisterRoutes(engine.Group("/api"))
 	return engine
 }
 
@@ -232,5 +262,119 @@ func TestTransactionHandlerPassesTheFilterThroughUnchanged(t *testing.T) {
 	if got.State != "paid" || got.PhoneNumber != "08123456789" || got.PackageID != 3 ||
 		got.From != "2026-10-23" || got.To != "2026-10-24" || got.Page != 2 || got.PageSize != 50 {
 		t.Fatalf("filter reached the service as %+v", got)
+	}
+}
+
+// TestTransactionHandlerRevealsAPINForOwnerAndSupportOnly is the reveal's row of
+// ADR 0024 §3 at the HTTP boundary: the person whose actions are most likely to be
+// reviewed may not open a PIN, and no session gets one at all.
+func TestTransactionHandlerRevealsAPINForOwnerAndSupportOnly(t *testing.T) {
+	t.Parallel()
+
+	for _, testCase := range []struct {
+		role     string
+		cookie   bool
+		wantCode int
+	}{
+		{role: "owner", cookie: true, wantCode: http.StatusOK},
+		{role: "support", cookie: true, wantCode: http.StatusOK},
+		{role: "auditor", cookie: true, wantCode: http.StatusForbidden},
+		{role: "owner", cookie: false, wantCode: http.StatusUnauthorized},
+	} {
+		t.Run(testCase.role+"/cookie="+strconv.FormatBool(testCase.cookie), func(t *testing.T) {
+			transactions := &stubTransactions{revealedPIN: "123456"}
+			engine := transactionEngine(t, transactions, stubResolver{role: testCase.role})
+
+			recorder := doPackageRequest(t, engine, http.MethodPost,
+				"/api/admin/transactions/41/pin", "", testCase.cookie)
+			if recorder.Code != testCase.wantCode {
+				t.Fatalf("reveal as %s = %d, want %d (%s)",
+					testCase.role, recorder.Code, testCase.wantCode, recorder.Body.String())
+			}
+
+			if testCase.wantCode != http.StatusOK {
+				return
+			}
+			var body struct {
+				Data struct {
+					PIN string `json:"pin"`
+				} `json:"data"`
+			}
+			if err := json.Unmarshal(recorder.Body.Bytes(), &body); err != nil {
+				t.Fatalf("decode reveal: %v", err)
+			}
+			if body.Data.PIN != "123456" {
+				t.Fatalf("pin = %q, want the service's value in the shared envelope", body.Data.PIN)
+			}
+			if transactions.revealedID != 41 {
+				t.Fatalf("service was asked for Transaction %d, want 41", transactions.revealedID)
+			}
+		})
+	}
+}
+
+// TestTransactionHandlerMapsPINRevealRefusals pins the status each refusal answers,
+// including the generic 500 a key fault must stay behind (ADR 0016).
+func TestTransactionHandlerMapsPINRevealRefusals(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name      string
+		path      string
+		revealErr error
+		wantCode  int
+	}{
+		{
+			name:     "an id that is not a number is the transport's refusal",
+			path:     "/api/admin/transactions/dua/pin",
+			wantCode: http.StatusBadRequest,
+		},
+		{
+			name:      "no such Transaction",
+			path:      "/api/admin/transactions/999/pin",
+			revealErr: transactionservice.ErrNotFound,
+			wantCode:  http.StatusNotFound,
+		},
+		{
+			name:      "not provisioned yet",
+			path:      "/api/admin/transactions/41/pin",
+			revealErr: transactionservice.ErrPINNotReady,
+			wantCode:  http.StatusConflict,
+		},
+		{
+			name:      "a key fault stays generic",
+			path:      "/api/admin/transactions/41/pin",
+			revealErr: transactionservice.ErrPINUnavailable,
+			wantCode:  http.StatusInternalServerError,
+		},
+		{
+			name:      "an unexpected failure stays generic",
+			path:      "/api/admin/transactions/41/pin",
+			revealErr: errors.New("database on fire"),
+			wantCode:  http.StatusInternalServerError,
+		},
+	}
+
+	for _, testCase := range cases {
+		t.Run(testCase.name, func(t *testing.T) {
+			engine := transactionEngine(t, &stubTransactions{revealErr: testCase.revealErr},
+				stubResolver{role: "support"})
+
+			recorder := doPackageRequest(t, engine, http.MethodPost, testCase.path, "", true)
+			if recorder.Code != testCase.wantCode {
+				t.Fatalf("%s = %d, want %d (%s)",
+					testCase.path, recorder.Code, testCase.wantCode, recorder.Body.String())
+			}
+
+			payload := errorPayload(t, recorder.Body.Bytes())
+			if testCase.wantCode == http.StatusInternalServerError {
+				if payload["message"] != "Terjadi kesalahan pada server." {
+					t.Fatalf("message = %v, want the generic sentence", payload["message"])
+				}
+			}
+			if strings.Contains(recorder.Body.String(), "123456") {
+				t.Fatalf("a refused reveal leaked a PIN: %s", recorder.Body.String())
+			}
+		})
 	}
 }

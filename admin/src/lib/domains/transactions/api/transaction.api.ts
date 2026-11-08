@@ -1,6 +1,7 @@
 import { AppError, apiClient } from '$lib/api/client';
 
 import {
+  AdminPINRevealResponseSchema,
   AdminTransactionFilterSchema,
   AdminTransactionListResponseSchema,
   toQueryParams,
@@ -16,6 +17,8 @@ import {
  */
 export interface TransactionApi {
   list(filter: AdminTransactionFilter): Promise<AdminTransactionListResponse>;
+  /** The audited reveal: one Transaction's PIN, or a refusal. Never cached. */
+  revealPIN(id: number): Promise<string>;
 }
 
 export const transactionApi: TransactionApi = {
@@ -33,5 +36,17 @@ export const transactionApi: TransactionApi = {
       throw new AppError('Respons server tidak sesuai dengan kontrak panel.');
     }
     return response.data;
+  },
+
+  async revealPIN(id: number): Promise<string> {
+    // The id travels in the path and nowhere else: a PIN must never be reachable by
+    // a URL, and the reveal is a POST so no proxy or history keeps the answer.
+    const { data } = await apiClient.post(`/admin/transactions/${id}/pin`);
+
+    const response = AdminPINRevealResponseSchema.safeParse(data);
+    if (!response.success) {
+      throw new AppError('Respons buka PIN tidak sesuai dengan kontrak panel.');
+    }
+    return response.data.data.pin;
   },
 };

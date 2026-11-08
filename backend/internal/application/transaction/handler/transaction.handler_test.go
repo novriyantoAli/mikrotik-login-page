@@ -18,6 +18,7 @@ import (
 	"github.com/novriyantoAli/mikrotik-login-page/backend/internal/application/transaction/handler"
 	"github.com/novriyantoAli/mikrotik-login-page/backend/internal/application/transaction/service"
 	"github.com/novriyantoAli/mikrotik-login-page/backend/internal/middleware"
+	"github.com/novriyantoAli/mikrotik-login-page/backend/internal/pkg/audit"
 )
 
 const testPhone = "6281200000001"
@@ -83,6 +84,11 @@ func (s *stubService) ListTransactions(
 	_ *dto.AdminTransactionFilter,
 ) (*dto.AdminTransactionPage, error) {
 	return nil, nil
+}
+
+// Opening a PIN is the panel's route too, for the same reason as the search.
+func (s *stubService) RevealPIN(context.Context, audit.Actor, uint) (string, error) {
+	return "", nil
 }
 
 type stubAuthenticator struct{}

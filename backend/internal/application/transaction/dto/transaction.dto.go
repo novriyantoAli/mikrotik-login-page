@@ -174,3 +174,9 @@ type AdminTransactionPage struct {
 	Page       int
 	PageSize   int
 }
+
+// AdminPINRevealResponse is the one place a PIN travels towards the panel: a single
+// field, produced only by the audited reveal endpoint, never by a list (ADR 0027 §4).
+type AdminPINRevealResponse struct {
+	PIN string `json:"pin" example:"123456"`
+}

@@ -25,6 +25,10 @@ func generousAdminRateLimits(t *testing.T) {
 	t.Helper()
 	t.Setenv("ADMIN_RATE_LIMIT_IP_LIMIT", "1000")
 	t.Setenv("ADMIN_RATE_LIMIT_EMAIL_LIMIT", "1000")
+	// The reveal budget is keyed by admin id, and every schema seeds its owner with
+	// id 1, so the counter is shared across the test run. The budget itself is proven
+	// in the middleware's own test, against a deterministic one-method fake.
+	t.Setenv("ADMIN_PIN_REVEAL_LIMIT", "1000")
 }
 
 // adminSignIn signs in through the production router and returns the response plus

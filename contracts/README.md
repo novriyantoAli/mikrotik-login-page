@@ -80,6 +80,12 @@ Rules:
   `last_sms_state` is the newest `sms_outbox` row (or `null` when nothing was
   queued), and there is **no `pin` field**: opening one is a separate, audited
   act, so a list response that grows one is a leak, not a feature.
+- The admin PIN reveal fixture is the **panel's one credential contract**
+  (ADR 0027 §4). `data.pin` is the whole body — six digits, one field — and it
+  is the only admin fixture allowed to carry a credential: a PIN anywhere else,
+  in a list or in this file's future siblings, is a leak. The endpoint is
+  audited on every attempt, so this fixture describes a *successful* reveal;
+  the outcome of a refusal is an error envelope, not a `pin` that is `null`.
 - Values are examples, not assertions of live data (latency, timestamps).
 - Never edit a fixture to make one side's test pass without updating the other
   side's schema/DTO in the same change.
