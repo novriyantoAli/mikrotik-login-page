@@ -38,19 +38,23 @@ Domains:
   date range, with the shared `{data, total_count, page, page_size}` pagination.
   Each row shows the Package name and price the buyer **bought** (the snapshot on
   the Transaction, ADR 0026), the provisioning attempt count and the last SMS
-  outcome. No row carries a PIN, and there is no reveal action here.
+  outcome. No row carries a PIN: opening the row's detail shows the fields
+  support answers a call from, and — for owner and support only — the audited
+  reveal. The revealed digits live in that component's own state, never in the
+  query cache or the URL, and the panel warns that every reveal is recorded
+  (ADR 0027 §4).
 - `admins` — owner-only team management: list, create, reset password,
   activate/deactivate. The UI hides what a role may not do; the server enforces
   it.
 
 ## Routes
 
-| Route              | Purpose                                                     |
-| ------------------ | ----------------------------------------------------------- |
-| `/admin`           | Shell + login; signed in, the home card and password change |
-| `/admin/paket`     | Package catalog, edit form (owner), activate/deactivate     |
-| `/admin/transaksi` | Transaction search for every role, without the PIN          |
-| `/admin/admin`     | Team management (owner only)                                |
+| Route              | Purpose                                                       |
+| ------------------ | ------------------------------------------------------------- |
+| `/admin`           | Shell + login; signed in, the home card and password change   |
+| `/admin/paket`     | Package catalog, edit form (owner), activate/deactivate       |
+| `/admin/transaksi` | Transaction search for every role; open a PIN (owner/support) |
+| `/admin/admin`     | Team management (owner only)                                  |
 
 Routes are thin: the domain components own queries, loading/error/empty states
 and forms.

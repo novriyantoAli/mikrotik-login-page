@@ -21,6 +21,7 @@ import (
 	"github.com/novriyantoAli/mikrotik-login-page/backend/internal/application/transaction/dto"
 	"github.com/novriyantoAli/mikrotik-login-page/backend/internal/application/transaction/entity"
 	"github.com/novriyantoAli/mikrotik-login-page/backend/internal/application/transaction/repository"
+	"github.com/novriyantoAli/mikrotik-login-page/backend/internal/pkg/audit"
 	"github.com/novriyantoAli/mikrotik-login-page/backend/internal/pkg/clock"
 	"github.com/novriyantoAli/mikrotik-login-page/backend/internal/pkg/loginpage"
 	"github.com/novriyantoAli/mikrotik-login-page/backend/internal/pkg/phone"
@@ -48,6 +49,16 @@ var (
 	// ErrGatewayUnavailable means the vendor could not be reached or refused the
 	// request, which is a dependency failure, not a buyer error.
 	ErrGatewayUnavailable = errors.New("payment gateway unavailable")
+	// ErrActorRequired means an audited action arrived without the admin who
+	// performed it. Refusing is the point: a trail row that cannot name an actor
+	// cannot answer the question it exists for (ADR 0027 §3).
+	ErrActorRequired = errors.New("an audited action needs its actor")
+	// ErrPINNotReady means the Transaction exists but has no PIN to open yet: it has
+	// not been provisioned, so the buyer was never given one.
+	ErrPINNotReady = errors.New("pin is not ready for this transaction")
+	// ErrPINUnavailable means the sealed PIN could not be opened. It is answered
+	// generically so a key fault never reads as a PIN value (ADR 0016).
+	ErrPINUnavailable = errors.New("pin cannot be revealed")
 )
 
 // Settings are the Transaction knobs, kept in a local struct so the domain does
@@ -94,6 +105,11 @@ type Service interface {
 	// bought (ADR 0026, PRD #35).
 	ListTransactions(ctx context.Context, filter *dto.AdminTransactionFilter) (
 		*dto.AdminTransactionPage, error)
+	// RevealPIN returns the plaintext PIN of one provisioned Transaction for the
+	// panel and leaves exactly one audit row per attempt, whether or not it
+	// succeeded (ADR 0027 §4). It is the official path for a buyer who lost the
+	// SMS, so it never writes the PIN to a log, a list or a URL.
+	RevealPIN(ctx context.Context, actor audit.Actor, id uint) (string, error)
 }
 
 // CurrentAccount is the newest provisioned purchase of one Phone Number: the

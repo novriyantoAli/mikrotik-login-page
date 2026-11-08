@@ -11,6 +11,12 @@ const packageOptions = () => ({
   status: 200,
   data: loadContract('admin-packages.response.json'),
 });
+const panelSession = () => ({
+  status: 200,
+  data: {
+    data: { email: 'support@example.test', role: 'support', expires_at: '2026-10-24T08:00:00Z' },
+  },
+});
 
 /** Every test needs the Package filter's options as well as the page itself. */
 function stubPanel(
@@ -20,6 +26,9 @@ function stubPanel(
   stubApiRoutes([
     { method: 'get', path: '/admin/transactions', respond: transactions },
     { method: 'get', path: '/admin/packages', respond: packages },
+    // The screen decides whether to offer the reveal from the live session; the
+    // backend refuses a role that may not reveal regardless (ADR 0024 §3).
+    { method: 'get', path: '/admin/auth/session', respond: panelSession },
   ]);
 }
 
@@ -276,5 +285,40 @@ describe('TransactionFilterState', () => {
 
     filters.reset();
     expect(filters.filter).toEqual({ page: 1, page_size: 20 });
+  });
+});
+
+describe('Transaction detail row', () => {
+  afterEach(() => {
+    restoreApi();
+  });
+
+  it('opens one row at a time and offers the audited reveal to support', async () => {
+    stubPanel(panelPage);
+
+    render(TransactionManagementFixture);
+    await screen.findByText('6281234567890');
+
+    const detailButtons = screen.getAllByRole('button', { name: 'Detail' });
+    await fireEvent.click(detailButtons[0]);
+
+    const detail = await screen.findByTestId('transaction-detail');
+    expect(detail).toHaveTextContent('TRX-0123456789ABCDEF');
+    expect(within(detail).getByText(/tercatat di audit log/i)).toBeInTheDocument();
+    expect(within(detail).getByRole('button', { name: 'Buka PIN' })).toBeInTheDocument();
+  });
+
+  it('shows no PIN in the list even after a row has been opened', async () => {
+    stubPanel(panelPage);
+
+    render(TransactionManagementFixture);
+    await screen.findByText('6281234567890');
+
+    await fireEvent.click(screen.getAllByRole('button', { name: 'Detail' })[0]);
+    await screen.findByTestId('transaction-detail');
+
+    // Opening the row is not a reveal: no digits exist until the endpoint is called.
+    expect(screen.queryByTestId('revealed-pin')).not.toBeInTheDocument();
+    expect(screen.queryByText('123456')).not.toBeInTheDocument();
   });
 });

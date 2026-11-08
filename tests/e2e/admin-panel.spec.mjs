@@ -92,8 +92,14 @@ test.describe('panel admin', () => {
     await expect(
       page.getByRole('table').or(page.getByText(/Belum ada Transaction|Tidak ada Transaction/)),
     ).toBeVisible();
-    const transaksiText = await page.evaluate(() => document.body.innerText);
-    expect(transaksiText, 'daftar transaksi memuat kolom PIN').not.toMatch(/\bPIN\b/);
+    // The page copy states the rule in words ("membuka PIN adalah tindakan
+    // terpisah"), so the assertion belongs to the table, where a PIN column or a
+    // value would appear (ADR 0027 §4). An empty page has no table, and the
+    // empty-state assertion above already covers that case.
+    if (await page.locator('table').count()) {
+      const transaksiTable = await page.locator('table').innerText();
+      expect(transaksiTable, 'tabel transaksi memuat kolom atau nilai PIN').not.toMatch(/\bPIN\b/);
+    }
 
     // 4. Read one Package through the panel's own API, so the edit below is based
     //    on the version the form would have read.

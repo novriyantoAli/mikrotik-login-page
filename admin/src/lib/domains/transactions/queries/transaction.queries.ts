@@ -1,4 +1,4 @@
-import { createQuery } from '@tanstack/svelte-query';
+import { createMutation, createQuery } from '@tanstack/svelte-query';
 
 import { transactionApi } from '../api/transaction.api';
 import type { AdminTransactionFilter } from '../schemas/transaction.schema';
@@ -25,4 +25,16 @@ export function createAdminTransactionListQuery(filter: () => AdminTransactionFi
       staleTime: 15_000,
     };
   });
+}
+
+/**
+ * Open one Transaction's PIN. It is a mutation rather than a query on purpose: a
+ * credential must not land in the query cache, where a remount, a refetch or a
+ * devtools panel could show it again without a new audited request (ADR 0027 §4).
+ * Nothing is invalidated either — the reveal changes no row, only the trail.
+ */
+export function createRevealPINMutation() {
+  return createMutation(() => ({
+    mutationFn: (id: number) => transactionApi.revealPIN(id),
+  }));
 }

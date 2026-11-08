@@ -106,6 +106,16 @@ newest `sms_outbox` state for that Phone Number — read through the notificatio
 domain's `StatusReader` port, never by touching its table. The list has no `pin`
 field at all: opening one is a separate, audited act.
 
+That act is `POST /api/admin/transactions/{id}/pin`, for owner and support. It
+decrypts the sealed PIN (ADR 0016), and every attempt — success, an unknown id, a
+Transaction that has not been provisioned, or a key the deployment cannot load —
+appends exactly one `pin.reveal` row through the shared `audit.Recorder` (ADR
+0027 §4). The row names the admin, the Transaction and the outcome, never the
+digits. After a successful decrypt the row is written **before** the value is
+returned, so a trail that cannot be written refuses the reveal. The endpoint is
+rate-limited per admin (`ADMIN_PIN_REVEAL_WINDOW`/`ADMIN_PIN_REVEAL_LIMIT`), not
+per address: two operators behind one office IP do not share a budget.
+
 ## Public read contract (Login Page)
 
 | Endpoint | Body |

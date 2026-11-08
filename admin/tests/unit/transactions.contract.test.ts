@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+  AdminPINRevealResponseSchema,
   AdminTransactionFilterSchema,
   AdminTransactionListResponseSchema,
   AdminTransactionSchema,
@@ -58,6 +59,24 @@ describe('admin transaction contract fixture', () => {
       last_sms_at: null,
     });
     expect(parsed.last_sms_state).toBeNull();
+  });
+});
+
+describe('admin PIN reveal contract fixture', () => {
+  it('decodes the one credential the panel may receive', () => {
+    const envelope = AdminPINRevealResponseSchema.parse(
+      loadContract('admin-pin-reveal.response.json'),
+    );
+
+    expect(envelope.data.pin).toMatch(/^\d{6}$/);
+  });
+
+  it('refuses a response that grows a field or is not six digits', () => {
+    expect(() =>
+      AdminPINRevealResponseSchema.parse({ data: { pin: '123456', ciphertext: 'x' } }),
+    ).toThrow();
+    expect(() => AdminPINRevealResponseSchema.parse({ data: { pin: '12345' } })).toThrow();
+    expect(() => AdminPINRevealResponseSchema.parse({ data: { pin: 123456 } })).toThrow();
   });
 });
 

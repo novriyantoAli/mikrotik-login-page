@@ -45,6 +45,9 @@ var adminRoutes = []string{
 	"PUT /api/admin/packages/:id",
 	"POST /api/admin/packages/:id/active",
 	"GET /api/admin/transactions",
+	// Opening a PIN answers for one admin acting on one buyer's Transaction, and its
+	// own matrix/budget tests live in admin_pin_test.go (ADR 0027 §4).
+	"POST /api/admin/transactions/:id/pin",
 }
 
 // bodyAssertedRoutes are the routes the subtests below cover by asserting what the

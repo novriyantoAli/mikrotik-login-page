@@ -7,6 +7,8 @@ import (
 
 	"go.uber.org/zap"
 
+	adminrepository "github.com/novriyantoAli/mikrotik-login-page/backend/internal/application/admin/repository"
+
 	packagesentity "github.com/novriyantoAli/mikrotik-login-page/backend/internal/application/packages/entity"
 	transactionentity "github.com/novriyantoAli/mikrotik-login-page/backend/internal/application/transaction/entity"
 	"github.com/novriyantoAli/mikrotik-login-page/backend/internal/application/transaction/repository"
@@ -81,7 +83,7 @@ func TestProvisioningUsesTheSnapshotFromCheckoutWhenTheCatalogChanges(t *testing
 func TestMigrateBackfillsUnprovisionedSnapshotsWithoutTouchingProvisionedRows(t *testing.T) {
 	harness := testutil.NewAPIHarness(t)
 	ctx := context.Background()
-	repo := repository.NewRepository(harness.Postgres, zap.NewNop())
+	repo := repository.NewRepository(harness.Postgres, adminrepository.NewAuditRecorder(zap.NewNop()), zap.NewNop())
 
 	packageID := firstPackageID(t, harness)
 	var pkg packagesentity.Package
@@ -154,7 +156,7 @@ func TestMigrateBackfillsUnprovisionedSnapshotsWithoutTouchingProvisionedRows(t 
 func TestMigrateBackfillPreservesAnAlreadyFrozenDuration(t *testing.T) {
 	harness := testutil.NewAPIHarness(t)
 	ctx := context.Background()
-	repo := repository.NewRepository(harness.Postgres, zap.NewNop())
+	repo := repository.NewRepository(harness.Postgres, adminrepository.NewAuditRecorder(zap.NewNop()), zap.NewNop())
 
 	packageID := firstPackageID(t, harness)
 	var pkg packagesentity.Package

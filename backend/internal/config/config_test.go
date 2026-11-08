@@ -136,7 +136,8 @@ func TestValidateRejectsAnEmptyConfiguration(t *testing.T) {
 		"health.timeout",
 		"admin.session_ttl",
 		"admin.cookie_name",
-		"admin.rate_limit.email_window",
+		"admin.rate_limit.email.window",
+		"admin.pin_reveal.window",
 		"pin.encryption_keys",
 	} {
 		if !strings.Contains(err.Error(), expected) {
@@ -189,6 +190,12 @@ func TestLoadAppliesAdminDefaults(t *testing.T) {
 		t.Fatalf("admin.rate_limit.email_* = %v/%d",
 			cfg.Admin.RateLimit.EmailWindow, cfg.Admin.RateLimit.EmailLimit)
 	}
+	// Opening a buyer's PIN has its own budget, keyed by the admin who opened it
+	// (ADR 0027 §4), so it is configured apart from the sign-in budgets.
+	if cfg.Admin.PINReveal.Window != 10*time.Minute || cfg.Admin.PINReveal.Limit != 30 {
+		t.Fatalf("admin.pin_reveal.* = %v/%d",
+			cfg.Admin.PINReveal.Window, cfg.Admin.PINReveal.Limit)
+	}
 }
 
 func TestLoadAppliesAdminEnvironmentOverrides(t *testing.T) {
@@ -202,6 +209,8 @@ func TestLoadAppliesAdminEnvironmentOverrides(t *testing.T) {
 	t.Setenv("ADMIN_RATE_LIMIT_IP_LIMIT", "3")
 	t.Setenv("ADMIN_RATE_LIMIT_EMAIL_WINDOW", "10m")
 	t.Setenv("ADMIN_RATE_LIMIT_EMAIL_LIMIT", "2")
+	t.Setenv("ADMIN_PIN_REVEAL_WINDOW", "1h")
+	t.Setenv("ADMIN_PIN_REVEAL_LIMIT", "7")
 
 	cfg, err := config.Load()
 	if err != nil {
@@ -230,6 +239,10 @@ func TestLoadAppliesAdminEnvironmentOverrides(t *testing.T) {
 		t.Fatalf("admin.rate_limit.email_* = %v/%d",
 			cfg.Admin.RateLimit.EmailWindow, cfg.Admin.RateLimit.EmailLimit)
 	}
+	if cfg.Admin.PINReveal.Window != time.Hour || cfg.Admin.PINReveal.Limit != 7 {
+		t.Fatalf("admin.pin_reveal.* = %v/%d",
+			cfg.Admin.PINReveal.Window, cfg.Admin.PINReveal.Limit)
+	}
 }
 
 // A session with no lifetime and a limiter that never counts are both a door
@@ -239,6 +252,7 @@ func TestLoadRejectsAnUnusableAdminConfiguration(t *testing.T) {
 	t.Setenv("ADMIN_SESSION_TTL", "0s")
 	t.Setenv("ADMIN_RATE_LIMIT_IP_LIMIT", "0")
 	t.Setenv("ADMIN_RATE_LIMIT_EMAIL_WINDOW", "0s")
+	t.Setenv("ADMIN_PIN_REVEAL_LIMIT", "0")
 
 	_, err := config.Load()
 	if err == nil {
@@ -247,8 +261,9 @@ func TestLoadRejectsAnUnusableAdminConfiguration(t *testing.T) {
 
 	for _, expected := range []string{
 		"admin.session_ttl",
-		"admin.rate_limit.ip_limit",
-		"admin.rate_limit.email_window",
+		"admin.rate_limit.ip.limit",
+		"admin.rate_limit.email.window",
+		"admin.pin_reveal.limit",
 	} {
 		if !strings.Contains(err.Error(), expected) {
 			t.Fatalf("error %q does not mention %q", err, expected)

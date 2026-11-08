@@ -46,6 +46,11 @@ type fakeRepository struct {
 	transitionCount int
 	reconcilableErr error
 	attemptErr      error
+
+	// revealEntries is every audit row a reveal attempt produced, in order, so a
+	// test can assert "exactly one, and never a PIN" (ADR 0027 §4).
+	revealEntries []audit.Entry
+	revealErr     error
 }
 
 var _ repository.Repository = (*fakeRepository)(nil)
@@ -320,6 +325,14 @@ func (r *fakeRepository) ListByPhone(
 // ListForPanel mirrors the production query: the filters the panel sends, newest
 // first. It is a fake, but it filters on the same fields so a service test proves
 // the mapping and the pagination, not the SQL.
+func (r *fakeRepository) RecordPINReveal(_ context.Context, entry audit.Entry) error {
+	if r.revealErr != nil {
+		return r.revealErr
+	}
+	r.revealEntries = append(r.revealEntries, entry)
+	return nil
+}
+
 func (r *fakeRepository) ListForPanel(
 	_ context.Context,
 	params repository.PanelListParams,

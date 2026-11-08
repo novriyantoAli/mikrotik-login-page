@@ -80,6 +80,10 @@ func (s *stubTransactions) History(
 
 // The panel's search is not exercised from this domain; the method exists only
 // because transaction.Service is one interface (golden rule 3).
+func (s *stubTransactions) RevealPIN(context.Context, audit.Actor, uint) (string, error) {
+	return "", nil
+}
+
 func (s *stubTransactions) ListTransactions(
 	context.Context,
 	*transactiondto.AdminTransactionFilter,

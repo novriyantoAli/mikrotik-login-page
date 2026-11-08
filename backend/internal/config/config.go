@@ -252,6 +252,18 @@ type AdminConfig struct {
 	// RateLimit bounds login attempts per IP and per email. There is no lockout:
 	// locking the operator out during an incident is the worse failure.
 	RateLimit AdminRateLimitConfig `mapstructure:"rate_limit"`
+	// PINReveal bounds how often one signed-in admin may open a buyer's PIN. The
+	// dimension is the operator, not the address or the email: two support staff
+	// behind one office IP must not spend each other's budget, and the trail names
+	// the admin anyway (ADR 0027 §4).
+	PINReveal AdminWindowConfig `mapstructure:"pin_reveal"`
+}
+
+// AdminWindowConfig is one fixed window for one dimension, counted in Redis (the
+// same limiter shape the Magic Link path uses).
+type AdminWindowConfig struct {
+	Window time.Duration `mapstructure:"window"`
+	Limit  int           `mapstructure:"limit"`
 }
 
 // AdminRateLimitConfig is one fixed window per dimension, both counted in Redis
@@ -392,6 +404,8 @@ var defaults = map[string]any{
 	"admin.rate_limit.ip_limit":            10,
 	"admin.rate_limit.email_window":        "5m",
 	"admin.rate_limit.email_limit":         5,
+	"admin.pin_reveal.window":              "10m",
+	"admin.pin_reveal.limit":               30,
 	"pin.encryption_keys":                  "",
 	"pin.active_key_version":               1,
 	"pin.sweep_interval":                   "30s",
@@ -698,18 +712,23 @@ func (c *Config) validateAdmin() []string {
 		problems = append(problems, fmt.Sprintf(
 			"admin.cookie_name must differ from auth.cookie_name, both are %q", c.Admin.CookieName))
 	}
-	for _, window := range []struct {
-		name   string
-		window time.Duration
-		limit  int
+	// Every budget is one window and one limit, so one loop proves all three. The
+	// PIN reveal budget is here rather than beside the transaction rules: it is the
+	// panel's own defense, not the buyer's (ADR 0027 §4).
+	for _, budget := range []struct {
+		// section is the dotted path the pair lives under, so the message names the
+		// key an operator has to edit rather than a currency of "dimensions".
+		section string
+		window  time.Duration
+		limit   int
 	}{
-		{"ip", c.Admin.RateLimit.IPWindow, c.Admin.RateLimit.IPLimit},
-		{"email", c.Admin.RateLimit.EmailWindow, c.Admin.RateLimit.EmailLimit},
+		{"admin.rate_limit.ip", c.Admin.RateLimit.IPWindow, c.Admin.RateLimit.IPLimit},
+		{"admin.rate_limit.email", c.Admin.RateLimit.EmailWindow, c.Admin.RateLimit.EmailLimit},
+		{"admin.pin_reveal", c.Admin.PINReveal.Window, c.Admin.PINReveal.Limit},
 	} {
-		if window.window <= 0 || window.limit <= 0 {
+		if budget.window <= 0 || budget.limit <= 0 {
 			problems = append(problems, fmt.Sprintf(
-				"admin.rate_limit.%s_window and admin.rate_limit.%s_limit must be positive",
-				window.name, window.name))
+				"%s.window and %s.limit must be positive", budget.section, budget.section))
 		}
 	}
 	return problems
