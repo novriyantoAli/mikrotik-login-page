@@ -44,6 +44,35 @@ const (
 	ActionAdminDeactivate    Action = "admin.deactivate"
 )
 
+// Actions lists every action the vocabulary knows, in one place. The reader
+// validates a filter against this list instead of copying the strings, so an
+// action added above is readable the day it starts being written (ADR 0027 §3).
+func Actions() []Action {
+	return []Action{
+		ActionPackageCreate,
+		ActionPackageUpdate,
+		ActionPackageActivate,
+		ActionPackageDeactivate,
+		ActionPINReveal,
+		ActionAdminCreate,
+		ActionAdminUpdate,
+		ActionAdminPasswordReset,
+		ActionAdminDeactivate,
+	}
+}
+
+// Known reports whether action is one the vocabulary names. An unknown value is a
+// typo, and a reader must answer it rather than match nothing: filtering on a
+// misspelled action would look like "the trail is empty".
+func Known(action Action) bool {
+	for _, known := range Actions() {
+		if known == action {
+			return true
+		}
+	}
+	return false
+}
+
 // TargetType names what an audited row points at. It has its own type for the same
 // reason Action does: a typo in a target is a reader that silently matches nothing.
 type TargetType string

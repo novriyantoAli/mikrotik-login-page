@@ -25,6 +25,29 @@ export function fieldErrorsFrom<T extends string>(
 }
 
 /**
+ * The clock the panel reads and filters in. Day filters are parsed in this same zone
+ * on the backend (WIB), so the column an operator reads and the day they filter on
+ * can never disagree.
+ */
+export const PANEL_TIME_ZONE = 'Asia/Jakarta';
+
+/** Render an RFC 3339 instant in WIB, or an em dash when absent. */
+export function formatDateTimeWIB(value: string | null): string {
+  if (!value) {
+    return '—';
+  }
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) {
+    return value;
+  }
+  return new Intl.DateTimeFormat('id-ID', {
+    dateStyle: 'medium',
+    timeStyle: 'short',
+    timeZone: PANEL_TIME_ZONE,
+  }).format(parsed);
+}
+
+/**
  * Rupiah for a panel screen. Money is always integer rupiah on the wire; this is
  * the one place it becomes display copy, so a formatting change is one edit
  * instead of one per domain.

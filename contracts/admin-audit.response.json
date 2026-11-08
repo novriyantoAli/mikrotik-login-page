@@ -1,0 +1,30 @@
+{
+  "data": [
+    {
+      "id": 42,
+      "created_at": "2026-10-23T08:05:00Z",
+      "admin_email": "owner@example.test",
+      "action": "package.update",
+      "target_type": "package",
+      "target_id": "1",
+      "payload": {
+        "price_idr": { "before": 5000, "after": 7500 },
+        "version": { "before": 1, "after": 2 }
+      },
+      "ip": "203.0.113.9"
+    },
+    {
+      "id": 41,
+      "created_at": "2026-10-23T08:04:00Z",
+      "admin_email": "support@example.test",
+      "action": "pin.reveal",
+      "target_type": "transaction",
+      "target_id": "12",
+      "payload": { "result": "ok", "reference": "TRX-0123456789ABCDEF" },
+      "ip": "203.0.113.10"
+    }
+  ],
+  "total_count": 2,
+  "page": 1,
+  "page_size": 20
+}

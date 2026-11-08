@@ -116,6 +116,16 @@ returned, so a trail that cannot be written refuses the reveal. The endpoint is
 rate-limited per admin (`ADMIN_PIN_REVEAL_WINDOW`/`ADMIN_PIN_REVEAL_LIMIT`), not
 per address: two operators behind one office IP do not share a budget.
 
+The trail those acts write is readable through `GET /api/admin/audit`, for owner
+and auditor only. It filters by `admin_email` (copy on the row, so a deactivated
+admin's rows still read), `action` (validated against the shared `pkg/audit`
+vocabulary — an unknown one is `422`, not an empty page) and `from`/`to` as
+inclusive WIB days, newest first with `id` as the tie-break so a later page never
+repeats a row. `payload` travels as the writer recorded it: `before`/`after` per
+changed field for a catalog edit, only `after` for a create, and the outcome plus
+Transaction reference for a reveal. There is no endpoint that can change or
+remove a row — the table is append-only (ADR 0027 §3).
+
 ## Public read contract (Login Page)
 
 | Endpoint | Body |

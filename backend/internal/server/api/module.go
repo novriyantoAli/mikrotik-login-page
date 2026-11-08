@@ -90,6 +90,11 @@ func RouterModule() fx.Option {
 				fx.As(new(RouteRegistrar)),
 				fx.ResultTags(routesGroup),
 			),
+			fx.Annotate(
+				adminhandler.NewAuditHandler,
+				fx.As(new(RouteRegistrar)),
+				fx.ResultTags(routesGroup),
+			),
 		),
 	)
 }

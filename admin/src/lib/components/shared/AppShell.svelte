@@ -104,6 +104,14 @@
                 Admin
               </a>
             {/if}
+            {#if session.role === 'owner' || session.role === 'auditor'}
+              <a
+                class="hover:text-foreground underline-offset-4 hover:underline"
+                href={resolve('/audit')}
+              >
+                Audit
+              </a>
+            {/if}
           </nav>
         </div>
 

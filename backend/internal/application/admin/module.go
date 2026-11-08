@@ -71,6 +71,9 @@ func Module() fx.Option {
 			// The same shape for the panel's Transaction search: a thin adapter over
 			// transaction.Service, with no repository and no PIN path of its own.
 			handler.NewTransactionHandler,
+			// And for the audit reader: one GET over the trail the domain writes,
+			// guarded to owner and auditor (ADR 0027 §3).
+			handler.NewAuditHandler,
 		),
 	)
 }

@@ -94,6 +94,9 @@ type Service interface {
 	CreateAdmin(ctx context.Context, actor audit.Actor, request *dto.CreateAdminRequest) (*dto.AdminResponse, error)
 	// ListAdmins returns every admin, so an owner can see the team they manage.
 	ListAdmins(ctx context.Context) ([]dto.AdminResponse, error)
+	// ListAudit returns one page of the append-only trail for an owner or an
+	// auditor (ADR 0027 §3). It is a read: no method here can rewrite a row.
+	ListAudit(ctx context.Context, filter *dto.AdminAuditFilter) (*dto.AdminAuditPage, error)
 	// ResetPassword sets a colleague's password and revokes every session that
 	// admin has, in the same transaction as the trail row (ADR 0024 §5).
 	ResetPassword(ctx context.Context, actor audit.Actor, adminID uint, request *dto.ResetPasswordRequest) error

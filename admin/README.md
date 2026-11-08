@@ -12,7 +12,7 @@ The panel is separate from the purchase app on purpose: it is mounted at
 
 | Path                         | Role                                                                                               |
 | ---------------------------- | -------------------------------------------------------------------------------------------------- |
-| `src/routes/`                | Thin route adapters (`/` home + login, `/paket`, `/transaksi`, `/admin`)                           |
+| `src/routes/`                | Thin route adapters (`/` home + login, `/paket`, `/transaksi`, `/admin`, `/audit`)                 |
 | `src/lib/api/client.ts`      | The single axios instance, one normalised error shape, the 401-notification seam                   |
 | `src/lib/config/env.ts`      | Typed wrapper over the build-time `VITE_*` values                                                  |
 | `src/lib/domains/<domain>/`  | Vertical slice: `schemas/` (zod), `api/`, `queries/`, optional `state/`, `components/`, `index.ts` |
@@ -46,6 +46,12 @@ Domains:
 - `admins` — owner-only team management: list, create, reset password,
   activate/deactivate. The UI hides what a role may not do; the server enforces
   it.
+- `audit` — the append-only trail reader (owner and auditor): filter by actor,
+  action and date range, with the shared `{data, total_count, page, page_size}`
+  pagination. A catalog edit opens as `before → after` per changed field, a
+  create shows only the values it was created with, and a reveal names its
+  Transaction without ever holding the digits. There is no mutation in this
+  domain: nothing in the panel can change or remove a row (ADR 0027 §3).
 
 ## Routes
 
@@ -55,6 +61,7 @@ Domains:
 | `/admin/paket`     | Package catalog, edit form (owner), activate/deactivate       |
 | `/admin/transaksi` | Transaction search for every role; open a PIN (owner/support) |
 | `/admin/admin`     | Team management (owner only)                                  |
+| `/admin/audit`     | Append-only trail reader (owner and auditor)                  |
 
 Routes are thin: the domain components own queries, loading/error/empty states
 and forms.
@@ -112,7 +119,9 @@ backend integration tests decode. `admin-login.request.json`,
 `admin-session.response.json`, `admin-admins.response.json`,
 `admin-package-create.request.json`, `admin-package-update.request.json` and
 `admin-packages.response.json` are the panel's contract; changing one side alone
-fails the other side's suite.
+fails the other side's suite. `admin-audit.response.json` is the trail reader's
+contract: the envelope and columns are strict, while `payload` stays an open
+record so a new audited field does not break the page.
 
 ## Deliberate deviations from the frontend architecture standard
 

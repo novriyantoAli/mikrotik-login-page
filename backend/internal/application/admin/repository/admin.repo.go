@@ -65,6 +65,12 @@ type Repository interface {
 	// panel's list does not reshuffle between two reads.
 	ListAdmins(ctx context.Context) ([]entity.Admin, error)
 
+	// ListAudit returns one page of the append-only trail, newest first, plus the
+	// total number of matching rows. Filter values are repository-owned (see
+	// AuditListParams), so the HTTP validation tags cannot change what persistence
+	// queries on (golden rule 14).
+	ListAudit(ctx context.Context, params AuditListParams) ([]entity.AuditEntry, int64, error)
+
 	// CreateSession stores a freshly minted admin session. Only the token hash is
 	// written; the raw token lives in the cookie and nowhere else (ADR 0024 §2).
 	CreateSession(ctx context.Context, session *entity.Session) error

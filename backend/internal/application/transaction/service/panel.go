@@ -7,11 +7,11 @@ package service
 import (
 	"context"
 	"errors"
-	"time"
 
 	"github.com/novriyantoAli/mikrotik-login-page/backend/internal/application/transaction/dto"
 	"github.com/novriyantoAli/mikrotik-login-page/backend/internal/application/transaction/entity"
 	"github.com/novriyantoAli/mikrotik-login-page/backend/internal/application/transaction/repository"
+	"github.com/novriyantoAli/mikrotik-login-page/backend/internal/pkg/panelwindow"
 	"github.com/novriyantoAli/mikrotik-login-page/backend/internal/pkg/phone"
 )
 
@@ -26,18 +26,6 @@ const (
 	defaultPanelPageSize = 20
 	maxPanelPageSize     = 100
 )
-
-// panelDateLayout is the day format the panel's date inputs send. The search would
-// be unusable if this accepted arbitrary timestamps: an operator asks for "23
-// October", not for an instant.
-const panelDateLayout = time.DateOnly
-
-// panelDayLocation is the day boundary a search means. It is the deployment's own
-// day (WIB), not UTC: an operator answering a call at 08:00 WIB and the panel
-// rendering that same instant must agree on which day a Transaction belongs to.
-// The panel renders timestamps in this zone too, so the filter never disagrees with
-// the column the operator just read.
-var panelDayLocation = time.FixedZone("WIB", 7*60*60)
 
 // FilterError names the refused filter and why, in the words the panel shows. It
 // implements Is so every rule reads as ErrFilterInvalid while the message still
@@ -123,12 +111,12 @@ func panelParams(filter *dto.AdminTransactionFilter) (repository.PanelListParams
 	params.PhoneNumber = phoneNumber
 	params.PackageID = filter.PackageID
 
-	window, err := panelWindowOf(filter.From, filter.To)
+	window, err := panelwindow.Of(filter.From, filter.To)
 	if err != nil {
-		return params, err
+		return params, panelDayError(err)
 	}
-	params.From = window.from
-	params.To = window.to
+	params.From = window.From
+	params.To = window.To
 	return params, nil
 }
 
@@ -162,52 +150,14 @@ func panelPhoneNumber(raw string) (string, error) {
 	return normalized, nil
 }
 
-// panelWindow is the half-open time window a search asks for.
-type panelWindow struct {
-	from *time.Time
-	to   *time.Time
-}
-
-// panelWindowOf parses the two day bounds. The input names a day an operator wants
-// included, so the query stops at the first instant of the day after it.
-func panelWindowOf(rawFrom, rawTo string) (panelWindow, error) {
-	from, err := panelDay(rawFrom, "from")
-	if err != nil {
-		return panelWindow{}, err
+// panelDayError maps the shared window's refusal onto this search's own filter error,
+// so a caller still branches on one sentinel (ErrFilterInvalid) per search.
+func panelDayError(err error) error {
+	var dateError *panelwindow.DateError
+	if errors.As(err, &dateError) {
+		return &FilterError{Field: dateError.Field, Reason: dateError.Reason}
 	}
-
-	to, err := panelDay(rawTo, "to")
-	if err != nil {
-		return panelWindow{}, err
-	}
-	if to == nil {
-		return panelWindow{from: from}, nil
-	}
-
-	end := to.AddDate(0, 0, 1)
-	if from != nil && !end.After(*from) {
-		return panelWindow{}, &FilterError{
-			Field:  "from",
-			Reason: "Rentang tanggal terbalik: isi tanggal awal sebelum tanggal akhir.",
-		}
-	}
-	return panelWindow{from: from, to: &end}, nil
-}
-
-// panelDay parses one optional day bound. An absent bound is nil, which the
-// repository reads as "no bound on this side".
-func panelDay(raw string, field string) (*time.Time, error) {
-	if raw == "" {
-		return nil, nil
-	}
-	parsed, err := time.ParseInLocation(panelDateLayout, raw, panelDayLocation)
-	if err != nil {
-		return nil, &FilterError{
-			Field:  field,
-			Reason: "Tanggal harus berbentuk YYYY-MM-DD.",
-		}
-	}
-	return &parsed, nil
+	return err
 }
 
 // panelPhoneNumbers collects the page's Phone Numbers for the one status read.
