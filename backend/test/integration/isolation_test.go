@@ -48,6 +48,9 @@ var adminRoutes = []string{
 	// Opening a PIN answers for one admin acting on one buyer's Transaction, and its
 	// own matrix/budget tests live in admin_pin_test.go (ADR 0027 §4).
 	"POST /api/admin/transactions/:id/pin",
+	// The audit reader is owner/auditor only and read-only; its matrix and its
+	// "no write path" test live in admin_audit_reader_test.go (ADR 0027 §3).
+	"GET /api/admin/audit",
 }
 
 // bodyAssertedRoutes are the routes the subtests below cover by asserting what the

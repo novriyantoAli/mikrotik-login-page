@@ -61,6 +61,15 @@
               — tambah anggota tim, ganti peran, reset kata sandi, dan nonaktifkan admin.
             </p>
           {/if}
+          {#if identity.role === 'owner' || identity.role === 'auditor'}
+            <p>
+              <a class="font-medium underline-offset-4 hover:underline" href={resolve('/audit')}
+                >Jejak audit</a
+              >
+              — baca siapa mengubah katalog dan siapa membuka PIN, beserta nilai sebelum dan sesudahnya.
+              Jejak ini tidak bisa diubah atau dihapus.
+            </p>
+          {/if}
         </CardContent>
       </Card>
 

@@ -147,26 +147,3 @@ export const smsStateLabels: Record<SmsState, string> = {
 export function formatPrice(amountIDR: number): string {
   return formatPriceIDR(amountIDR);
 }
-
-/**
- * The clock the panel searches and shows in. Day filters are parsed in this same
- * zone on the backend (`panelDayLocation`, WIB), so the column an operator reads
- * and the day they filter on can never disagree.
- */
-export const PANEL_TIME_ZONE = 'Asia/Jakarta';
-
-/** Render an RFC 3339 instant in WIB, or an em dash when absent. */
-export function formatDateTime(value: string | null): string {
-  if (!value) {
-    return '—';
-  }
-  const parsed = new Date(value);
-  if (Number.isNaN(parsed.getTime())) {
-    return value;
-  }
-  return new Intl.DateTimeFormat('id-ID', {
-    dateStyle: 'medium',
-    timeStyle: 'short',
-    timeZone: PANEL_TIME_ZONE,
-  }).format(parsed);
-}

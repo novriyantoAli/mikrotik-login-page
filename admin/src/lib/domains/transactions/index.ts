@@ -19,6 +19,9 @@ export {
   createTransactionFilterState,
 } from './state/transaction.state.svelte';
 export type { TransactionSearch } from './state/transaction.state.svelte';
+// The panel's clock lives in the shared util: the audit reader formats an instant the
+// same way, and a second copy of the WIB zone would drift from this one.
+export { PANEL_TIME_ZONE, formatDateTimeWIB as formatDateTime } from '$lib/utils';
 export {
   AdminPINRevealResponseSchema,
   AdminTransactionFilterSchema,
@@ -26,13 +29,11 @@ export {
   AdminTransactionSchema,
   DEFAULT_TRANSACTION_PAGE_SIZE,
   MAX_TRANSACTION_PAGE_SIZE,
-  PANEL_TIME_ZONE,
   PIN_LENGTH,
   SMS_STATES,
   SmsStateSchema,
   TRANSACTION_STATES,
   TransactionStateSchema,
-  formatDateTime,
   formatPrice,
   smsStateLabels,
   toQueryParams,

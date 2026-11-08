@@ -41,6 +41,13 @@ type fakeRepository struct {
 	lookupErr       error
 	listErr         error
 	sessionErr      error
+
+	// The audit reader's side: the params it was asked for, the rows it hands back
+	// and the failure it must pass through.
+	auditParams []adminrepository.AuditListParams
+	auditRows   []entity.AuditEntry
+	auditTotal  int64
+	auditErr    error
 }
 
 func (r *fakeRepository) CountAdmins(context.Context) (int64, error) {
@@ -531,6 +538,17 @@ func (r *fakeRepository) ListAdmins(context.Context) ([]entity.Admin, error) {
 		return nil, r.listErr
 	}
 	return r.storedAdmins, nil
+}
+
+func (r *fakeRepository) ListAudit(
+	_ context.Context,
+	params adminrepository.AuditListParams,
+) ([]entity.AuditEntry, int64, error) {
+	r.auditParams = append(r.auditParams, params)
+	if r.auditErr != nil {
+		return nil, 0, r.auditErr
+	}
+	return r.auditRows, r.auditTotal, nil
 }
 
 func (r *fakeRepository) CreateSession(_ context.Context, session *entity.Session) error {

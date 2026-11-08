@@ -2,8 +2,9 @@
   import { Badge } from '$lib/components/ui/badge';
 
   import PINReveal from './PINReveal.svelte';
+  import { formatDateTimeWIB } from '$lib/utils';
+
   import {
-    formatDateTime,
     formatPrice,
     smsStateLabels,
     transactionStateLabels,
@@ -44,15 +45,15 @@
     </div>
     <div>
       <p class="text-muted-foreground text-xs uppercase">Dibuat</p>
-      <p>{formatDateTime(transaction.created_at)}</p>
+      <p>{formatDateTimeWIB(transaction.created_at)}</p>
     </div>
     <div>
       <p class="text-muted-foreground text-xs uppercase">Lunas</p>
-      <p>{formatDateTime(transaction.paid_at)}</p>
+      <p>{formatDateTimeWIB(transaction.paid_at)}</p>
     </div>
     <div>
       <p class="text-muted-foreground text-xs uppercase">Kedaluwarsa</p>
-      <p>{formatDateTime(transaction.expires_at)}</p>
+      <p>{formatDateTimeWIB(transaction.expires_at)}</p>
     </div>
     <div>
       <p class="text-muted-foreground text-xs uppercase">Percobaan provisioning</p>
@@ -67,7 +68,7 @@
       {#if transaction.last_sms_state}
         <p>
           {smsStateLabels[transaction.last_sms_state]} —
-          {formatDateTime(transaction.last_sms_at)}
+          {formatDateTimeWIB(transaction.last_sms_at)}
         </p>
       {:else}
         <p class="text-muted-foreground">Belum ada SMS</p>

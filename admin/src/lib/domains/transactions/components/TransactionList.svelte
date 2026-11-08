@@ -2,8 +2,9 @@
   import { Badge } from '$lib/components/ui/badge';
   import { Button } from '$lib/components/ui/button';
 
+  import { formatDateTimeWIB } from '$lib/utils';
+
   import {
-    formatDateTime,
     formatPrice,
     smsStateLabels,
     transactionStateLabels,
@@ -71,10 +72,10 @@
       {#each transactions as transaction (transaction.id)}
         <tr>
           <td class="px-3 py-2 whitespace-nowrap">
-            <div>{formatDateTime(transaction.created_at)}</div>
+            <div>{formatDateTimeWIB(transaction.created_at)}</div>
             {#if transaction.paid_at}
               <div class="text-muted-foreground text-xs">
-                Lunas {formatDateTime(transaction.paid_at)}
+                Lunas {formatDateTimeWIB(transaction.paid_at)}
               </div>
             {/if}
           </td>
@@ -107,7 +108,7 @@
                 {smsStateLabels[transaction.last_sms_state]}
               </Badge>
               <div class="text-muted-foreground text-xs">
-                {formatDateTime(transaction.last_sms_at)}
+                {formatDateTimeWIB(transaction.last_sms_at)}
               </div>
             {:else}
               <span class="text-muted-foreground text-xs">Belum ada SMS</span>

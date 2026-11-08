@@ -38,6 +38,7 @@ silently.
 | `admin-package-create.request.json` | `POST /api/admin/packages` (request body) | `backend/test/integration/admin_contract_test.go`, `admin/tests/unit/packages.contract.test.ts` |
 | `admin-package-update.request.json` | `PUT /api/admin/packages/{id}` (request body) | same two test files |
 | `admin-transactions.response.json` | `GET /api/admin/transactions` (200, one page of the panel's search) | `backend/test/integration/admin_transactions_test.go`, `admin/tests/unit/transactions.contract.test.ts` |
+| `admin-audit.response.json` | `GET /api/admin/audit` (200, one page of the append-only trail) | `backend/test/integration/admin_audit_reader_test.go`, `admin/tests/unit/audit.contract.test.ts` |
 
 Rules:
 
@@ -86,6 +87,15 @@ Rules:
   in a list or in this file's future siblings, is a leak. The endpoint is
   audited on every attempt, so this fixture describes a *successful* reveal;
   the outcome of a refusal is an error envelope, not a `pin` that is `null`.
+- The admin audit fixture is the **trail-reader contract** (ADR 0027 §3).
+  `admin_email` is copied onto the row at write time, so it survives the admin
+  it names; `target_id` is text and may point at a row that no longer exists
+  (a reveal attempted on a missing Transaction). `payload` is the writer's own
+  document, rendered generically: `package.update` carries `before`/`after`
+  per changed field while `package.create` carries only `after`, and the PIN
+  reveal carries its outcome and the Transaction reference — never the digits.
+  A fixture row that grows a `pin` field is a leak, not a feature, and there is
+  no write endpoint that could alter a row after it is written.
 - Values are examples, not assertions of live data (latency, timestamps).
 - Never edit a fixture to make one side's test pass without updating the other
   side's schema/DTO in the same change.
